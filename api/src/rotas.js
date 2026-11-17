@@ -1,109 +1,154 @@
 // Rotas da API da Gestão do Hype
 // © Arthur Ramon da Silva — Todos os direitos reservados.
+//
+// Cada rota declara quem pode usá-la:
+//   'publico'  -> qualquer um (login, criar conta, esqueci a senha)
+//   'logado'   -> qualquer pessoa com sessão válida (mesmo aguardando liberação)
+//   'aprovado' -> sessão válida e conta liberada
+//   'x.y' ou ['x.y','z.w'] -> precisa ter ao menos uma dessas permissões (vindas dos grupos)
 const crypto = require('crypto');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
 const { query, umaLinha, HttpError } = require('./db');
 const { emailRedefinirSenha, emailNovoCadastro } = require('./email');
+const seg = require('./seguranca');
 
 const FALTAS_ALERTA = Number(process.env.FALTAS_ALERTA || 2);
-const segredo = () => {
-  if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 24) throw new HttpError(500, 'JWT_SECRET não configurado.');
-  return process.env.JWT_SECRET;
+
+// ------------------------------------------------------------------ QUEM PODE O QUÊ
+// Tabela única de permissões das rotas de dados (as de login/acessos declaram na própria rota).
+const PERMISSAO_DA_ROTA = {
+  'GET /ministerios':                 'aprovado',
+  'POST /ministerios':                'ministerios.editar',
+  'PUT /ministerios/:id':             'ministerios.editar',
+  'DELETE /ministerios/:id':          'ministerios.editar',
+  'GET /pessoas':                     'pessoas.ver',
+  'GET /pessoas/:id':                 'pessoas.ver',
+  'POST /pessoas':                    ['pessoas.editar', 'presenca.marcar'],  // quem faz chamada cadastra visitante novo
+  'PUT /pessoas/:id':                 'pessoas.editar',
+  'DELETE /pessoas/:id':              'pessoas.excluir',
+  'PUT /pessoas/:id/foto':            'pessoas.editar',
+  'DELETE /pessoas/:id/foto':         'pessoas.editar',
+  'GET /fotos/:id':                   ['pessoas.ver', 'presenca.marcar', 'pastoral.ver'],
+  'GET /presenca':                    'presenca.marcar',
+  'POST /presenca':                   'presenca.marcar',
+  'GET /encontros':                   'relatorios.ver',
+  'DELETE /encontros/:id':            'presenca.excluir',
+  'GET /pastoral':                    'pastoral.ver',
+  'GET /pastoral/casos/:id':          'pastoral.ver',
+  'POST /pastoral/casos':             'pastoral.editar',
+  'PUT /pastoral/casos/:id':          'pastoral.editar',
+  'POST /pastoral/casos/:id/registros': 'pastoral.editar',
+  'DELETE /pastoral/casos/:id':       'pastoral.excluir',
+  'GET /painel':                      'aprovado',
+  'GET /contadores':                  'aprovado',
+  'GET /relatorios':                  'relatorios.ver',
 };
 
 // ------------------------------------------------------------------ util
 const rotas = [];
-const rota = (metodo, caminho, fn, acesso = 'aprovado') => {
+const rota = (metodo, caminho, fn, acesso) => {
+  acesso = acesso || PERMISSAO_DA_ROTA[`${metodo} ${caminho}`];
+  if (!acesso) throw new Error(`Rota sem permissão definida: ${metodo} ${caminho}`);
   const nomes = [];
   const re = new RegExp('^' + caminho.replace(/:(\w+)/g, (_, n) => { nomes.push(n); return '([^/]+)'; }) + '/?$');
   rotas.push({ metodo, re, nomes, fn, acesso });
 };
 const txt = (v, max = 500) => { if (v === undefined || v === null) return null; const s = String(v).trim(); return s ? s.slice(0, max) : null; };
-const int = (v) => { const n = Number(v); if (!Number.isInteger(n)) throw new HttpError(400, 'Identificador inválido.'); return n; };
+const int = (v) => { const n = Number(v); if (!Number.isInteger(n) || n <= 0) throw new HttpError(400, 'Identificador inválido.'); return n; };
 const dataISO = (v) => { if (!v) return null; if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new HttpError(400, 'Data inválida.'); return v; };
-const emailValido = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e || '');
-const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
-const publicoUsuario = (u) => u && ({ id: u.id, nome: u.nome, email: u.email, papel: u.papel, cd_status: u.cd_status });
-const emitirToken = (u) => jwt.sign({ sub: u.id }, segredo(), { expiresIn: '30d' });
-
-async function usuarioDoToken(token) {
-  if (!token) return null;
-  try {
-    const { sub } = jwt.verify(token, segredo());
-    return await umaLinha('SELECT id, nome, email, papel, cd_status FROM dbo.usuarios WHERE id = @id', { id: sub });
-  } catch (e) {
-    if (e instanceof HttpError || e.status) throw e;
-    return null;
-  }
-}
+const emailValido = (e) => /^[^\s@]{1,64}@[^\s@]+\.[^\s@]{2,}$/.test(e || '');
+const pode = (u, p) => u?.permissoes?.includes(p);
+const emailAdmin = () => String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
 
 // ------------------------------------------------------------------ AUTENTICAÇÃO
-rota('POST', '/auth/login', async ({ body }) => {
-  const email = txt(body.email, 200)?.toLowerCase();
-  const u = email && await umaLinha('SELECT * FROM dbo.usuarios WHERE email = @email', { email });
-  if (!u || !(await bcrypt.compare(String(body.senha || ''), u.senha_hash))) {
-    await new Promise((r) => setTimeout(r, 400));
+rota('POST', '/auth/login', async ({ body, ip, definirCookie }) => {
+  const email = txt(body.email, 200)?.toLowerCase() || '';
+  await seg.conferirLimite(email, ip);
+  const u = emailValido(email) ? await umaLinha('SELECT id, nome, email, senha_hash, cd_status, versao_sessao FROM dbo.usuarios WHERE email = @email', { email }) : null;
+  const confere = await seg.conferirSenha(body.senha, u?.senha_hash);   // sempre roda o bcrypt (mesmo tempo com ou sem usuário)
+  if (!u || !confere) {
+    await seg.registrar('login_falhou', { email, ip, usuario: u ? { id: u.id, nome: u.nome } : null });
     throw new HttpError(401, 'E-mail ou senha incorretos.');
   }
   await query('UPDATE dbo.usuarios SET dt_ultimo_login = SYSUTCDATETIME() WHERE id = @id', { id: u.id });
-  return { token: emitirToken(u), usuario: publicoUsuario(u) };
+  await seg.registrar('login', { usuario: u, email, ip });
+  definirCookie(seg.cookieSessao(u));
+  return { ok: true };
 }, 'publico');
 
-rota('POST', '/auth/cadastro', async ({ body, origem }) => {
+rota('POST', '/auth/sair', async ({ definirCookie }) => { definirCookie(seg.cookieSair()); return { ok: true }; }, 'publico');
+
+rota('POST', '/auth/cadastro', async ({ body, origem, ip, definirCookie }) => {
   const nome = txt(body.nome, 120), email = txt(body.email, 200)?.toLowerCase(), senha = String(body.senha || '');
   if (!nome || nome.length < 3) throw new HttpError(400, 'Informe seu nome completo.');
   if (!emailValido(email)) throw new HttpError(400, 'Informe um e-mail válido.');
-  if (senha.length < 8) throw new HttpError(400, 'A senha precisa ter pelo menos 8 caracteres.');
-  if (await umaLinha('SELECT id FROM dbo.usuarios WHERE email = @email', { email })) throw new HttpError(409, 'Já existe uma conta com este e-mail. Tente entrar ou recuperar a senha.');
-  const hash = await bcrypt.hash(senha, 10);
-  // O primeiro usuário vira administrador já liberado
+  seg.validarSenha(senha, email, nome);
+  await seg.conferirLimite(email, ip);
+  if (await umaLinha('SELECT id FROM dbo.usuarios WHERE email = @email', { email })) throw new HttpError(409, 'Já existe uma conta com este e-mail. Tente entrar ou use "Esqueci minha senha".');
+  const hash = await seg.gerarHash(senha);
+
+  // Só o e-mail definido em ADMIN_EMAIL (configuração do servidor) vira administrador,
+  // e apenas enquanto ainda não existir nenhum administrador ativo.
+  const ehDono = email === emailAdmin();
   const u = await umaLinha(`
-    DECLARE @primeiro BIT = CASE WHEN EXISTS (SELECT 1 FROM dbo.usuarios) THEN 0 ELSE 1 END;
-    INSERT INTO dbo.usuarios (nome, email, senha_hash, papel, cd_status)
-    OUTPUT inserted.id, inserted.nome, inserted.email, inserted.papel, inserted.cd_status
-    VALUES (@nome, @email, @hash, CASE WHEN @primeiro = 1 THEN 'admin' ELSE 'servo' END, @primeiro);`, { nome, email, hash });
+    SET XACT_ABORT ON; BEGIN TRAN;
+    DECLARE @semAdmin BIT = CASE WHEN EXISTS (
+      SELECT 1 FROM dbo.usuarios x JOIN dbo.usuario_grupo ug ON ug.usuario_id = x.id JOIN dbo.grupos g ON g.id = ug.grupo_id
+      WHERE g.sistema = 1 AND x.cd_status = 1) THEN 0 ELSE 1 END;
+    DECLARE @admin BIT = CASE WHEN @ehDono = 1 AND @semAdmin = 1 THEN 1 ELSE 0 END;
+    INSERT INTO dbo.usuarios (nome, email, senha_hash, cd_status) VALUES (@nome, @email, @hash, @admin);
+    DECLARE @id INT = SCOPE_IDENTITY();
+    IF @admin = 1 INSERT INTO dbo.usuario_grupo (usuario_id, grupo_id) SELECT @id, id FROM dbo.grupos WHERE sistema = 1;
+    COMMIT;
+    SELECT id, nome, email, cd_status, versao_sessao FROM dbo.usuarios WHERE id = @id;`, { nome, email, hash, ehDono: ehDono ? 1 : 0 });
+  await seg.registrar('conta_criada', { usuario: u, email, ip, detalhe: u.cd_status ? 'administrador inicial' : 'aguardando liberação' });
   if (!u.cd_status) {
-    const admins = await query("SELECT email FROM dbo.usuarios WHERE papel = 'admin' AND cd_status = 1");
-    await Promise.all(admins.map((a) => emailNovoCadastro(a.email, nome, email, `${origem}#/usuarios`).catch((e) => console.error(e))));
+    const admins = await query(`SELECT DISTINCT u.email FROM dbo.usuarios u JOIN dbo.usuario_grupo ug ON ug.usuario_id = u.id
+      JOIN dbo.grupo_permissao gp ON gp.grupo_id = ug.grupo_id WHERE gp.permissao = 'acessos.gerenciar' AND u.cd_status = 1`);
+    await Promise.all(admins.map((a) => emailNovoCadastro(a.email, nome, email, `${origem}#/acessos`).catch((e) => console.error(e))));
   }
-  return { token: emitirToken(u), usuario: publicoUsuario(u) };
+  definirCookie(seg.cookieSessao(u));
+  return { ok: true };
 }, 'publico');
 
-rota('POST', '/auth/esqueci', async ({ body, origem }) => {
+rota('POST', '/auth/esqueci', async ({ body, origem, ip }) => {
   const email = txt(body.email, 200)?.toLowerCase();
   if (!emailValido(email)) throw new HttpError(400, 'Informe um e-mail válido.');
+  await seg.conferirLimite(email, ip);
+  await seg.registrar('esqueci_senha', { email, ip });
   const u = await umaLinha('SELECT id, nome, email FROM dbo.usuarios WHERE email = @email', { email });
   if (u) {
     const recente = await umaLinha('SELECT TOP 1 id FROM dbo.usuarios_reset_senha WHERE usuario_id = @id AND dt_criacao > DATEADD(SECOND, -60, SYSUTCDATETIME())', { id: u.id });
     if (!recente) {
       const token = crypto.randomBytes(32).toString('hex');
-      await query(`INSERT INTO dbo.usuarios_reset_senha (usuario_id, token_hash, dt_expira)
-                   VALUES (@id, @hash, DATEADD(HOUR, 1, SYSUTCDATETIME()))`, { id: u.id, hash: sha256(token) });
+      await query(`UPDATE dbo.usuarios_reset_senha SET dt_uso = SYSUTCDATETIME() WHERE usuario_id = @id AND dt_uso IS NULL;
+        INSERT INTO dbo.usuarios_reset_senha (usuario_id, token_hash, dt_expira) VALUES (@id, @hash, DATEADD(HOUR, 1, SYSUTCDATETIME()))`,
+      { id: u.id, hash: seg.sha256(token) });
       await emailRedefinirSenha(u.email, u.nome, `${origem}#/nova-senha?token=${token}`);
     }
   }
-  // Resposta igual exista ou não o e-mail (não revela quem tem conta)
+  return { ok: true };   // mesma resposta exista ou não a conta
+}, 'publico');
+
+rota('POST', '/auth/redefinir', async ({ body, ip, definirCookie }) => {
+  const token = String(body.token || '');
+  if (!/^[a-f0-9]{64}$/.test(token)) throw new HttpError(400, 'Link inválido. Peça um novo.');
+  const r = await umaLinha(`SELECT r.usuario_id, u.email, u.nome FROM dbo.usuarios_reset_senha r JOIN dbo.usuarios u ON u.id = r.usuario_id
+    WHERE r.token_hash = @hash AND r.dt_uso IS NULL AND r.dt_expira > SYSUTCDATETIME()`, { hash: seg.sha256(token) });
+  if (!r) throw new HttpError(400, 'Este link expirou ou já foi usado. Peça um novo.');
+  seg.validarSenha(body.senha, r.email, r.nome);
+  const hash = await seg.gerarHash(body.senha);
+  const u = await umaLinha(`
+    SET XACT_ABORT ON; BEGIN TRAN;
+      UPDATE dbo.usuarios SET senha_hash = @hash, versao_sessao = versao_sessao + 1, dt_troca_senha = SYSUTCDATETIME() WHERE id = @uid;
+      UPDATE dbo.usuarios_reset_senha SET dt_uso = SYSUTCDATETIME() WHERE usuario_id = @uid AND dt_uso IS NULL;
+    COMMIT;
+    SELECT id, nome, email, cd_status, versao_sessao FROM dbo.usuarios WHERE id = @uid;`, { hash, uid: r.usuario_id });
+  await seg.registrar('senha_redefinida', { usuario: u, ip, detalhe: 'pelo link do e-mail; outras sessões encerradas' });
+  definirCookie(seg.cookieSessao(u));
   return { ok: true };
 }, 'publico');
 
-rota('POST', '/auth/redefinir', async ({ body }) => {
-  const token = String(body.token || ''), senha = String(body.senha || '');
-  if (senha.length < 8) throw new HttpError(400, 'A senha precisa ter pelo menos 8 caracteres.');
-  const r = await umaLinha(`SELECT r.id, r.usuario_id FROM dbo.usuarios_reset_senha r
-    WHERE r.token_hash = @hash AND r.dt_uso IS NULL AND r.dt_expira > SYSUTCDATETIME()`, { hash: sha256(token) });
-  if (!r) throw new HttpError(400, 'Este link expirou ou já foi usado. Peça um novo.');
-  const hash = await bcrypt.hash(senha, 10);
-  const u = await umaLinha(`
-    SET XACT_ABORT ON; BEGIN TRAN;
-      UPDATE dbo.usuarios SET senha_hash = @hash WHERE id = @uid;
-      UPDATE dbo.usuarios_reset_senha SET dt_uso = SYSUTCDATETIME() WHERE usuario_id = @uid AND dt_uso IS NULL;
-    COMMIT;
-    SELECT id, nome, email, papel, cd_status FROM dbo.usuarios WHERE id = @uid;`, { hash, uid: r.usuario_id });
-  return { token: emitirToken(u), usuario: publicoUsuario(u) };
-}, 'publico');
-
-rota('GET', '/auth/eu', async ({ usuario }) => ({ usuario: publicoUsuario(usuario) }), 'logado');
+rota('GET', '/auth/eu', async ({ usuario }) => ({ usuario: seg.publico(usuario) }), 'logado');
 
 rota('PUT', '/auth/eu', async ({ usuario, body }) => {
   const nome = txt(body.nome, 120);
@@ -112,40 +157,121 @@ rota('PUT', '/auth/eu', async ({ usuario, body }) => {
   return { ok: true };
 }, 'logado');
 
-rota('PUT', '/auth/senha', async ({ usuario, body }) => {
-  const u = await umaLinha('SELECT senha_hash FROM dbo.usuarios WHERE id = @id', { id: usuario.id });
-  if (!(await bcrypt.compare(String(body.atual || ''), u.senha_hash))) throw new HttpError(400, 'A senha atual está incorreta.');
-  if (String(body.nova || '').length < 8) throw new HttpError(400, 'A nova senha precisa ter pelo menos 8 caracteres.');
-  await query('UPDATE dbo.usuarios SET senha_hash = @h WHERE id = @id', { h: await bcrypt.hash(String(body.nova), 10), id: usuario.id });
+rota('PUT', '/auth/senha', async ({ usuario, body, ip, definirCookie }) => {
+  const atual = await umaLinha('SELECT senha_hash FROM dbo.usuarios WHERE id = @id', { id: usuario.id });
+  if (!(await seg.conferirSenha(body.atual, atual.senha_hash))) {
+    await seg.registrar('login_falhou', { usuario, email: usuario.email, ip, detalhe: 'senha atual errada ao trocar senha' });
+    throw new HttpError(400, 'A senha atual está incorreta.');
+  }
+  seg.validarSenha(body.nova, usuario.email, usuario.nome);
+  const u = await umaLinha(`UPDATE dbo.usuarios SET senha_hash = @h, versao_sessao = versao_sessao + 1, dt_troca_senha = SYSUTCDATETIME()
+    OUTPUT inserted.id, inserted.versao_sessao WHERE id = @id`, { h: await seg.gerarHash(body.nova), id: usuario.id });
+  await seg.registrar('senha_trocada', { usuario, ip, detalhe: 'outras sessões encerradas' });
+  definirCookie(seg.cookieSessao(u));   // continua logado neste aparelho
   return { ok: true };
 }, 'logado');
 
-// ------------------------------------------------------------------ USUÁRIOS (admin)
-rota('GET', '/usuarios', async () => query(
-  'SELECT id, nome, email, papel, cd_status, dt_criacao, dt_ultimo_login FROM dbo.usuarios ORDER BY cd_status, nome'), 'admin');
+// ------------------------------------------------------------------ ACESSOS: usuários, grupos, atividades
+const SQL_ADMINS_ATIVOS = `SELECT COUNT(DISTINCT u.id) FROM dbo.usuarios u JOIN dbo.usuario_grupo ug ON ug.usuario_id = u.id
+  JOIN dbo.grupos g ON g.id = ug.grupo_id WHERE g.sistema = 1 AND u.cd_status = 1`;
 
-rota('PUT', '/usuarios/:id', async ({ params, body, usuario }) => {
+rota('GET', '/acessos', async () => {
+  const [usuarios, vinculos, grupos, gperms, permissoes] = await query(`
+    SELECT id, nome, email, cd_status, dt_criacao, dt_ultimo_login FROM dbo.usuarios ORDER BY nome;
+    SELECT usuario_id, grupo_id FROM dbo.usuario_grupo;
+    SELECT id, nome, descricao, sistema FROM dbo.grupos ORDER BY sistema DESC, nome;
+    SELECT grupo_id, permissao FROM dbo.grupo_permissao;
+    SELECT codigo, descricao FROM dbo.permissoes ORDER BY ordem;`, {}, { todos: true });
+  usuarios.forEach((u) => { u.grupos = vinculos.filter((v) => v.usuario_id === u.id).map((v) => v.grupo_id); });
+  grupos.forEach((g) => { g.permissoes = gperms.filter((p) => p.grupo_id === g.id).map((p) => p.permissao); g.membros = vinculos.filter((v) => v.grupo_id === g.id).length; });
+  return { usuarios, grupos, permissoes };
+}, 'acessos.gerenciar');
+
+// Liberar/bloquear e definir grupos de um usuário
+rota('PUT', '/acessos/usuarios/:id', async ({ params, body, usuario, ip }) => {
   const id = int(params.id);
-  if (id === usuario.id) throw new HttpError(400, 'Você não pode alterar o próprio acesso.');
-  const papel = ['admin', 'lider', 'servo'].includes(body.papel) ? body.papel : null;
-  const status = [0, 1].includes(body.cd_status) ? body.cd_status : null;
-  await query('UPDATE dbo.usuarios SET papel = COALESCE(@papel, papel), cd_status = COALESCE(@status, cd_status) WHERE id = @id', { id, papel, status });
+  const status = body.cd_status === 1 ? 1 : 0;
+  const grupos = (Array.isArray(body.grupos) ? body.grupos : []).map(Number).filter(Number.isInteger);
+  const alvo = await umaLinha('SELECT id, nome, cd_status FROM dbo.usuarios WHERE id = @id', { id });
+  if (!alvo) throw new HttpError(404, 'Usuário não encontrado.');
+  const r = await umaLinha(`
+    SET XACT_ABORT ON; BEGIN TRAN;
+    DELETE FROM dbo.usuario_grupo WHERE usuario_id = @id;
+    INSERT INTO dbo.usuario_grupo (usuario_id, grupo_id) SELECT DISTINCT @id, g.id FROM OPENJSON(@grupos) j JOIN dbo.grupos g ON g.id = j.value;
+    UPDATE dbo.usuarios SET cd_status = @status,
+      versao_sessao = CASE WHEN @status = 0 AND cd_status = 1 THEN versao_sessao + 1 ELSE versao_sessao END
+    WHERE id = @id;
+    DECLARE @admins INT = (${SQL_ADMINS_ATIVOS});
+    DECLARE @euAdmin BIT = CASE WHEN EXISTS (SELECT 1 FROM dbo.usuario_grupo ug JOIN dbo.grupo_permissao gp ON gp.grupo_id = ug.grupo_id
+                                WHERE ug.usuario_id = @eu AND gp.permissao = 'acessos.gerenciar') THEN 1 ELSE 0 END;
+    IF @admins = 0 OR (@id = @eu AND (@euAdmin = 0 OR @status = 0)) BEGIN ROLLBACK; SELECT 0 AS ok; RETURN; END
+    COMMIT; SELECT 1 AS ok;`, { id, status, grupos: JSON.stringify(grupos), eu: usuario.id });
+  if (!r.ok) throw new HttpError(400, id === usuario.id ? 'Você não pode tirar o próprio acesso de administrador.' : 'O sistema precisa ter pelo menos um administrador ativo.');
+  const nomes = grupos.length ? (await query(`SELECT nome FROM dbo.grupos WHERE id IN (SELECT value FROM OPENJSON(@g))`, { g: JSON.stringify(grupos) })).map((g) => g.nome).join(', ') : 'nenhum grupo';
+  await seg.registrar(status ? (alvo.cd_status ? 'grupos_alterados' : 'usuario_liberado') : 'usuario_bloqueado', { usuario, ip, detalhe: `${alvo.nome}: ${status ? nomes : 'bloqueado'}` });
   return { ok: true };
-}, 'admin');
+}, 'acessos.gerenciar');
 
-rota('DELETE', '/usuarios/:id', async ({ params, usuario }) => {
+rota('DELETE', '/acessos/usuarios/:id', async ({ params, usuario, ip }) => {
   const id = int(params.id);
   if (id === usuario.id) throw new HttpError(400, 'Você não pode excluir a própria conta.');
+  const alvo = await umaLinha('SELECT nome, cd_status FROM dbo.usuarios WHERE id = @id', { id });
+  if (!alvo) return { ok: true };
+  if (alvo.cd_status) throw new HttpError(400, 'Bloqueie o acesso antes de excluir a conta.');
   await query('DELETE FROM dbo.usuarios WHERE id = @id', { id });
+  await seg.registrar('usuario_excluido', { usuario, ip, detalhe: alvo.nome });
   return { ok: true };
-}, 'admin');
+}, 'acessos.gerenciar');
 
-rota('GET', '/responsaveis', async () => query('SELECT id, nome FROM dbo.usuarios WHERE cd_status = 1 ORDER BY nome'));
+rota('POST', '/acessos/grupos', async ({ body, usuario, ip }) => {
+  const nome = txt(body.nome, 60);
+  if (!nome) throw new HttpError(400, 'Informe o nome do grupo.');
+  const g = await umaLinha('INSERT INTO dbo.grupos (nome, descricao) OUTPUT inserted.id VALUES (@nome, @d)', { nome, d: txt(body.descricao, 200) });
+  await salvarPermissoesGrupo(g.id, body.permissoes);
+  await seg.registrar('grupo_criado', { usuario, ip, detalhe: nome });
+  return { id: g.id };
+}, 'acessos.gerenciar');
+
+async function salvarPermissoesGrupo(id, perms) {
+  await query(`
+    SET XACT_ABORT ON; BEGIN TRAN;
+    DELETE FROM dbo.grupo_permissao WHERE grupo_id = @id;
+    INSERT INTO dbo.grupo_permissao (grupo_id, permissao) SELECT DISTINCT @id, p.codigo FROM OPENJSON(@p) j JOIN dbo.permissoes p ON p.codigo = j.value;
+    COMMIT;`, { id, p: JSON.stringify(Array.isArray(perms) ? perms.map(String) : []) });
+}
+
+rota('PUT', '/acessos/grupos/:id', async ({ params, body, usuario, ip }) => {
+  const id = int(params.id);
+  const g = await umaLinha('SELECT nome, sistema FROM dbo.grupos WHERE id = @id', { id });
+  if (!g) throw new HttpError(404, 'Grupo não encontrado.');
+  if (g.sistema) throw new HttpError(400, 'O grupo Administradores sempre tem todas as permissões.');
+  const nome = txt(body.nome, 60);
+  if (!nome) throw new HttpError(400, 'Informe o nome do grupo.');
+  await query('UPDATE dbo.grupos SET nome = @nome, descricao = @d WHERE id = @id', { id, nome, d: txt(body.descricao, 200) });
+  await salvarPermissoesGrupo(id, body.permissoes);
+  await seg.registrar('grupo_alterado', { usuario, ip, detalhe: `${nome}: ${(body.permissoes || []).join(', ') || 'sem permissões'}` });
+  return { ok: true };
+}, 'acessos.gerenciar');
+
+rota('DELETE', '/acessos/grupos/:id', async ({ params, usuario, ip }) => {
+  const id = int(params.id);
+  const g = await umaLinha('SELECT nome, sistema FROM dbo.grupos WHERE id = @id', { id });
+  if (!g) return { ok: true };
+  if (g.sistema) throw new HttpError(400, 'O grupo Administradores não pode ser excluído.');
+  await query('DELETE FROM dbo.grupos WHERE id = @id', { id });
+  await seg.registrar('grupo_excluido', { usuario, ip, detalhe: g.nome });
+  return { ok: true };
+}, 'acessos.gerenciar');
+
+rota('GET', '/acessos/atividades', async () => query(`
+  SELECT TOP 200 dt, usuario_nome, acao, detalhe, email, ip FROM dbo.auditoria ORDER BY id DESC`), 'acessos.gerenciar');
+
+rota('GET', '/responsaveis', async () => query('SELECT id, nome FROM dbo.usuarios WHERE cd_status = 1 ORDER BY nome'), 'pastoral.editar');
 
 rota('GET', '/contadores', async ({ usuario }) => umaLinha(`
-  SELECT (SELECT COUNT(*) FROM dbo.pastoral_casos WHERE status <> 'concluido') AS pastoral,
-         CASE WHEN @admin = 1 THEN (SELECT COUNT(*) FROM dbo.usuarios WHERE cd_status = 0) ELSE 0 END AS pendentes`,
-{ admin: usuario.papel === 'admin' ? 1 : 0 }));
+  SELECT CASE WHEN @past = 1 THEN (SELECT COUNT(*) FROM dbo.pastoral_casos WHERE status <> 'concluido') ELSE 0 END AS pastoral,
+         CASE WHEN @adm = 1 THEN (SELECT COUNT(*) FROM dbo.usuarios WHERE cd_status = 0) ELSE 0 END AS pendentes`,
+{ past: pode(usuario, 'pastoral.ver') ? 1 : 0, adm: pode(usuario, 'acessos.gerenciar') ? 1 : 0 }));
 
 // ------------------------------------------------------------------ MINISTÉRIOS
 rota('GET', '/ministerios', async () => query(`
@@ -169,7 +295,7 @@ rota('PUT', '/ministerios/:id', async ({ params, body }) => {
   await query('UPDATE dbo.ministerios SET nome=@nome, descricao=@descricao, cor=@cor, cd_status=@status WHERE id=@id', { ...dadosMinisterio(body), id: int(params.id) });
   return { ok: true };
 });
-rota('DELETE', '/ministerios/:id', async ({ params }) => { await query('DELETE FROM dbo.ministerios WHERE id=@id', { id: int(params.id) }); return { ok: true }; }, 'admin');
+rota('DELETE', '/ministerios/:id', async ({ params }) => { await query('DELETE FROM dbo.ministerios WHERE id=@id', { id: int(params.id) }); return { ok: true }; });
 
 // ------------------------------------------------------------------ PESSOAS
 const ids = (s) => (s ? String(s).split(',').map(Number) : []);
@@ -185,7 +311,7 @@ rota('GET', '/pessoas', async () => {
   return rows;
 });
 
-rota('GET', '/pessoas/:id', async ({ params }) => {
+rota('GET', '/pessoas/:id', async ({ params, usuario }) => {
   const id = int(params.id);
   const [pessoa, historico, casos] = await query(`
     SELECT p.*, CONVERT(VARCHAR(30), f.dt_atualizacao, 126) AS foto_v,
@@ -197,7 +323,7 @@ rota('GET', '/pessoas/:id', async ({ params }) => {
   { id }, { todos: true });
   if (!pessoa[0]) throw new HttpError(404, 'Pessoa não encontrada.');
   pessoa[0].ministerios = ids(pessoa[0].ministerios);
-  return { pessoa: pessoa[0], historico, casos };
+  return { pessoa: pessoa[0], historico, casos: pode(usuario, 'pastoral.ver') ? casos : null };
 });
 
 function dadosPessoa(b) {
@@ -221,7 +347,7 @@ const SQL_MINISTERIOS = `
   INSERT INTO dbo.pessoa_ministerio (pessoa_id, ministerio_id)
   SELECT DISTINCT @pid, j.value FROM OPENJSON(@ministerios) j JOIN dbo.ministerios m ON m.id = j.value;`;
 
-rota('POST', '/pessoas', async ({ body, usuario }) => {
+rota('POST', '/pessoas', async ({ body, usuario, ip }) => {
   const d = dadosPessoa(body);
   const r = await umaLinha(`
     SET XACT_ABORT ON; BEGIN TRAN;
@@ -231,10 +357,11 @@ rota('POST', '/pessoas', async ({ body, usuario }) => {
     ${SQL_MINISTERIOS}
     COMMIT;
     SELECT @pid AS id;`, { ...d, uid: usuario.id });
+  await seg.registrar('pessoa_criada', { usuario, ip, detalhe: `${d.nome} (id ${r.id})` });
   return { id: r.id };
 });
 
-rota('PUT', '/pessoas/:id', async ({ params, body }) => {
+rota('PUT', '/pessoas/:id', async ({ params, body, usuario, ip }) => {
   const d = dadosPessoa(body);
   await query(`
     SET XACT_ABORT ON; BEGIN TRAN;
@@ -245,20 +372,22 @@ rota('PUT', '/pessoas/:id', async ({ params, body }) => {
     WHERE id = @pid;
     ${SQL_MINISTERIOS}
     COMMIT;`, { ...d, id: int(params.id) });
+  await seg.registrar('pessoa_editada', { usuario, ip, detalhe: `${d.nome} (id ${params.id})` });
   return { id: int(params.id) };
 });
 
-rota('DELETE', '/pessoas/:id', async ({ params }) => { await query('DELETE FROM dbo.pessoas WHERE id = @id', { id: int(params.id) }); return { ok: true }; }, 'admin');
+rota('DELETE', '/pessoas/:id', async ({ params, usuario, ip }) => {
+  const p = await umaLinha('DELETE FROM dbo.pessoas OUTPUT deleted.nome WHERE id = @id', { id: int(params.id) });
+  if (p) await seg.registrar('pessoa_excluida', { usuario, ip, detalhe: `${p.nome} (id ${params.id})` });
+  return { ok: true };
+});
 
 rota('PUT', '/pessoas/:id/foto', async ({ params, body }) => {
-  const m = /^data:(image\/(jpeg|png|webp));base64,(.+)$/.exec(body.imagem || '');
-  if (!m) throw new HttpError(400, 'Imagem inválida.');
-  const buf = Buffer.from(m[3], 'base64');
-  if (buf.length > 1.5 * 1024 * 1024) throw new HttpError(400, 'Imagem muito grande.');
+  const buf = seg.validarJpeg(body.imagem);   // só aceita JPEG real (confere a assinatura do arquivo)
   await query(`
     MERGE dbo.pessoas_foto AS t USING (SELECT @id AS pessoa_id) s ON t.pessoa_id = s.pessoa_id
-    WHEN MATCHED THEN UPDATE SET foto = @foto, content_type = @ct, dt_atualizacao = SYSUTCDATETIME()
-    WHEN NOT MATCHED THEN INSERT (pessoa_id, foto, content_type) VALUES (@id, @foto, @ct);`, { id: int(params.id), foto: buf, ct: m[1] });
+    WHEN MATCHED THEN UPDATE SET foto = @foto, content_type = 'image/jpeg', dt_atualizacao = SYSUTCDATETIME()
+    WHEN NOT MATCHED THEN INSERT (pessoa_id, foto, content_type) VALUES (@id, @foto, 'image/jpeg');`, { id: int(params.id), foto: buf });
   return { ok: true };
 });
 rota('DELETE', '/pessoas/:id/foto', async ({ params }) => { await query('DELETE FROM dbo.pessoas_foto WHERE pessoa_id = @id', { id: int(params.id) }); return { ok: true }; });
@@ -284,7 +413,7 @@ rota('GET', '/presenca', async ({ query: q }) => {
   return { encontro: enc[0] || null, pessoas, registros };
 });
 
-rota('POST', '/presenca', async ({ body, usuario }) => {
+rota('POST', '/presenca', async ({ body, usuario, ip }) => {
   const data = dataISO(body.data);
   if (!data) throw new HttpError(400, 'Informe a data.');
   const regs = (Array.isArray(body.registros) ? body.registros : []).map((r) => ({
@@ -305,7 +434,8 @@ rota('POST', '/presenca', async ({ body, usuario }) => {
       JOIN dbo.pessoas p ON p.id = j.pessoa_id;
     COMMIT;
     SELECT @eid AS id;`, { data, tema: txt(body.tema, 200), uid: usuario.id, json: JSON.stringify(regs) });
-  return { encontro_id: r.id, alertas: await calcularAlertas() };
+  await seg.registrar('chamada_salva', { usuario, ip, detalhe: `${data}: ${regs.filter((x) => x.presente).length} presentes, ${regs.filter((x) => !x.presente).length} ausentes` });
+  return { encontro_id: r.id, alertas: pode(usuario, 'pastoral.ver') ? await calcularAlertas() : [] };
 });
 
 rota('GET', '/encontros', async () => query(`
@@ -313,7 +443,11 @@ rota('GET', '/encontros', async () => query(`
   FROM dbo.encontros e LEFT JOIN dbo.presencas pr ON pr.encontro_id = e.id
   GROUP BY e.id, e.data, e.tema ORDER BY e.data DESC`));
 
-rota('DELETE', '/encontros/:id', async ({ params }) => { await query('DELETE FROM dbo.encontros WHERE id = @id', { id: int(params.id) }); return { ok: true }; }, 'admin');
+rota('DELETE', '/encontros/:id', async ({ params, usuario, ip }) => {
+  const e = await umaLinha('DELETE FROM dbo.encontros OUTPUT CONVERT(CHAR(10), deleted.data, 103) AS d WHERE id = @id', { id: int(params.id) });
+  if (e) await seg.registrar('chamada_excluida', { usuario, ip, detalhe: e.d });
+  return { ok: true };
+});
 
 // ------------------------------------------------------------------ PASTORAL
 // Jovens ativos com N+ faltas seguidas nos encontros mais recentes, sem caso aberto
@@ -388,17 +522,31 @@ rota('POST', '/pastoral/casos/:id/registros', async ({ params, body, usuario }) 
   return { ok: true };
 });
 
-rota('DELETE', '/pastoral/casos/:id', async ({ params }) => { await query('DELETE FROM dbo.pastoral_casos WHERE id = @id', { id: int(params.id) }); return { ok: true }; }, 'admin');
+rota('DELETE', '/pastoral/casos/:id', async ({ params, usuario, ip }) => {
+  const c = await umaLinha(`DELETE c OUTPUT deleted.pessoa_id FROM dbo.pastoral_casos c WHERE c.id = @id`, { id: int(params.id) });
+  if (c) await seg.registrar('caso_excluido', { usuario, ip, detalhe: `acompanhamento ${params.id} (pessoa ${c.pessoa_id})` });
+  return { ok: true };
+});
 
 // ------------------------------------------------------------------ PAINEL E RELATÓRIOS
-rota('GET', '/painel', async () => {
+rota('GET', '/painel', async ({ usuario }) => {
+  // Cada bloco do Início só vem se a pessoa tiver permissão para ele
+  const verPessoas = pode(usuario, 'pessoas.ver');
+  const verPresenca = pode(usuario, 'relatorios.ver') || pode(usuario, 'presenca.marcar');
+  const verPastoral = pode(usuario, 'pastoral.ver');
   const [[pessoas, encontros, casos], alertas] = await Promise.all([query(`
     SELECT p.id, p.nome, p.tipo, p.data_nascimento, p.data_cadastro, CONVERT(VARCHAR(30), f.dt_atualizacao, 126) AS foto_v
-      FROM dbo.pessoas p LEFT JOIN dbo.pessoas_foto f ON f.pessoa_id = p.id WHERE p.cd_status = 1;
+      FROM dbo.pessoas p LEFT JOIN dbo.pessoas_foto f ON f.pessoa_id = p.id WHERE p.cd_status = 1 AND @vp = 1;
     SELECT TOP 12 encontro_id AS id, data, tema, presentes AS total, membros_presentes AS membros
-      FROM dbo.vw_resumo_encontros ORDER BY data DESC;
-    SELECT COUNT(*) AS abertos FROM dbo.pastoral_casos WHERE status <> 'concluido';`, {}, { todos: true }), calcularAlertas()]);
-  return { pessoas, encontros, casosAbertos: casos[0].abertos, alertas };
+      FROM dbo.vw_resumo_encontros WHERE @ve = 1 ORDER BY data DESC;
+    SELECT COUNT(*) AS abertos FROM dbo.pastoral_casos WHERE status <> 'concluido' AND @vc = 1;`,
+  { vp: verPessoas ? 1 : 0, ve: verPresenca ? 1 : 0, vc: verPastoral ? 1 : 0 }, { todos: true }), verPastoral ? calcularAlertas() : []]);
+  return {
+    pessoas: verPessoas ? pessoas : null,
+    encontros: verPresenca ? encontros : null,
+    casosAbertos: verPastoral ? casos[0].abertos : null,
+    alertas: verPastoral ? alertas : null,
+  };
 });
 
 rota('GET', '/relatorios', async ({ query: q }) => {
@@ -413,25 +561,31 @@ rota('GET', '/relatorios', async ({ query: q }) => {
 });
 
 // ------------------------------------------------------------------ DESPACHO
-async function despachar({ metodo, caminho, query: q = {}, body = {}, token, origem }) {
+async function despachar({ metodo, caminho, query: q = {}, body = {}, cookie, csrf, ip, origem }) {
   for (const r of rotas) {
     if (r.metodo !== metodo) continue;
     const m = r.re.exec(caminho);
     if (!m) continue;
+    // Proteção contra CSRF: toda escrita precisa do cabeçalho X-Hype (outro site não consegue enviá-lo)
+    if (metodo !== 'GET' && csrf !== '1') throw new HttpError(403, 'Requisição recusada.');
     const params = Object.fromEntries(r.nomes.map((n, i) => [n, decodeURIComponent(m[i + 1])]));
     let usuario = null;
     if (r.acesso !== 'publico') {
-      usuario = await usuarioDoToken(token);
+      usuario = await seg.usuarioDaSessao(cookie);
       if (!usuario) throw new HttpError(401, 'Sua sessão expirou. Entre novamente.');
-      if (r.acesso !== 'logado' && usuario.cd_status !== 1) throw new HttpError(403, 'Seu acesso ainda não foi liberado.');
-      if (r.acesso === 'admin' && usuario.papel !== 'admin') throw new HttpError(403, 'Apenas administradores podem fazer isso.');
+      if (r.acesso !== 'logado') {
+        if (usuario.cd_status !== 1) throw new HttpError(403, 'Seu acesso ainda não foi liberado.');
+        const exigidas = r.acesso === 'aprovado' ? [] : [].concat(r.acesso);
+        if (exigidas.length && !exigidas.some((p) => pode(usuario, p))) throw new HttpError(403, 'Você não tem permissão para isso.');
+      }
     }
-    return r.fn({ params, query: q, body: body || {}, usuario, origem });
+    let cookieResposta = null;
+    const corpo = await r.fn({ params, query: q, body: body || {}, usuario, origem, ip, definirCookie: (c) => { cookieResposta = c; } });
+    return { corpo, cookie: cookieResposta };
   }
   throw new HttpError(404, 'Rota não encontrada.');
 }
 
-// Converte erro em resposta amigável
 function respostaErro(e) {
   if (e instanceof HttpError || e.status) return { status: e.status, body: { erro: e.message } };
   if (e.number === 2627 || e.number === 2601) return { status: 409, body: { erro: 'Esse registro já existe.' } };
@@ -440,4 +594,12 @@ function respostaErro(e) {
   return { status: 500, body: { erro: 'Erro interno. Tente novamente.' } };
 }
 
-module.exports = { despachar, respostaErro };
+// Cabeçalhos de segurança em todas as respostas da API
+const CABECALHOS = {
+  'Cache-Control': 'no-store',
+  'X-Content-Type-Options': 'nosniff',
+  'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'",
+  'Referrer-Policy': 'no-referrer',
+};
+
+module.exports = { despachar, respostaErro, CABECALHOS };

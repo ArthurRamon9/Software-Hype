@@ -10,16 +10,16 @@ SET NOCOUNT ON;
 /* ---------- Usuários do sistema (quem serve e faz login) ---------- */
 IF OBJECT_ID('dbo.usuarios') IS NULL
 CREATE TABLE dbo.usuarios (
-    id              INT IDENTITY(1,1) CONSTRAINT pk_usuarios PRIMARY KEY,
-    nome            NVARCHAR(120) NOT NULL,
-    email           NVARCHAR(200) NOT NULL CONSTRAINT uq_usuarios_email UNIQUE,
-    senha_hash      VARCHAR(100)  NOT NULL,
-    papel           VARCHAR(10)   NOT NULL CONSTRAINT df_usuarios_papel DEFAULT 'servo'
-                    CONSTRAINT ck_usuarios_papel CHECK (papel IN ('admin','lider','servo')),
-    cd_status       TINYINT       NOT NULL CONSTRAINT df_usuarios_status DEFAULT 0
-                    CONSTRAINT ck_usuarios_status CHECK (cd_status IN (0,1)),  -- 0 = aguardando/bloqueado
-    dt_criacao      DATETIME2(0)  NOT NULL CONSTRAINT df_usuarios_criacao DEFAULT SYSUTCDATETIME(),
-    dt_ultimo_login DATETIME2(0)  NULL
+    id                 INT IDENTITY(1,1) CONSTRAINT pk_usuarios PRIMARY KEY,
+    nome               NVARCHAR(120) NOT NULL,
+    email              NVARCHAR(200) NOT NULL CONSTRAINT uq_usuarios_email UNIQUE,
+    senha_hash         VARCHAR(100)  NOT NULL,   -- bcrypt: impossível recuperar a senha original
+    cd_status          TINYINT       NOT NULL CONSTRAINT df_usuarios_status DEFAULT 0
+                       CONSTRAINT ck_usuarios_status CHECK (cd_status IN (0,1)),  -- 0 = aguardando/bloqueado
+    versao_sessao      INT           NOT NULL CONSTRAINT df_usuarios_versao DEFAULT 1, -- muda = derruba todas as sessões
+    dt_criacao         DATETIME2(0)  NOT NULL CONSTRAINT df_usuarios_criacao DEFAULT SYSUTCDATETIME(),
+    dt_ultimo_login    DATETIME2(0)  NULL,
+    dt_troca_senha     DATETIME2(0)  NULL
 );
 
 /* Pedidos de "esqueci a senha" (guarda só o hash do token) */
@@ -139,6 +139,101 @@ CREATE TABLE dbo.pastoral_registros (
 GO
 
 /* =====================================================================
+   PERMISSÕES POR GRUPO
+   usuário  ->  grupos  ->  permissões
+   ===================================================================== */
+IF OBJECT_ID('dbo.permissoes') IS NULL
+CREATE TABLE dbo.permissoes (
+    codigo     VARCHAR(40)   NOT NULL CONSTRAINT pk_permissoes PRIMARY KEY,
+    descricao  NVARCHAR(150) NOT NULL,
+    ordem      INT           NOT NULL
+);
+
+IF OBJECT_ID('dbo.grupos') IS NULL
+CREATE TABLE dbo.grupos (
+    id          INT IDENTITY(1,1) CONSTRAINT pk_grupos PRIMARY KEY,
+    nome        NVARCHAR(60)  NOT NULL CONSTRAINT uq_grupos_nome UNIQUE,
+    descricao   NVARCHAR(200) NULL,
+    sistema     BIT           NOT NULL CONSTRAINT df_grupos_sistema DEFAULT 0,  -- 1 = Administradores (não pode ser apagado)
+    dt_criacao  DATETIME2(0)  NOT NULL CONSTRAINT df_grupos_criacao DEFAULT SYSUTCDATETIME()
+);
+
+IF OBJECT_ID('dbo.grupo_permissao') IS NULL
+CREATE TABLE dbo.grupo_permissao (
+    grupo_id   INT         NOT NULL CONSTRAINT fk_gp_grupo REFERENCES dbo.grupos(id) ON DELETE CASCADE,
+    permissao  VARCHAR(40) NOT NULL CONSTRAINT fk_gp_permissao REFERENCES dbo.permissoes(codigo) ON DELETE CASCADE,
+    CONSTRAINT pk_grupo_permissao PRIMARY KEY (grupo_id, permissao)
+);
+
+IF OBJECT_ID('dbo.usuario_grupo') IS NULL
+CREATE TABLE dbo.usuario_grupo (
+    usuario_id INT NOT NULL CONSTRAINT fk_ug_usuario REFERENCES dbo.usuarios(id) ON DELETE CASCADE,
+    grupo_id   INT NOT NULL CONSTRAINT fk_ug_grupo REFERENCES dbo.grupos(id) ON DELETE CASCADE,
+    CONSTRAINT pk_usuario_grupo PRIMARY KEY (usuario_id, grupo_id)
+);
+
+/* Registro de atividades (auditoria): logins, falhas, alterações e exclusões */
+IF OBJECT_ID('dbo.auditoria') IS NULL
+CREATE TABLE dbo.auditoria (
+    id            BIGINT IDENTITY(1,1) CONSTRAINT pk_auditoria PRIMARY KEY,
+    dt            DATETIME2(0)  NOT NULL CONSTRAINT df_auditoria_dt DEFAULT SYSUTCDATETIME(),
+    usuario_id    INT           NULL,
+    usuario_nome  NVARCHAR(120) NULL,
+    acao          VARCHAR(40)   NOT NULL,
+    detalhe       NVARCHAR(400) NULL,
+    email         NVARCHAR(200) NULL,
+    ip            VARCHAR(45)   NULL
+);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'ix_auditoria_acao_dt')
+    CREATE INDEX ix_auditoria_acao_dt ON dbo.auditoria (acao, dt) INCLUDE (ip, email);
+GO
+
+/* Permissões existentes no sistema */
+MERGE dbo.permissoes AS t
+USING (VALUES
+    ('pessoas.ver',        N'Ver cadastro e ficha das pessoas', 10),
+    ('pessoas.editar',     N'Cadastrar e editar pessoas', 11),
+    ('pessoas.excluir',    N'Excluir pessoas', 12),
+    ('presenca.marcar',    N'Fazer e corrigir a chamada', 20),
+    ('presenca.excluir',   N'Apagar uma chamada inteira', 21),
+    ('pastoral.ver',       N'Ver acompanhamentos pastorais', 30),
+    ('pastoral.editar',    N'Abrir acompanhamentos e registrar contatos', 31),
+    ('pastoral.excluir',   N'Apagar acompanhamentos', 32),
+    ('relatorios.ver',     N'Ver relatórios e gráficos', 40),
+    ('ministerios.editar', N'Cadastrar e editar ministérios', 50),
+    ('acessos.gerenciar',  N'Liberar usuários, gerenciar grupos e ver o registro de atividades', 60)
+) AS s (codigo, descricao, ordem) ON t.codigo = s.codigo
+WHEN MATCHED THEN UPDATE SET descricao = s.descricao, ordem = s.ordem
+WHEN NOT MATCHED THEN INSERT (codigo, descricao, ordem) VALUES (s.codigo, s.descricao, s.ordem);
+
+/* Grupos iniciais (só são criados uma vez; depois altere pelo sistema) */
+DECLARE @novos TABLE (id INT, nome NVARCHAR(60));
+INSERT INTO dbo.grupos (nome, descricao, sistema)
+OUTPUT inserted.id, inserted.nome INTO @novos
+SELECT v.nome, v.descricao, v.sistema FROM (VALUES
+    (N'Administradores', N'Acesso total ao sistema', 1),
+    (N'Pastoral',        N'Cuida dos jovens faltantes', 0),
+    (N'Presença',        N'Faz a chamada das sextas', 0),
+    (N'Cadastro',        N'Cadastra e atualiza as pessoas', 0)
+) v(nome, descricao, sistema)
+WHERE NOT EXISTS (SELECT 1 FROM dbo.grupos g WHERE g.nome = v.nome);
+
+-- Permissões padrão apenas dos grupos que acabaram de ser criados
+INSERT INTO dbo.grupo_permissao (grupo_id, permissao)
+SELECT n.id, v.permissao FROM (VALUES
+    (N'Pastoral', 'pessoas.ver'), (N'Pastoral', 'pastoral.ver'), (N'Pastoral', 'pastoral.editar'), (N'Pastoral', 'relatorios.ver'),
+    (N'Presença', 'pessoas.ver'), (N'Presença', 'presenca.marcar'),
+    (N'Cadastro', 'pessoas.ver'), (N'Cadastro', 'pessoas.editar')
+) v(grupo, permissao)
+JOIN @novos n ON n.nome = v.grupo;
+
+-- Administradores sempre têm todas as permissões (inclusive as novas)
+INSERT INTO dbo.grupo_permissao (grupo_id, permissao)
+SELECT g.id, p.codigo FROM dbo.grupos g CROSS JOIN dbo.permissoes p
+WHERE g.sistema = 1 AND NOT EXISTS (SELECT 1 FROM dbo.grupo_permissao x WHERE x.grupo_id = g.id AND x.permissao = p.codigo);
+GO
+
+/* =====================================================================
    VIEWS — para consultas e relatórios feitos direto no banco
    ===================================================================== */
 CREATE OR ALTER VIEW dbo.vw_pessoas AS
@@ -189,6 +284,14 @@ FROM dbo.pessoas p
 LEFT JOIN dbo.presencas pr ON pr.pessoa_id = p.id
 LEFT JOIN dbo.encontros e  ON e.id = pr.encontro_id
 GROUP BY p.id, p.nome, p.tipo, p.cd_status;
+GO
+
+CREATE OR ALTER VIEW dbo.vw_permissoes_usuario AS
+SELECT u.id AS usuario_id, u.nome, u.email, u.cd_status, g.nome AS grupo, gp.permissao
+FROM dbo.usuarios u
+JOIN dbo.usuario_grupo ug ON ug.usuario_id = u.id
+JOIN dbo.grupos g ON g.id = ug.grupo_id
+JOIN dbo.grupo_permissao gp ON gp.grupo_id = g.id;
 GO
 
 /* ---------- Ministérios iniciais (edite pelo sistema depois) ---------- */

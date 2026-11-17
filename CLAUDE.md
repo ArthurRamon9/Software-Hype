@@ -17,4 +17,6 @@
 - API: Azure Functions (Node 20, modelo v4) em `api/`, uma função que despacha as rotas de `api/src/rotas.js`.
 - Banco: Azure SQL Database. Mudanças de estrutura vão em `sql/01_estrutura.sql` (idempotente).
 - `cd_status`: 1 = ativo, 0 = inativo.
+- Segurança (não regredir): senhas só em bcrypt; sessão em cookie HttpOnly/SameSite=Strict; toda rota declara permissão (tabela no topo de `api/src/rotas.js`) e a API recusa rota sem permissão definida; escrita exige cabeçalho `X-Hype: 1`; CSP sem scripts inline (nada de `onclick=` no HTML); sempre usar `esc()` ao montar HTML com dados; consultas SQL só com parâmetros; o site usa o usuário de banco `hype_app` (sem DDL).
+- Permissões por grupos: tabelas `grupos`, `permissoes`, `grupo_permissao`, `usuario_grupo`. Nova funcionalidade = nova permissão no MERGE de `sql/01_estrutura.sql` + entrada na tabela de rotas + checagem `pode()` na tela.
 - Teste local: `node api/dev-server.js` (site + API em http://localhost:4280).

@@ -1,6 +1,6 @@
 // Pessoas: lista, cadastro/edição e ficha
 // © Arthur Ramon da Silva — Todos os direitos reservados.
-import { api, urlFoto, isAdmin } from '../api.js';
+import { api, urlFoto, pode } from '../api.js';
 import {
   esc, $, $$, aviso, avisoErro, ocupado, confirmar, foto, tagTipo, TIPOS, idade, fmtData, hojeISO,
   prepararFoto, baixarCSV, pct, semAcento, linkWhats,
@@ -19,7 +19,7 @@ export async function lista(conteudo) {
 
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>Pessoas</h1></div>
-      <div class="acoes"><a class="btn primary" href="#/pessoas/nova">Cadastrar pessoa</a></div></div>
+      <div class="acoes">${pode('pessoas.editar') ? '<a class="btn primary" href="#/pessoas/nova">Cadastrar pessoa</a>' : ''}</div></div>
     <div class="painel">
       <div class="filtros">
         <input class="input busca" id="busca" type="search" placeholder="Buscar por nome ou telefone" value="${esc(filtro.busca)}">
@@ -125,7 +125,7 @@ export async function formulario(conteudo, { id } = {}) {
       </div>
     </div>
     <div class="barra-salvar">
-      ${editando && isAdmin() ? '<button type="button" class="link-btn danger" id="excluir">Excluir cadastro</button>' : '<span></span>'}
+      ${editando && pode('pessoas.excluir') ? '<button type="button" class="link-btn danger" id="excluir">Excluir cadastro</button>' : '<span></span>'}
       <div style="display:flex;gap:8px"><a class="btn" href="${voltar}">Cancelar</a><button class="btn primary" type="submit">Salvar</button></div>
     </div></form>`;
 
@@ -178,7 +178,7 @@ export async function perfil(conteudo, { id }) {
   const i = idade(p.data_nascimento);
   const campo = (rot, val) => `<div><dt>${rot}</dt><dd>${val || '<span class="muted">—</span>'}</dd></div>`;
   const STATUS = { aberto: 'Aberto', em_andamento: 'Em andamento', concluido: 'Concluído' };
-  const casoAberto = casos.some((c) => c.status !== 'concluido');
+  const casoAberto = (casos || []).some((c) => c.status !== 'concluido');
 
   conteudo.innerHTML = `
     <a class="voltar" href="#/pessoas">← Pessoas</a>
@@ -189,7 +189,7 @@ export async function perfil(conteudo, { id }) {
           <h1>${esc(p.nome)}</h1>
           <div class="tags">${tagTipo(p.tipo)}${p.cd_status ? '' : '<span class="tag bad">Inativo</span>'}${seguidas >= 2 ? `<span class="tag warn">${seguidas} faltas seguidas</span>` : ''}</div>
         </div>
-        <a class="btn" href="#/pessoas/${id}/editar">Editar</a>
+        ${pode('pessoas.editar') ? `<a class="btn" href="#/pessoas/${id}/editar">Editar</a>` : ''}
       </div>
     </div>
 
@@ -221,14 +221,14 @@ export async function perfil(conteudo, { id }) {
       </div></section>
     </div>
 
-    <section class="painel mt"><div class="painel-topo"><h2>Pastoral</h2>
-      ${casoAberto ? '' : '<button class="link-btn" id="acompanhar">Abrir acompanhamento</button>'}</div>
+    ${casos ? `<section class="painel mt"><div class="painel-topo"><h2>Pastoral</h2>
+      ${casoAberto || !pode('pastoral.editar') ? '' : '<button class="link-btn" id="acompanhar">Abrir acompanhamento</button>'}</div>
       <div class="painel-corpo">
         ${casos.length ? `<table class="tabela"><tbody>${casos.map((c) => `<tr class="clicavel" data-caso="${c.id}">
           <td><span class="status-dot st-${c.status}"></span>${STATUS[c.status]}</td><td>${esc(c.motivo || '')}</td>
           <td class="some-mobile">${esc(c.responsavel_nome)}</td><td class="dir muted">${fmtData(c.dt_abertura)}</td></tr>`).join('')}</tbody></table>`
         : '<p class="muted">Nenhum acompanhamento.</p>'}
-      </div></section>`;
+      </div></section>` : ''}`;
 
   $('#acompanhar')?.addEventListener('click', () => abrirAcompanhamento({
     pessoa: p, motivo: seguidas >= 2 ? `${seguidas} faltas seguidas` : '',

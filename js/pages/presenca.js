@@ -1,6 +1,6 @@
 // Chamada dos encontros de sexta
 // © Arthur Ramon da Silva — Todos os direitos reservados.
-import { api, urlFoto, isAdmin } from '../api.js';
+import { api, urlFoto, pode } from '../api.js';
 import { esc, $, aviso, avisoErro, ocupado, confirmar, janela, foto, TIPOS, isoLocal, parseISO, ultimaSexta, fmtData, hojeISO, semAcento } from '../ui.js';
 import { atualizarContadores, navegar } from '../app.js';
 
@@ -47,7 +47,7 @@ async function desenhar(conteudo) {
         <button class="btn primary" id="salvar">Salvar chamada</button>
       </div>
     </div>
-    ${encontro && isAdmin() ? '<p style="margin-top:14px"><button class="link-btn danger small" id="apagar">Apagar a chamada desta data</button></p>' : ''}`;
+    ${encontro && pode('presenca.excluir') ? '<p style="margin-top:14px"><button class="link-btn danger small" id="apagar">Apagar a chamada desta data</button></p>' : ''}`;
 
   const contar = () => {
     let p = 0, f = 0;

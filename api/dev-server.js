@@ -7,33 +7,29 @@ const path = require('path');
 
 const cfg = path.join(__dirname, 'local.settings.json');
 if (fs.existsSync(cfg)) Object.assign(process.env, JSON.parse(fs.readFileSync(cfg, 'utf8')).Values, { ...process.env });
-const { despachar, respostaErro } = require('./src/rotas');
+process.env.MODO_LOCAL = '1';
+const { atender } = require('./src/http');
 
 const RAIZ = path.join(__dirname, '..');
 const TIPOS = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json', '.webmanifest': 'application/manifest+json' };
 const PORTA = Number(process.env.PORT || 4280);
+const CABECALHOS_SITE = JSON.parse(fs.readFileSync(path.join(RAIZ, 'staticwebapp.config.json'), 'utf8')).globalHeaders;
 
 http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   if (url.pathname.startsWith('/api/')) {
-    let dados = '';
-    for await (const c of req) dados += c;
-    try {
-      const q = Object.fromEntries(url.searchParams);
-      const r = await despachar({
-        metodo: req.method, caminho: url.pathname.slice(4), query: q, body: dados ? JSON.parse(dados) : {},
-        token: req.headers['x-hype-token'] || q.t, origem: process.env.SITE_URL || `http://${req.headers.host}/`,
-      });
-      if (r && r.$binario) { res.writeHead(200, { 'Content-Type': r.$tipo }); return res.end(r.$binario); }
-      res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(r ?? { ok: true }));
-    } catch (e) {
-      const { status, body } = respostaErro(e);
-      res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body));
-    }
-    return;
+    let texto = '';
+    for await (const c of req) { texto += c; if (texto.length > 2e6) break; }
+    const r = await atender({
+      metodo: req.method, caminho: url.pathname.slice(4), query: Object.fromEntries(url.searchParams), texto,
+      cabecalhos: { ...req.headers, 'x-ip-local': req.socket.remoteAddress }, origemPadrao: `http://${req.headers.host}/`,
+    });
+    res.writeHead(r.status, r.cabecalhos);
+    return res.end(r.corpo);
   }
-  let arq = path.normalize(path.join(RAIZ, url.pathname === '/' ? 'index.html' : url.pathname));
-  if (!arq.startsWith(RAIZ) || arq.includes(`${path.sep}api${path.sep}`) || !fs.existsSync(arq) || fs.statSync(arq).isDirectory()) arq = path.join(RAIZ, 'index.html');
-  res.writeHead(200, { 'Content-Type': TIPOS[path.extname(arq)] || 'application/octet-stream' });
+  let arq = path.normalize(path.join(RAIZ, decodeURIComponent(url.pathname === '/' ? 'index.html' : url.pathname)));
+  const proibido = /[\\/](api|sql|\.git|\.github|node_modules)([\\/]|$)|\.md$|LICENSE$/.test(arq.slice(RAIZ.length));
+  if (!arq.startsWith(RAIZ + path.sep) || proibido || !fs.existsSync(arq) || fs.statSync(arq).isDirectory()) arq = path.join(RAIZ, 'index.html');
+  res.writeHead(200, { 'Content-Type': TIPOS[path.extname(arq)] || 'application/octet-stream', ...CABECALHOS_SITE });
   fs.createReadStream(arq).pipe(res);
 }).listen(PORTA, () => console.log(`Gestão do Hype rodando em http://localhost:${PORTA}`));

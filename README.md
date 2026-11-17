@@ -19,7 +19,36 @@ navegador  →  site (HTML/CSS/JS)  →  /api (Node.js)  →  SQL Server
                                          └→ Gmail (e-mails)
 ```
 
-O site nunca fala direto com o banco. Quem fala é a API, que confere o login, as permissões e guarda as senhas criptografadas (bcrypt).
+O site nunca fala direto com o banco. Quem fala é a API, que confere o login e as permissões em **cada** pedido.
+
+## Segurança
+
+| Ameaça | Proteção |
+|---|---|
+| Alguém ver a senha dos outros | Senhas guardadas só como hash **bcrypt** (custo 12). Não existe como recuperar a senha original, nem pelo banco. Os links de "esqueci a senha" também são guardados só como hash, valem 1 hora e funcionam uma única vez. |
+| "Entrar como admin/admin" | **Não existe usuário padrão.** Só vira administrador quem se cadastrar com o e-mail definido em `ADMIN_EMAIL` (configuração do servidor), e só enquanto não houver outro administrador. Todo o resto entra bloqueado até alguém liberar. |
+| Senha fraca | Mínimo de 8 caracteres com letras e números; senhas comuns (12345678, admin123, senha123...) e senhas com o próprio nome/e-mail são recusadas. |
+| Ficar chutando senha | Após 5 erros no mesmo e-mail (ou 20 do mesmo IP) em 15 minutos, bloqueia por 15 minutos. |
+| Roubo de sessão | A sessão fica num cookie `HttpOnly`, `Secure` e `SameSite=Strict`: o JavaScript da página não consegue lê-lo. Trocar a senha ou ser bloqueado derruba na hora todas as sessões abertas. |
+| Ver o que não pode | Permissões por **grupo** conferidas pela API em todo pedido (esconder o botão na tela é só conforto). Quem não tem permissão nem recebe o dado. |
+| SQL injection | Todas as consultas usam parâmetros; nada digitado vira comando SQL. |
+| Script malicioso (XSS) | Todo texto é escapado antes de aparecer na tela, e o site envia `Content-Security-Policy` que proíbe scripts de fora ou embutidos. |
+| Ataque vindo de outro site (CSRF) | Cookie `SameSite=Strict` + toda escrita exige um cabeçalho que outro site não consegue enviar. |
+| Arquivo malicioso na foto | A foto é redesenhada no navegador e a API só aceita JPEG verdadeiro (confere a assinatura do arquivo), até 1 MB. |
+| Estrago no banco | O site usa o usuário `hype_app`, que só lê e grava dados: não apaga tabelas, não muda estrutura e não consegue apagar o registro de atividades. |
+| Saber quem fez o quê | Registro de atividades (tabela `auditoria`, tela Acessos → Atividades): logins, tentativas falhas, liberações, bloqueios, cadastros, exclusões, chamadas salvas. |
+
+### Grupos e permissões
+Cada usuário pode estar em um ou mais grupos e tem a soma das permissões deles. Grupos que já vêm criados (dá para mudar ou criar outros em **Acessos → Grupos**):
+
+| Grupo | Pode |
+|---|---|
+| Administradores | tudo (não pode ser alterado nem ficar vazio) |
+| Pastoral | ver pessoas, ver e registrar acompanhamentos, ver relatórios |
+| Presença | ver pessoas, fazer a chamada (e cadastrar visitante novo nela) |
+| Cadastro | ver, cadastrar e editar pessoas |
+
+Permissões existentes: `pessoas.ver`, `pessoas.editar`, `pessoas.excluir`, `presenca.marcar`, `presenca.excluir`, `pastoral.ver`, `pastoral.editar`, `pastoral.excluir`, `relatorios.ver`, `ministerios.editar`, `acessos.gerenciar`. A tabela de qual rota exige qual permissão fica no topo de `api/src/rotas.js`.
 
 ---
 
@@ -33,8 +62,9 @@ O site nunca fala direto com o banco. Quem fala é a API, que confere o login, a
    - Servidor: **Criar novo** → nome ex. `hype-sql` · região **Brazil South** · autenticação **SQL** · crie um login (ex. `hypeadmin`) e senha. **Guarde.**
    - **Comportamento ao atingir o limite grátis: "Pausar o banco até o próximo mês"**. Assim nunca há cobrança.
 3. Depois de criado: **Rede** (Networking) do servidor → marque **"Permitir que serviços e recursos do Azure acessem este servidor"** e **"Adicionar seu IP atual"** → Salvar.
-4. Conecte pelo SSMS ou Azure Data Studio (servidor `hype-sql.database.windows.net`, login SQL) e rode **`sql/01_estrutura.sql`**.
-5. Em **Cadeias de conexão** → **ADO.NET**, copie a string (troque `{your_password}` pela senha).
+4. Conecte pelo SSMS (servidor `hype-sql.database.windows.net`, login SQL), **escolha o banco `hype`** e rode **`sql/01_estrutura.sql`**.
+5. Ainda no banco `hype`, abra **`sql/03_usuario_da_aplicacao.sql`**, troque a senha de exemplo por uma forte e rode. Esse é o usuário restrito que o site vai usar.
+6. Em **Cadeias de conexão** → **ADO.NET**, copie a string e troque o `User ID` por `hype_app` e a senha pela do passo 5. **O site nunca usa o login de administrador do servidor.**
 
 ### 2. Senha de app do Gmail
 1. Use um Gmail do ministério (ex.: `gestaohype@gmail.com`) e ative a **verificação em duas etapas**.
@@ -48,14 +78,17 @@ O site nunca fala direto com o banco. Quem fala é a API, que confere o login, a
 
 | Nome | Valor |
 |---|---|
-| `SQL_CONNECTION_STRING` | a string do passo 1.5 |
-| `JWT_SECRET` | uma frase longa e aleatória (mín. 24 caracteres) |
+| `SQL_CONNECTION_STRING` | a string do passo 1.6 (com o usuário `hype_app`) |
+| `JWT_SECRET` | 96 caracteres aleatórios (veja abaixo) |
+| `ADMIN_EMAIL` | **o seu e-mail**: só ele pode virar o primeiro administrador |
 | `SMTP_USER` | o Gmail |
 | `SMTP_PASS` | a senha de app |
 | `SITE_URL` | o endereço do site, ex. `https://xxxx.azurestaticapps.net/` |
 
+Para gerar o `JWT_SECRET` (a "chave" que assina as sessões), rode no terminal: `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`. Ou me peça um.
+
 ### 4. Primeiro acesso
-Abra o site e clique em **Criar conta**. **A primeira conta vira administrador automaticamente.** As próximas ficam aguardando liberação em **Acessos**, e os administradores recebem um e-mail avisando.
+Abra o site e clique em **Criar conta** usando **o mesmo e-mail do `ADMIN_EMAIL`**: essa conta já entra como administrador. Qualquer outra conta fica aguardando liberação em **Acessos**, onde você escolhe os grupos dela. Os administradores recebem um e-mail a cada pedido novo.
 
 ---
 

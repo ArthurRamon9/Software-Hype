@@ -1,6 +1,6 @@
 // Pastoral: acompanhamento de quem está faltando
 // © Arthur Ramon da Silva — Todos os direitos reservados.
-import { api, urlFoto, isAdmin } from '../api.js';
+import { api, urlFoto, pode } from '../api.js';
 import { esc, aviso, avisoErro, ocupado, janela, confirmar, foto, TIPOS, fmtData, haQuanto, linkWhats } from '../ui.js';
 import { atualizarContadores, parametrosHash } from '../app.js';
 
@@ -43,16 +43,16 @@ async function verCaso(id, depois) {
       <p class="muted" style="margin-bottom:12px">${TIPOS[c.pessoa_tipo]} · aberto em ${fmtData(c.dt_abertura)} · responsável: <b style="color:var(--ink)">${esc(c.responsavel_nome)}</b>
         ${whats ? ` · <a href="${whats}" target="_blank" rel="noopener">WhatsApp</a>` : ''} · <a href="#/pessoas/${c.pessoa_id}">ficha</a></p>
       ${c.motivo ? `<p style="margin-bottom:12px">Motivo: ${esc(c.motivo)}</p>` : ''}
-      <div class="field" style="margin-bottom:16px"><span class="label">Situação</span>
+      ${pode('pastoral.editar') ? `<div class="field" style="margin-bottom:16px"><span class="label">Situação</span>
         <div class="abas" id="st">${Object.entries(STATUS).map(([k, v]) => `<button type="button" data-v="${k}" class="${c.status === k ? 'ativo' : ''}">${v}</button>`).join('')}</div></div>
       <form id="fr" style="display:grid;gap:8px">
         <label class="label" for="txt">Registrar contato</label>
         <textarea class="input" id="txt" placeholder="Conversa, visita, oração, retorno..."></textarea>
         <div><button class="btn primary sm">Adicionar</button></div>
       </form>
-      <hr>
+      <hr>` : `<p style="margin-bottom:12px">Situação: <span class="status-dot st-${c.status}"></span>${STATUS[c.status]}</p>`}
       <div class="registros">${registros.length ? registros.map((r) => `<div><small>${fmtData(r.dt_criacao)} · ${esc(r.autor_nome || '')}</small>${esc(r.texto).replace(/\n/g, '<br>')}</div>`).join('') : '<p class="muted">Nenhum registro ainda.</p>'}</div>
-      ${isAdmin() ? '<hr><button class="link-btn danger small" id="apagar">Apagar este acompanhamento</button>' : ''}`,
+      ${pode('pastoral.excluir') ? '<hr><button class="link-btn danger small" id="apagar">Apagar este acompanhamento</button>' : ''}`,
     aoAbrir: (j, fechar) => {
       j.querySelectorAll('#st button').forEach((b) => b.addEventListener('click', async () => {
         try {
@@ -61,7 +61,7 @@ async function verCaso(id, depois) {
           depois?.(); atualizarContadores();
         } catch (e) { avisoErro(e); }
       }));
-      j.querySelector('#fr').addEventListener('submit', async (e) => {
+      j.querySelector('#fr')?.addEventListener('submit', async (e) => {
         e.preventDefault();
         const texto = j.querySelector('#txt').value.trim(); if (!texto) return;
         await ocupado(e.submitter, async () => {
@@ -92,7 +92,7 @@ export async function render(conteudo) {
       <div class="painel-corpo">
         ${alertas.length ? `<div class="lista">${alertas.map((a) => `<div>${foto(a.pessoa.nome, urlFoto(a.pessoa.id, a.pessoa.foto_v))}
             <div class="cresce"><a href="#/pessoas/${a.pessoa.id}">${esc(a.pessoa.nome)}</a><span>${a.faltas} faltas seguidas${a.ultimaPresenca ? ` · última vez em ${fmtData(a.ultimaPresenca)}` : ''}</span></div>
-            <button class="btn sm" data-pessoa="${a.pessoa.id}">Designar</button></div>`).join('')}</div>`
+            ${pode('pastoral.editar') ? `<button class="btn sm" data-pessoa="${a.pessoa.id}">Designar</button>` : ''}</div>`).join('')}</div>`
         : '<p class="muted">Ninguém nessa situação agora.</p>'}
       </div>
     </section>

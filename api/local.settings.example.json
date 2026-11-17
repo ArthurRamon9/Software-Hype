@@ -2,8 +2,9 @@
   "IsEncrypted": false,
   "Values": {
     "FUNCTIONS_WORKER_RUNTIME": "node",
-    "SQL_CONNECTION_STRING": "Server=tcp:SEU-SERVIDOR.database.windows.net,1433;Initial Catalog=hype;User ID=SEU_USUARIO;Password=SUA_SENHA;Encrypt=True;",
-    "JWT_SECRET": "troque-por-uma-frase-longa-e-aleatoria-com-mais-de-24-caracteres",
+    "SQL_CONNECTION_STRING": "Server=tcp:SEU-SERVIDOR.database.windows.net,1433;Initial Catalog=hype;User ID=hype_app;Password=SENHA_DO_HYPE_APP;Encrypt=True;",
+    "JWT_SECRET": "gere-com: node -e \"console.log(require('crypto').randomBytes(48).toString('hex'))\"",
+    "ADMIN_EMAIL": "seu-email@gmail.com",
     "SMTP_USER": "gestaohype@gmail.com",
     "SMTP_PASS": "senha-de-app-de-16-letras",
     "SITE_URL": "https://SEU-SITE.azurestaticapps.net/"

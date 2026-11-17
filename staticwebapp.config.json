@@ -1,11 +1,18 @@
 {
   "platform": { "apiRuntime": "node:20" },
   "globalHeaders": {
+    "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
     "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
     "Referrer-Policy": "same-origin",
-    "X-Frame-Options": "DENY"
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
+    "Cross-Origin-Opener-Policy": "same-origin"
   },
   "routes": [
-    { "route": "/api/*", "headers": { "Cache-Control": "no-store" } }
+    { "route": "/sql/*", "statusCode": 404 },
+    { "route": "/*.md", "statusCode": 404 },
+    { "route": "/LICENSE", "statusCode": 404 },
+    { "route": "/.github/*", "statusCode": 404 }
   ]
 }

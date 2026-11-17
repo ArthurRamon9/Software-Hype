@@ -1,29 +1,24 @@
 // Comunicação com a API (que fala com o SQL Server)
 // © Arthur Ramon da Silva — Todos os direitos reservados.
+//
+// A sessão fica num cookie HttpOnly: o JavaScript da página não consegue lê-lo,
+// então nem um script malicioso consegue roubar o login.
 import { aviso } from './ui.js';
 
-const CHAVE = 'hype_token';
-export const sessao = {
-  token: localStorage.getItem(CHAVE),
-  usuario: null,
-};
+export const sessao = { usuario: null };
 
-export function guardarSessao(token, usuario) {
-  sessao.token = token; sessao.usuario = usuario;
-  if (token) localStorage.setItem(CHAVE, token); else localStorage.removeItem(CHAVE);
-}
-
-export const isAdmin = () => sessao.usuario?.papel === 'admin' && sessao.usuario?.cd_status === 1;
+export const pode = (permissao) => !!sessao.usuario?.permissoes?.includes(permissao);
+export const podeAlgum = (...ps) => ps.some(pode);
 
 let avisouAcordando = false;
 
-// api('GET', '/pessoas')  |  api('POST', '/pessoas', {...})
 export async function api(metodo, caminho, corpo, tentativa = 1) {
   let r;
   try {
     r = await fetch('api' + caminho, {
       method: metodo,
-      headers: { 'Content-Type': 'application/json', ...(sessao.token ? { 'X-Hype-Token': sessao.token } : {}) },
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-Hype': '1' },
       body: corpo === undefined ? undefined : JSON.stringify(corpo),
     });
   } catch {
@@ -37,8 +32,8 @@ export async function api(metodo, caminho, corpo, tentativa = 1) {
   }
   avisouAcordando = false;
   const dados = await r.json().catch(() => ({}));
-  if (r.status === 401 && sessao.token && !caminho.startsWith('/auth/')) {
-    guardarSessao(null, null);
+  if (r.status === 401 && sessao.usuario && !caminho.startsWith('/auth/')) {
+    sessao.usuario = null;
     location.hash = '#/entrar';
     location.reload();
   }
@@ -46,4 +41,4 @@ export async function api(metodo, caminho, corpo, tentativa = 1) {
   return dados;
 }
 
-export const urlFoto = (id, versao) => (versao ? `api/fotos/${id}?t=${encodeURIComponent(sessao.token)}&v=${encodeURIComponent(versao)}` : null);
+export const urlFoto = (id, versao) => (versao ? `api/fotos/${id}?v=${encodeURIComponent(versao)}` : null);

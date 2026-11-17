@@ -2,7 +2,7 @@
 // © Arthur Ramon da Silva — Todos os direitos reservados.
 import { api, sessao } from '../api.js';
 import { esc, $, aviso, ocupado, direitos } from '../ui.js';
-import { entrouCom, sair, parametrosHash, navegar } from '../app.js';
+import { entrou, sair, parametrosHash, navegar } from '../app.js';
 
 function tela(app, html) {
   app.innerHTML = `<div class="acesso"><div class="acesso-box">
@@ -43,7 +43,7 @@ export function entrar(app) {
     const email = $('#email').value.trim(), senha = $('#senha').value;
     if (!email || !senha) return mensagem($('#msg'), 'erro', 'Preencha e-mail e senha.');
     await ocupado($('#f button[type=submit]'), async () => {
-      try { await entrouCom(await api('POST', '/auth/login', { email, senha })); }
+      try { await api('POST', '/auth/login', { email, senha }); await entrou(); }
       catch (err) { mensagem($('#msg'), 'erro', esc(err.message)); }
     });
   });
@@ -59,7 +59,7 @@ export function criarConta(app) {
       <div class="field"><label for="nome">Nome completo</label><input class="input" id="nome" autocomplete="name" required></div>
       <div class="field"><label for="email">E-mail</label><input class="input" id="email" type="email" autocomplete="email" required></div>
       ${campoSenha('senha', 'Senha', 'new-password')}
-      <p class="hint" style="margin-top:-8px">Mínimo de 8 caracteres.</p>
+      <p class="hint" style="margin-top:-8px">Mínimo de 8 caracteres, com letras e números.</p>
       ${campoSenha('senha2', 'Repita a senha', 'new-password')}
       <button class="btn primary block" type="submit">Criar conta</button>
     </form>
@@ -69,10 +69,10 @@ export function criarConta(app) {
     e.preventDefault();
     const nome = $('#nome').value.trim(), email = $('#email').value.trim(), senha = $('#senha').value;
     if (nome.length < 3) return mensagem($('#msg'), 'erro', 'Informe seu nome completo.');
-    if (senha.length < 8) return mensagem($('#msg'), 'erro', 'A senha precisa ter pelo menos 8 caracteres.');
+    if (senha.length < 8 || !/\d/.test(senha) || !/[a-zA-Z]/.test(senha)) return mensagem($('#msg'), 'erro', 'A senha precisa ter pelo menos 8 caracteres, com letras e números.');
     if (senha !== $('#senha2').value) return mensagem($('#msg'), 'erro', 'As senhas não são iguais.');
     await ocupado($('#f button[type=submit]'), async () => {
-      try { await entrouCom(await api('POST', '/auth/cadastro', { nome, email, senha })); }
+      try { await api('POST', '/auth/cadastro', { nome, email, senha }); await entrou(); }
       catch (err) { mensagem($('#msg'), 'erro', esc(err.message)); }
     });
   });
@@ -112,7 +112,7 @@ export function novaSenha(app) {
     <form id="f" novalidate>
       <div id="msg" class="hidden"></div>
       ${campoSenha('senha', 'Nova senha', 'new-password')}
-      <p class="hint" style="margin-top:-8px">Mínimo de 8 caracteres.</p>
+      <p class="hint" style="margin-top:-8px">Mínimo de 8 caracteres, com letras e números.</p>
       ${campoSenha('senha2', 'Repita a nova senha', 'new-password')}
       <button class="btn primary block" type="submit">Salvar e entrar</button>
     </form>`);
@@ -124,10 +124,10 @@ export function novaSenha(app) {
     if (senha !== $('#senha2').value) return mensagem($('#msg'), 'erro', 'As senhas não são iguais.');
     await ocupado($('#f button[type=submit]'), async () => {
       try {
-        const r = await api('POST', '/auth/redefinir', { token, senha });
-        aviso('Senha alterada.');
+        await api('POST', '/auth/redefinir', { token, senha });
+        aviso('Senha alterada. Por segurança, as outras sessões abertas foram encerradas.');
         history.replaceState(null, '', location.pathname + '#/');
-        await entrouCom(r);
+        await entrou();
       } catch (err) { mensagem($('#msg'), 'erro', `${esc(err.message)} <a href="#/esqueci-senha">Pedir outro link</a>`); }
     });
   });
@@ -137,18 +137,18 @@ export function novaSenha(app) {
 export function aguardando(app) {
   tela(app, `
     <h1>Acesso em análise</h1>
-    <p class="sub" style="margin-bottom:16px">Olá, ${esc(sessao.usuario.nome.split(' ')[0])}. Sua conta foi criada, mas um administrador ainda precisa liberar o acesso.
-    Os administradores já foram avisados por e-mail. Quando liberarem, é só recarregar esta página.</p>
-    <p><button class="btn primary" onclick="location.reload()">Recarregar</button> &nbsp; <button class="link-btn" id="sair">Sair</button></p>`);
+    <p class="sub" style="margin-bottom:16px">Olá, ${esc(sessao.usuario.nome.split(' ')[0])}. Sua conta existe, mas ainda não está liberada.
+    Um administrador precisa liberar o acesso e colocar você nos grupos certos. Os administradores já foram avisados por e-mail.</p>
+    <p><button class="btn primary" id="recarregar">Recarregar</button> &nbsp; <button class="link-btn" id="sair">Sair</button></p>`);
+  $('#recarregar').onclick = () => location.reload();
   $('#sair').onclick = sair;
 }
 
 // ---------------- Minha conta ----------------
 export function minhaConta(conteudo) {
   const u = sessao.usuario;
-  const PAPEL = { admin: 'Administrador', lider: 'Líder', servo: 'Servo' };
   conteudo.innerHTML = `
-    <div class="cabecalho"><div><h1>Minha conta</h1><p class="sub">${esc(u.email)} · ${PAPEL[u.papel]}</p></div>
+    <div class="cabecalho"><div><h1>Minha conta</h1><p class="sub">${esc(u.email)}</p></div>
       <div class="acoes"><button class="btn" id="sair">Sair</button></div></div>
     <div class="colunas c2">
       <form class="painel" id="fn"><div class="painel-topo"><h2>Nome</h2></div><div class="painel-corpo" style="display:grid;gap:12px">
@@ -157,6 +157,7 @@ export function minhaConta(conteudo) {
       <form class="painel" id="fs"><div class="painel-topo"><h2>Trocar senha</h2></div><div class="painel-corpo" style="display:grid;gap:12px">
         ${campoSenha('atual', 'Senha atual')}
         ${campoSenha('nova', 'Nova senha', 'new-password')}
+        <p class="hint" style="margin-top:-6px">Mínimo de 8 caracteres, com letras e números. As outras sessões abertas serão encerradas.</p>
         <div><button class="btn primary">Trocar senha</button></div></div></form>
     </div>`;
   ligarMostrarSenha(conteudo);
