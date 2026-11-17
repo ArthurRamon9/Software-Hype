@@ -1,9 +1,9 @@
-// Gestão do Hype — inicialização, rotas e layout
+// Gestão do Hype — rotas, menu e layout
 // © Arthur Ramon da Silva — Todos os direitos reservados.
-import { sb, store, configurado, carregarPerfil, isAdmin } from './supabase.js';
-import { icon, esc, avatar, copyright, $ } from './ui.js';
-import * as auth from './pages/auth.js';
-import * as dashboard from './pages/dashboard.js';
+import { api, sessao, guardarSessao, isAdmin } from './api.js';
+import { icon, esc, direitos, $ } from './ui.js';
+import * as acesso from './pages/acesso.js';
+import * as inicio from './pages/inicio.js';
 import * as pessoas from './pages/pessoas.js';
 import * as presenca from './pages/presenca.js';
 import * as pastoral from './pages/pastoral.js';
@@ -13,195 +13,141 @@ import * as usuarios from './pages/usuarios.js';
 
 const app = document.getElementById('app');
 
-// ---------- Rotas ----------
 const PUBLICAS = {
-  '/login': auth.login,
-  '/cadastro': auth.cadastro,
-  '/esqueci-senha': auth.esqueci,
+  '/entrar': acesso.entrar,
+  '/criar-conta': acesso.criarConta,
+  '/esqueci-senha': acesso.esqueci,
+  '/nova-senha': acesso.novaSenha,
 };
 const PRIVADAS = [
-  ['/', dashboard.render],
+  ['/', inicio.render],
   ['/pessoas', pessoas.lista],
-  ['/pessoas/nova', pessoas.form],
+  ['/pessoas/nova', pessoas.formulario],
   ['/pessoas/:id', pessoas.perfil],
-  ['/pessoas/:id/editar', pessoas.form],
+  ['/pessoas/:id/editar', pessoas.formulario],
   ['/presenca', presenca.render],
   ['/pastoral', pastoral.render],
   ['/relatorios', relatorios.render],
   ['/ministerios', ministerios.render],
-  ['/usuarios', usuarios.render, 'admin'],
-  ['/minha-conta', auth.minhaConta],
+  ['/acessos', usuarios.render, 'admin'],
+  ['/conta', acesso.minhaConta],
 ];
 
 const MENU = [
-  { href: '/', label: 'Início', ic: 'home', mobile: true },
-  { href: '/pessoas', label: 'Pessoas', ic: 'users', mobile: true },
-  { href: '/presenca', label: 'Presença', ic: 'checkSquare', mobile: true },
-  { href: '/pastoral', label: 'Pastoral', ic: 'heart', mobile: true, badge: 'pastoral' },
-  { href: '/relatorios', label: 'Relatórios', ic: 'chart', mobile: true },
-  { sep: 'Configurações' },
-  { href: '/ministerios', label: 'Ministérios', ic: 'layers' },
-  { href: '/usuarios', label: 'Acessos', ic: 'shield', admin: true, badge: 'pendentes' },
-  { href: '/minha-conta', label: 'Minha conta', ic: 'user' },
+  { href: '/', rotulo: 'Início', ic: 'inicio', mob: true },
+  { href: '/pessoas', rotulo: 'Pessoas', ic: 'pessoas', mob: true },
+  { href: '/presenca', rotulo: 'Presença', ic: 'presenca', mob: true },
+  { href: '/pastoral', rotulo: 'Pastoral', ic: 'pastoral', mob: true, cont: 'pastoral' },
+  { href: '/relatorios', rotulo: 'Relatórios', ic: 'relatorios', mob: true },
+  { grupo: 'Cadastros' },
+  { href: '/ministerios', rotulo: 'Ministérios', ic: 'ministerios' },
+  { href: '/acessos', rotulo: 'Acessos', ic: 'acessos', admin: true, cont: 'pendentes' },
 ];
+const contadores = { pastoral: 0, pendentes: 0 };
 
-const badges = { pastoral: 0, pendentes: 0 };
+export const navegar = (c) => { location.hash = '#' + c; };
+export const caminhoAtual = () => location.hash.replace(/^#/, '').split('?')[0] || '/';
+export const parametrosHash = () => new URLSearchParams(location.hash.split('?')[1] || '');
 
-function match(path) {
-  for (const [pattern, fn, req] of PRIVADAS) {
-    const a = pattern.split('/'), b = path.split('/');
+function casar(caminho) {
+  for (const [padrao, fn, req] of PRIVADAS) {
+    const a = padrao.split('/'), b = caminho.split('/');
     if (a.length !== b.length) continue;
     const params = {};
-    if (a.every((seg, i) => (seg.startsWith(':') ? ((params[seg.slice(1)] = decodeURIComponent(b[i])), true) : seg === b[i]))) {
-      return { fn, params, req };
-    }
+    if (a.every((s, i) => (s.startsWith(':') ? ((params[s.slice(1)] = decodeURIComponent(b[i])), true) : s === b[i]))) return { fn, params, req };
   }
   return null;
 }
 
-export const navegar = (path) => { location.hash = '#' + path; };
-const caminhoAtual = () => (location.hash.replace(/^#/, '').split('?')[0] || '/');
-
-let limpezaAnterior = null;
-let modoRecuperacao = false;
-
+let limpar = null;
 async function rota() {
-  if (typeof limpezaAnterior === 'function') { try { limpezaAnterior(); } catch {} }
-  limpezaAnterior = null;
-  document.querySelectorAll('.modal-bg').forEach((m) => m.remove());
+  if (typeof limpar === 'function') { try { limpar(); } catch {} }
+  limpar = null;
+  document.querySelectorAll('.fundo').forEach((m) => m.remove());
+  const caminho = caminhoAtual();
 
-  if (!configurado) return auth.naoConfigurado(app);
+  if (PUBLICAS[caminho] && (caminho === '/nova-senha' || !sessao.usuario)) { document.body.dataset.tela = 'acesso'; return PUBLICAS[caminho](app); }
+  if (!sessao.usuario) return navegar('/entrar');
+  if (PUBLICAS[caminho]) return navegar('/');
+  if (sessao.usuario.cd_status !== 1) return acesso.aguardando(app);
 
-  const path = caminhoAtual();
-
-  if (modoRecuperacao) return auth.novaSenha(app, () => { modoRecuperacao = false; navegar('/'); });
-
-  if (!store.session) {
-    const pub = PUBLICAS[path];
-    if (pub) return pub(app);
-    return navegar('/login');
-  }
-
-  if (PUBLICAS[path]) return navegar('/');
-
-  if (!store.profile || store.profile.cd_status !== 1) return auth.aguardando(app);
-
-  const m = match(path);
+  const m = casar(caminho);
   if (!m || (m.req === 'admin' && !isAdmin())) return navegar('/');
 
-  montarLayout(path);
-  const content = $('#content');
-  content.innerHTML = '<div class="boot" style="min-height:40vh"><div class="spinner"></div></div>';
+  montarLayout(caminho);
+  const conteudo = $('#conteudo');
+  conteudo.innerHTML = '<div class="boot"><span class="spin"></span></div>';
   window.scrollTo(0, 0);
   try {
-    limpezaAnterior = await m.fn(content, m.params);
+    limpar = await m.fn(conteudo, m.params);
   } catch (e) {
     console.error(e);
-    content.innerHTML = `<div class="card empty">${icon('alert')}<h2>Ops! Não foi possível carregar.</h2><p>${esc(e.message)}</p>
-      <button class="btn btn-primary" onclick="location.reload()">Tentar novamente</button></div>`;
+    conteudo.innerHTML = `<div class="painel vazio"><p>Não foi possível carregar esta página.</p><p class="small" style="margin:6px 0 14px">${esc(e.message)}</p>
+      <button class="btn" onclick="location.reload()">Tentar de novo</button></div>`;
   }
 }
 
-function linkMenu(item, path, mobile = false) {
-  const ativo = item.href === '/' ? path === '/' : path.startsWith(item.href);
-  const n = item.badge ? badges[item.badge] : 0;
-  const b = n ? `<span class="badge count">${n}</span>` : '';
-  if (mobile) return `<a href="#${item.href}" class="${ativo ? 'active' : ''}">${icon(item.ic)}${b}<span>${item.label}</span></a>`;
-  return `<a href="#${item.href}" class="${ativo ? 'active' : ''}">${icon(item.ic)}<span>${item.label}</span>${b}</a>`;
+function itemMenu(item, caminho, mobile) {
+  const ativo = item.href === '/' ? caminho === '/' : caminho.startsWith(item.href);
+  const n = item.cont ? contadores[item.cont] : 0;
+  return `<a href="#${item.href}" class="${ativo ? 'ativo' : ''}">${icon(item.ic)}<span>${item.rotulo}</span>${n ? `<span class="n">${n}</span>` : ''}</a>`;
 }
 
-function montarLayout(path) {
-  const p = store.profile;
+function montarLayout(caminho) {
+  const u = sessao.usuario;
   const itens = MENU.filter((i) => !i.admin || isAdmin());
-  const nav = itens.map((i) => (i.sep ? `<div class="nav-label">${i.sep}</div>` : linkMenu(i, path))).join('');
-  const navMobile = itens.filter((i) => i.mobile).map((i) => linkMenu(i, path, true)).join('');
-
-  if (!$('#content')) {
+  if (!$('#conteudo')) {
+    document.body.dataset.tela = 'app';
     app.innerHTML = `
-    <div class="layout">
-      <aside class="sidebar">
-        <div class="brand"><img src="assets/img/logo.svg" alt=""><div>Gestão do Hype<small>Ministério de Jovens</small></div></div>
-        <nav class="nav" id="nav"></nav>
-        <div class="me" id="me"></div>
+    <div class="app">
+      <aside class="lateral">
+        <div class="marca"><img src="assets/img/logo.svg" alt="">Gestão do Hype</div>
+        <nav class="menu" id="menu"></nav>
+        <div class="conta" id="conta"></div>
       </aside>
-      <div class="main">
-        <header class="topbar">
-          <div class="brand"><img src="assets/img/logo.svg" alt="">Gestão do Hype</div>
-          <a href="#/minha-conta" id="me-mobile" aria-label="Minha conta"></a>
-        </header>
-        <main class="content" id="content"></main>
-        <footer class="footer">${copyright()}</footer>
+      <div class="principal">
+        <header class="topo-mobile"><div class="marca"><img src="assets/img/logo.svg" alt="">Gestão do Hype</div><a href="#/conta" id="conta-mobile"></a></header>
+        <main class="conteudo" id="conteudo"></main>
+        <footer class="rodape">${direitos()}</footer>
       </div>
-      <nav class="bottom-nav" id="bottom-nav"></nav>
+      <nav class="nav-mobile" id="nav-mobile"></nav>
     </div>`;
   }
-  $('#nav').innerHTML = nav;
-  $('#bottom-nav').innerHTML = navMobile;
-  $('#me').innerHTML = `${avatar(p.nome, null, 'sm')}<div class="who"><b>${esc(p.nome)}</b><span>${esc(p.papel)}</span></div>
-    <button class="btn btn-ghost btn-icon btn-sm" id="sair" title="Sair">${icon('logout')}</button>`;
-  $('#me-mobile').innerHTML = avatar(p.nome, null, 'sm');
-  $('#sair').onclick = sair;
+  $('#menu').innerHTML = itens.map((i) => (i.grupo ? `<div class="grupo">${i.grupo}</div>` : itemMenu(i, caminho))).join('');
+  $('#nav-mobile').innerHTML = itens.filter((i) => i.mob).map((i) => itemMenu(i, caminho, true)).join('');
+  $('#conta').innerHTML = `<b>${esc(u.nome)}</b><a href="#/conta">Minha conta</a>`;
+  $('#conta-mobile').textContent = u.nome.split(' ')[0];
 }
 
-export async function sair() {
-  await sb.auth.signOut();
-  store.session = null; store.profile = null;
+export async function atualizarContadores() {
+  if (sessao.usuario?.cd_status !== 1) return;
+  try {
+    Object.assign(contadores, await api('GET', '/contadores'));
+    if ($('#menu')) montarLayout(caminhoAtual());
+  } catch {}
+}
+
+export function sair() {
+  guardarSessao(null, null);
   app.innerHTML = '';
-  navegar('/login');
+  navegar('/entrar');
 }
 
-// Atualiza contadores do menu (casos pastorais abertos / acessos pendentes)
-export async function atualizarBadges() {
-  if (!store.profile || store.profile.cd_status !== 1) return;
-  const [c, u] = await Promise.all([
-    sb.from('pastoral_casos').select('id', { count: 'exact', head: true }).neq('status', 'concluido'),
-    isAdmin() ? sb.from('profiles').select('id', { count: 'exact', head: true }).eq('cd_status', 0) : Promise.resolve({ count: 0 }),
-  ]);
-  badges.pastoral = c.count || 0;
-  badges.pendentes = u.count || 0;
-  if ($('#nav')) montarLayout(caminhoAtual());
-}
-
-// ---------- Inicialização ----------
-async function iniciar() {
-  if (!configurado) return rota();
-
-  // Links que chegam do e-mail (recuperação de senha / confirmação) vêm no #hash
-  const hashInicial = location.hash;
-  if (hashInicial.includes('type=recovery')) modoRecuperacao = true;
-  const erroLink = hashInicial.includes('error_description')
-    ? decodeURIComponent((hashInicial.match(/error_description=([^&]+)/) || [])[1] || '').replace(/\+/g, ' ')
-    : null;
-
-  sb.auth.onAuthStateChange(async (evento, session) => {
-    if (evento === 'PASSWORD_RECOVERY') { modoRecuperacao = true; }
-    if (evento === 'SIGNED_OUT') { store.session = null; store.profile = null; }
-    if (evento === 'TOKEN_REFRESHED' || evento === 'USER_UPDATED') store.session = session;
-  });
-
-  const { data } = await sb.auth.getSession();
-  store.session = data.session;
-  if (store.session) await carregarPerfil();
-
-  window.addEventListener('hashchange', rota);
-
-  // Limpa os tokens da URL e decide para onde ir
-  if (hashInicial.includes('access_token') || erroLink) {
-    history.replaceState(null, '', location.pathname + (modoRecuperacao ? '#/nova-senha' : '#/'));
-    if (erroLink) sessionStorage.setItem('hype_aviso', /expired|invalid/i.test(erroLink)
-      ? 'Este link expirou ou já foi usado. Peça um novo.' : erroLink);
-  }
-  await rota();
-  atualizarBadges();
-}
-
-// Recarrega o perfil após login (chamado pelas telas de auth)
-export async function aposLogin(session) {
-  store.session = session;
-  await carregarPerfil();
+export async function entrouCom({ token, usuario }) {
+  guardarSessao(token, usuario);
   app.innerHTML = '';
   if (caminhoAtual() === '/') await rota(); else navegar('/');
-  atualizarBadges();
+  atualizarContadores();
+}
+
+async function iniciar() {
+  if (sessao.token) {
+    try { sessao.usuario = (await api('GET', '/auth/eu')).usuario; }
+    catch (e) { if (/sessão/i.test(e.message)) guardarSessao(null, null); else { app.innerHTML = `<div class="acesso"><div class="acesso-box"><p>${esc(e.message)}</p><p style="margin-top:12px"><button class="btn" onclick="location.reload()">Tentar de novo</button></p></div></div>`; return; } }
+  }
+  window.addEventListener('hashchange', rota);
+  await rota();
+  atualizarContadores();
 }
 
 iniciar();

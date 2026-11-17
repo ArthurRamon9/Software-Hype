@@ -1,0 +1,201 @@
+/* =====================================================================
+   GESTÃO DO HYPE — Estrutura do banco (SQL Server / Azure SQL Database)
+   © Arthur Ramon da Silva — Todos os direitos reservados.
+
+   Pode rodar mais de uma vez: só cria o que ainda não existe.
+   Convenção: cd_status 1 = ativo, 0 = inativo
+   ===================================================================== */
+SET NOCOUNT ON;
+
+/* ---------- Usuários do sistema (quem serve e faz login) ---------- */
+IF OBJECT_ID('dbo.usuarios') IS NULL
+CREATE TABLE dbo.usuarios (
+    id              INT IDENTITY(1,1) CONSTRAINT pk_usuarios PRIMARY KEY,
+    nome            NVARCHAR(120) NOT NULL,
+    email           NVARCHAR(200) NOT NULL CONSTRAINT uq_usuarios_email UNIQUE,
+    senha_hash      VARCHAR(100)  NOT NULL,
+    papel           VARCHAR(10)   NOT NULL CONSTRAINT df_usuarios_papel DEFAULT 'servo'
+                    CONSTRAINT ck_usuarios_papel CHECK (papel IN ('admin','lider','servo')),
+    cd_status       TINYINT       NOT NULL CONSTRAINT df_usuarios_status DEFAULT 0
+                    CONSTRAINT ck_usuarios_status CHECK (cd_status IN (0,1)),  -- 0 = aguardando/bloqueado
+    dt_criacao      DATETIME2(0)  NOT NULL CONSTRAINT df_usuarios_criacao DEFAULT SYSUTCDATETIME(),
+    dt_ultimo_login DATETIME2(0)  NULL
+);
+
+/* Pedidos de "esqueci a senha" (guarda só o hash do token) */
+IF OBJECT_ID('dbo.usuarios_reset_senha') IS NULL
+CREATE TABLE dbo.usuarios_reset_senha (
+    id          INT IDENTITY(1,1) CONSTRAINT pk_usuarios_reset PRIMARY KEY,
+    usuario_id  INT NOT NULL CONSTRAINT fk_reset_usuario REFERENCES dbo.usuarios(id) ON DELETE CASCADE,
+    token_hash  CHAR(64) NOT NULL,
+    dt_expira   DATETIME2(0) NOT NULL,
+    dt_uso      DATETIME2(0) NULL,
+    dt_criacao  DATETIME2(0) NOT NULL CONSTRAINT df_reset_criacao DEFAULT SYSUTCDATETIME()
+);
+
+/* ---------- Ministérios ---------- */
+IF OBJECT_ID('dbo.ministerios') IS NULL
+CREATE TABLE dbo.ministerios (
+    id          INT IDENTITY(1,1) CONSTRAINT pk_ministerios PRIMARY KEY,
+    nome        NVARCHAR(80)  NOT NULL CONSTRAINT uq_ministerios_nome UNIQUE,
+    descricao   NVARCHAR(300) NULL,
+    cor         VARCHAR(7)    NOT NULL CONSTRAINT df_ministerios_cor DEFAULT '#1d5c4f',
+    cd_status   TINYINT       NOT NULL CONSTRAINT df_ministerios_status DEFAULT 1
+                CONSTRAINT ck_ministerios_status CHECK (cd_status IN (0,1)),
+    dt_criacao  DATETIME2(0)  NOT NULL CONSTRAINT df_ministerios_criacao DEFAULT SYSUTCDATETIME()
+);
+
+/* ---------- Pessoas (jovens do Hype) ---------- */
+IF OBJECT_ID('dbo.pessoas') IS NULL
+CREATE TABLE dbo.pessoas (
+    id               INT IDENTITY(1,1) CONSTRAINT pk_pessoas PRIMARY KEY,
+    nome             NVARCHAR(150) NOT NULL,
+    data_nascimento  DATE          NULL,
+    sexo             CHAR(1)       NULL CONSTRAINT ck_pessoas_sexo CHECK (sexo IN ('M','F')),
+    telefone         VARCHAR(30)   NULL,
+    email            NVARCHAR(200) NULL,
+    instagram        NVARCHAR(60)  NULL,
+    endereco         NVARCHAR(250) NULL,
+    tipo             VARCHAR(15)   NOT NULL CONSTRAINT df_pessoas_tipo DEFAULT 'visitante'
+                     CONSTRAINT ck_pessoas_tipo CHECK (tipo IN ('membro','visitante','frequentador')),
+    batizado         BIT           NOT NULL CONSTRAINT df_pessoas_batizado DEFAULT 0,
+    como_conheceu    NVARCHAR(150) NULL,
+    observacoes      NVARCHAR(MAX) NULL,
+    data_cadastro    DATE          NOT NULL CONSTRAINT df_pessoas_cadastro DEFAULT CAST(GETDATE() AS DATE),
+    cd_status        TINYINT       NOT NULL CONSTRAINT df_pessoas_status DEFAULT 1
+                     CONSTRAINT ck_pessoas_status CHECK (cd_status IN (0,1)),
+    criado_por       INT           NULL,   -- id do usuário (sem FK de propósito: histórico)
+    dt_criacao       DATETIME2(0)  NOT NULL CONSTRAINT df_pessoas_criacao DEFAULT SYSUTCDATETIME(),
+    dt_atualizacao   DATETIME2(0)  NOT NULL CONSTRAINT df_pessoas_atualizacao DEFAULT SYSUTCDATETIME()
+);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'ix_pessoas_nome')
+    CREATE INDEX ix_pessoas_nome ON dbo.pessoas (nome);
+
+/* Foto fica numa tabela separada para o SELECT * em pessoas continuar leve */
+IF OBJECT_ID('dbo.pessoas_foto') IS NULL
+CREATE TABLE dbo.pessoas_foto (
+    pessoa_id      INT NOT NULL CONSTRAINT pk_pessoas_foto PRIMARY KEY
+                   CONSTRAINT fk_foto_pessoa REFERENCES dbo.pessoas(id) ON DELETE CASCADE,
+    foto           VARBINARY(MAX) NOT NULL,
+    content_type   VARCHAR(30)    NOT NULL CONSTRAINT df_foto_tipo DEFAULT 'image/jpeg',
+    dt_atualizacao DATETIME2(0)   NOT NULL CONSTRAINT df_foto_atualizacao DEFAULT SYSUTCDATETIME()
+);
+
+IF OBJECT_ID('dbo.pessoa_ministerio') IS NULL
+CREATE TABLE dbo.pessoa_ministerio (
+    pessoa_id      INT NOT NULL CONSTRAINT fk_pm_pessoa REFERENCES dbo.pessoas(id) ON DELETE CASCADE,
+    ministerio_id  INT NOT NULL CONSTRAINT fk_pm_ministerio REFERENCES dbo.ministerios(id) ON DELETE CASCADE,
+    CONSTRAINT pk_pessoa_ministerio PRIMARY KEY (pessoa_id, ministerio_id)
+);
+
+/* ---------- Encontros de sexta e presenças ---------- */
+IF OBJECT_ID('dbo.encontros') IS NULL
+CREATE TABLE dbo.encontros (
+    id           INT IDENTITY(1,1) CONSTRAINT pk_encontros PRIMARY KEY,
+    data         DATE NOT NULL CONSTRAINT uq_encontros_data UNIQUE,
+    tema         NVARCHAR(200) NULL,
+    observacoes  NVARCHAR(MAX) NULL,
+    criado_por   INT NULL,
+    dt_criacao   DATETIME2(0) NOT NULL CONSTRAINT df_encontros_criacao DEFAULT SYSUTCDATETIME()
+);
+
+IF OBJECT_ID('dbo.presencas') IS NULL
+CREATE TABLE dbo.presencas (
+    encontro_id    INT NOT NULL CONSTRAINT fk_presencas_encontro REFERENCES dbo.encontros(id) ON DELETE CASCADE,
+    pessoa_id      INT NOT NULL CONSTRAINT fk_presencas_pessoa REFERENCES dbo.pessoas(id) ON DELETE CASCADE,
+    presente       BIT NOT NULL,
+    justificativa  NVARCHAR(200) NULL,
+    marcado_por    INT NULL,
+    dt_marcacao    DATETIME2(0) NOT NULL CONSTRAINT df_presencas_marcacao DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT pk_presencas PRIMARY KEY (encontro_id, pessoa_id)
+);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'ix_presencas_pessoa')
+    CREATE INDEX ix_presencas_pessoa ON dbo.presencas (pessoa_id) INCLUDE (presente);
+
+/* ---------- Pastoral ---------- */
+IF OBJECT_ID('dbo.pastoral_casos') IS NULL
+CREATE TABLE dbo.pastoral_casos (
+    id                INT IDENTITY(1,1) CONSTRAINT pk_pastoral_casos PRIMARY KEY,
+    pessoa_id         INT NOT NULL CONSTRAINT fk_casos_pessoa REFERENCES dbo.pessoas(id) ON DELETE CASCADE,
+    responsavel_nome  NVARCHAR(120) NOT NULL,
+    responsavel_id    INT NULL,
+    motivo            NVARCHAR(200) NULL,
+    status            VARCHAR(15) NOT NULL CONSTRAINT df_casos_status DEFAULT 'aberto'
+                      CONSTRAINT ck_casos_status CHECK (status IN ('aberto','em_andamento','concluido')),
+    dt_abertura       DATETIME2(0) NOT NULL CONSTRAINT df_casos_abertura DEFAULT SYSUTCDATETIME(),
+    dt_conclusao      DATETIME2(0) NULL,
+    criado_por        INT NULL
+);
+
+IF OBJECT_ID('dbo.pastoral_registros') IS NULL
+CREATE TABLE dbo.pastoral_registros (
+    id          INT IDENTITY(1,1) CONSTRAINT pk_pastoral_registros PRIMARY KEY,
+    caso_id     INT NOT NULL CONSTRAINT fk_registros_caso REFERENCES dbo.pastoral_casos(id) ON DELETE CASCADE,
+    texto       NVARCHAR(MAX) NOT NULL,
+    autor_nome  NVARCHAR(120) NULL,
+    autor_id    INT NULL,
+    dt_criacao  DATETIME2(0) NOT NULL CONSTRAINT df_registros_criacao DEFAULT SYSUTCDATETIME()
+);
+GO
+
+/* =====================================================================
+   VIEWS — para consultas e relatórios feitos direto no banco
+   ===================================================================== */
+CREATE OR ALTER VIEW dbo.vw_pessoas AS
+SELECT p.id, p.nome, p.tipo, p.data_nascimento,
+       CASE WHEN p.data_nascimento IS NULL THEN NULL
+            ELSE DATEDIFF(YEAR, p.data_nascimento, GETDATE())
+                 - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, p.data_nascimento, GETDATE()), p.data_nascimento) > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END
+       END AS idade,
+       p.sexo, p.telefone, p.email, p.instagram, p.batizado, p.data_cadastro, p.cd_status,
+       (SELECT STRING_AGG(m.nome, ', ') WITHIN GROUP (ORDER BY m.nome)
+          FROM dbo.pessoa_ministerio pm JOIN dbo.ministerios m ON m.id = pm.ministerio_id
+         WHERE pm.pessoa_id = p.id) AS ministerios,
+       CAST(CASE WHEN f.pessoa_id IS NULL THEN 0 ELSE 1 END AS BIT) AS tem_foto
+FROM dbo.pessoas p
+LEFT JOIN dbo.pessoas_foto f ON f.pessoa_id = p.id;
+GO
+
+CREATE OR ALTER VIEW dbo.vw_presencas AS
+SELECT e.id AS encontro_id, e.data, e.tema,
+       p.id AS pessoa_id, p.nome, p.tipo,
+       pr.presente, pr.justificativa,
+       YEAR(e.data) AS ano, MONTH(e.data) AS mes
+FROM dbo.presencas pr
+JOIN dbo.encontros e ON e.id = pr.encontro_id
+JOIN dbo.pessoas   p ON p.id = pr.pessoa_id;
+GO
+
+CREATE OR ALTER VIEW dbo.vw_resumo_encontros AS
+SELECT e.id AS encontro_id, e.data, e.tema,
+       SUM(CASE WHEN pr.presente = 1 THEN 1 ELSE 0 END)                       AS presentes,
+       SUM(CASE WHEN pr.presente = 0 THEN 1 ELSE 0 END)                       AS faltas,
+       SUM(CASE WHEN pr.presente = 1 AND p.tipo = 'membro' THEN 1 ELSE 0 END) AS membros_presentes,
+       SUM(CASE WHEN pr.presente = 1 AND p.tipo = 'visitante' THEN 1 ELSE 0 END) AS visitantes_presentes
+FROM dbo.encontros e
+LEFT JOIN dbo.presencas pr ON pr.encontro_id = e.id
+LEFT JOIN dbo.pessoas   p  ON p.id = pr.pessoa_id
+GROUP BY e.id, e.data, e.tema;
+GO
+
+CREATE OR ALTER VIEW dbo.vw_frequencia_pessoa AS
+SELECT p.id AS pessoa_id, p.nome, p.tipo, p.cd_status,
+       COUNT(pr.pessoa_id)                                    AS encontros_marcados,
+       SUM(CASE WHEN pr.presente = 1 THEN 1 ELSE 0 END)       AS presencas,
+       SUM(CASE WHEN pr.presente = 0 THEN 1 ELSE 0 END)       AS faltas,
+       CAST(100.0 * SUM(CASE WHEN pr.presente = 1 THEN 1 ELSE 0 END) / NULLIF(COUNT(pr.pessoa_id), 0) AS DECIMAL(5,1)) AS percentual,
+       MAX(CASE WHEN pr.presente = 1 THEN e.data END)         AS ultima_presenca
+FROM dbo.pessoas p
+LEFT JOIN dbo.presencas pr ON pr.pessoa_id = p.id
+LEFT JOIN dbo.encontros e  ON e.id = pr.encontro_id
+GROUP BY p.id, p.nome, p.tipo, p.cd_status;
+GO
+
+/* ---------- Ministérios iniciais (edite pelo sistema depois) ---------- */
+INSERT INTO dbo.ministerios (nome, cor)
+SELECT v.nome, v.cor FROM (VALUES
+    (N'Louvor', '#1d5c4f'), (N'Mídia', '#2a6fb0'), (N'Recepção', '#b26a1e'),
+    (N'Pastoral', '#a23b3b'), (N'Intercessão', '#6b5b95')
+) v(nome, cor)
+WHERE NOT EXISTS (SELECT 1 FROM dbo.ministerios m WHERE m.nome = v.nome);
+GO

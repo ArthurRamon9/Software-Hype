@@ -1,0 +1,11 @@
+{
+  "platform": { "apiRuntime": "node:20" },
+  "globalHeaders": {
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "same-origin",
+    "X-Frame-Options": "DENY"
+  },
+  "routes": [
+    { "route": "/api/*", "headers": { "Cache-Control": "no-store" } }
+  ]
+}

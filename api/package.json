@@ -1,0 +1,22 @@
+{
+  "name": "gestao-hype-api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "API da Gestão do Hype — © Arthur Ramon da Silva. Todos os direitos reservados.",
+  "author": "Arthur Ramon da Silva",
+  "license": "UNLICENSED",
+  "main": "src/functions/*.js",
+  "scripts": {
+    "dev": "node dev-server.js"
+  },
+  "dependencies": {
+    "@azure/functions": "^4.5.0",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "mssql": "^11.0.1",
+    "nodemailer": "^6.9.15"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

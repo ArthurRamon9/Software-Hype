@@ -1,82 +1,46 @@
-// Gráficos (Chart.js) com visual padronizado
+// Gráficos (Chart.js)
 // © Arthur Ramon da Silva — Todos os direitos reservados.
-export const COR = { s1: '#2a78d6', s2: '#eb6834', s1Soft: 'rgba(42,120,214,.12)', grid: '#eeedf3', texto: '#55526a' };
+export const COR = { s1: '#2a78d6', s2: '#eb6834', grade: '#ebe9e2', texto: '#4a4842' };
 
-function base() {
+function preparar(canvas) {
+  if (!window.Chart) {
+    canvas.closest('.grafico').innerHTML = '<p class="muted small">Gráfico indisponível. Os números estão na tabela abaixo.</p>';
+    return null;
+  }
   const C = window.Chart;
-  C.defaults.font.family = "'Inter', system-ui, sans-serif";
+  C.defaults.font.family = getComputedStyle(document.documentElement).fontFamily;
   C.defaults.font.size = 12;
   C.defaults.color = COR.texto;
   return C;
 }
 
-const tooltip = {
-  backgroundColor: '#15131f', padding: 10, cornerRadius: 8, titleFont: { weight: '600' },
-  boxPadding: 4, usePointStyle: true,
-};
-const eixos = (empilhado = false, max) => ({
-  x: { stacked: empilhado, grid: { display: false }, border: { color: COR.grid }, ticks: { maxRotation: 0, autoSkipPadding: 10 } },
-  y: { stacked: empilhado, beginAtZero: true, max, grid: { color: COR.grid }, border: { display: false }, ticks: { precision: 0, maxTicksLimit: 6 } },
+const dica = { backgroundColor: '#1c1b19', padding: 8, cornerRadius: 4, boxPadding: 3, usePointStyle: true };
+const legenda = (n) => ({ display: n > 1, position: 'bottom', align: 'start', labels: { usePointStyle: true, pointStyle: 'rect', boxWidth: 8, boxHeight: 8, padding: 14 } });
+const eixos = (empilhado) => ({
+  x: { stacked: empilhado, grid: { display: false }, border: { color: COR.grade }, ticks: { maxRotation: 0, autoSkipPadding: 8 } },
+  y: { stacked: empilhado, beginAtZero: true, grid: { color: COR.grade }, border: { display: false }, ticks: { precision: 0, maxTicksLimit: 5 } },
 });
 
-function semGrafico(canvas) {
-  canvas.closest('.chart-box').innerHTML = '<p class="muted small">Não foi possível carregar o gráfico. Veja os dados na tabela abaixo.</p>';
-  return null;
-}
-
-export function barras(canvas, { labels, series, empilhado = false, sufixo = '' }) {
-  if (!window.Chart) return semGrafico(canvas);
-  const C = base();
+export function barras(canvas, { rotulos, series, empilhado = false }) {
+  const C = preparar(canvas); if (!C) return null;
   return new C(canvas, {
     type: 'bar',
-    data: {
-      labels,
-      datasets: series.map((s) => ({
-        label: s.label, data: s.data, backgroundColor: s.cor, borderRadius: 4, borderSkipped: 'start',
-        maxBarThickness: 28, borderColor: '#fff', borderWidth: empilhado ? { top: 2 } : 0,
-      })),
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: { display: series.length > 1, position: 'top', align: 'end', labels: { usePointStyle: true, pointStyle: 'rectRounded', boxWidth: 8, boxHeight: 8 } },
-        tooltip: { ...tooltip, callbacks: { label: (c) => ` ${c.dataset.label}: ${c.formattedValue}${sufixo}` } },
-      },
-      scales: eixos(empilhado),
-    },
+    data: { labels: rotulos, datasets: series.map((s) => ({ label: s.rotulo, data: s.dados, backgroundColor: s.cor, borderRadius: 3, borderSkipped: 'start', maxBarThickness: 26, borderColor: '#fff', borderWidth: empilhado ? { top: 2 } : 0 })) },
+    options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: legenda(series.length), tooltip: dica }, scales: eixos(empilhado) },
   });
 }
 
-export function linhas(canvas, { labels, series, sufixo = '', max }) {
-  if (!window.Chart) return semGrafico(canvas);
-  const C = base();
+export function linhas(canvas, { rotulos, series }) {
+  const C = preparar(canvas); if (!C) return null;
   return new C(canvas, {
     type: 'line',
-    data: {
-      labels,
-      datasets: series.map((s, i) => ({
-        label: s.label, data: s.data, borderColor: s.cor, backgroundColor: i === 0 ? COR.s1Soft : 'transparent',
-        fill: i === 0 && series.length === 1, tension: 0.3, borderWidth: 2, pointRadius: 4, pointHoverRadius: 6,
-        pointBackgroundColor: s.cor, pointBorderColor: '#fff', pointBorderWidth: 2, spanGaps: true, borderDash: s.tracejado ? [5, 4] : [],
-      })),
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: { display: series.length > 1, position: 'top', align: 'end', labels: { usePointStyle: true, boxWidth: 8, boxHeight: 8 } },
-        tooltip: { ...tooltip, callbacks: { label: (c) => ` ${c.dataset.label}: ${c.raw === null ? '—' : c.formattedValue + sufixo}` } },
-      },
-      scales: eixos(false, max),
-    },
+    data: { labels: rotulos, datasets: series.map((s) => ({ label: s.rotulo, data: s.dados, borderColor: s.cor, backgroundColor: s.cor, borderWidth: 2, tension: 0.25, pointRadius: 3.5, pointHoverRadius: 5, spanGaps: true, borderDash: s.tracejado ? [5, 4] : [] })) },
+    options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: legenda(series.length), tooltip: dica }, scales: eixos(false) },
   });
 }
 
-// Tabela alternativa (acessibilidade) para qualquer gráfico
-export function tabelaAlt(labels, series, sufixo = '') {
-  return `<details class="table-alt"><summary>Ver dados em tabela</summary><div class="table-wrap"><table class="table">
-    <thead><tr><th></th>${series.map((s) => `<th class="num">${s.label}</th>`).join('')}</tr></thead>
-    <tbody>${labels.map((l, i) => `<tr><td>${l}</td>${series.map((s) => `<td class="num">${s.data[i] ?? '—'}${s.data[i] != null ? sufixo : ''}</td>`).join('')}</tr>`).join('')}</tbody>
-  </table></div></details>`;
+export function tabelaDados(rotulos, series) {
+  return `<details class="dados"><summary>Ver os números</summary><div class="tabela-wrap"><table class="tabela">
+    <thead><tr><th></th>${series.map((s) => `<th class="dir">${s.rotulo}</th>`).join('')}</tr></thead>
+    <tbody>${rotulos.map((r, i) => `<tr><td>${r}</td>${series.map((s) => `<td class="dir num">${s.dados[i] ?? '—'}</td>`).join('')}</tr>`).join('')}</tbody></table></div></details>`;
 }

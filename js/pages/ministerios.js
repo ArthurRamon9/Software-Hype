@@ -1,60 +1,50 @@
 // Ministérios
 // © Arthur Ramon da Silva — Todos os direitos reservados.
-import { sb, ok, isAdmin } from '../supabase.js';
-import { icon, esc, toast, toastErro, carregando, modal, confirmar } from '../ui.js';
+import { api, isAdmin } from '../api.js';
+import { esc, aviso, avisoErro, ocupado, janela, confirmar } from '../ui.js';
+import { navegar } from '../app.js';
 
-export async function render(content) {
-  const [mins, vinc] = await Promise.all([
-    ok(await sb.from('ministerios').select('*').order('nome')),
-    ok(await sb.from('pessoa_ministerio').select('ministerio_id, pessoas!inner(cd_status)').eq('pessoas.cd_status', 1)),
-  ]);
-  const cont = {}; vinc.forEach((v) => { cont[v.ministerio_id] = (cont[v.ministerio_id] || 0) + 1; });
+export async function render(conteudo) {
+  const lista = await api('GET', '/ministerios');
+  conteudo.innerHTML = `
+    <div class="cabecalho"><div><h1>Ministérios</h1></div><div class="acoes"><button class="btn primary" id="novo">Novo ministério</button></div></div>
+    <div class="painel"><div class="tabela-wrap"><table class="tabela">
+      <thead><tr><th>Nome</th><th class="some-mobile">Descrição</th><th class="dir">Pessoas</th><th></th></tr></thead>
+      <tbody>${lista.map((m) => `<tr class="${m.cd_status ? '' : 'inativo'}">
+        <td><span class="ponto" style="background:${esc(m.cor)};margin-right:8px"></span>${esc(m.nome)}${m.cd_status ? '' : ' <span class="tag">inativo</span>'}</td>
+        <td class="some-mobile muted">${esc(m.descricao || '')}</td>
+        <td class="dir num"><button class="link-btn" data-ver="${m.id}">${m.pessoas}</button></td>
+        <td class="dir"><button class="link-btn" data-editar="${m.id}">Editar</button></td></tr>`).join('') || '<tr><td colspan="4" class="vazio">Nenhum ministério.</td></tr>'}</tbody>
+    </table></div></div>`;
 
-  content.innerHTML = `
-    <div class="page-head"><div><h1>Ministérios</h1><p>Áreas em que os jovens servem.</p></div>
-      <div class="actions"><button class="btn btn-primary" id="novo">${icon('plus')} Novo ministério</button></div></div>
-    <div class="grid grid-3">
-      ${mins.map((m) => `<div class="card" style="${m.cd_status ? '' : 'opacity:.55'}">
-        <div class="card-head" style="margin-bottom:6px"><h2 style="display:flex;align-items:center;gap:10px"><span class="dot" style="background:${esc(m.cor)};width:12px;height:12px"></span>${esc(m.nome)}</h2>
-          <button class="btn btn-ghost btn-icon btn-sm" data-edit="${m.id}" aria-label="Editar">${icon('edit')}</button></div>
-        <p class="muted small" style="margin:0 0 12px">${esc(m.descricao || 'Sem descrição')}</p>
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <a class="small" href="#/pessoas" data-filtro="${m.id}">${cont[m.id] || 0} ${cont[m.id] === 1 ? 'pessoa' : 'pessoas'} servindo</a>
-          ${m.cd_status ? '' : '<span class="badge bad">Inativo</span>'}</div>
-      </div>`).join('') || `<div class="card empty" style="grid-column:1/-1">${icon('layers')}<p>Nenhum ministério cadastrado.</p></div>`}
-    </div>`;
-
-  const editar = (m = { nome: '', descricao: '', cor: '#5b3df5', cd_status: 1 }) => modal({
+  const editar = (m = { nome: '', descricao: '', cor: '#1d5c4f', cd_status: 1 }) => janela({
     titulo: m.id ? 'Editar ministério' : 'Novo ministério',
-    corpo: `<form id="fm" class="grid" style="gap:14px">
-      <div class="field"><label>Nome *</label><input class="input" id="mn" required value="${esc(m.nome)}"></div>
-      <div class="field"><label>Descrição</label><input class="input" id="md" value="${esc(m.descricao || '')}"></div>
-      <div class="field"><label>Cor</label><input type="color" id="mc" value="${esc(m.cor || '#5b3df5')}" style="width:64px;height:40px;border:0;background:none;padding:0"></div>
-      ${m.id ? `<label class="check"><input type="checkbox" id="ma" ${m.cd_status ? 'checked' : ''}> Ministério ativo</label>` : ''}
-      <div class="modal-actions">${m.id && isAdmin() ? `<button type="button" class="btn btn-danger" id="mdel" style="margin-right:auto">${icon('trash')}</button>` : ''}
-        <button type="button" class="btn btn-ghost" data-close>Cancelar</button><button class="btn btn-primary">Salvar</button></div></form>`,
-    onOpen: (el, fechar) => {
-      el.querySelector('#mn').focus();
-      el.querySelector('#fm').addEventListener('submit', async (e) => {
+    corpo: `<form id="fm" style="display:grid;gap:12px">
+      <div class="field"><label for="mn">Nome *</label><input class="input" id="mn" value="${esc(m.nome)}" required></div>
+      <div class="field"><label for="md">Descrição</label><input class="input" id="md" value="${esc(m.descricao || '')}"></div>
+      <div class="field"><label for="mc">Cor</label><input type="color" id="mc" value="${esc(m.cor)}" style="width:48px;height:32px;padding:0;border:1px solid var(--line-2);border-radius:4px"></div>
+      ${m.id ? `<label class="check"><input type="checkbox" id="ma" ${m.cd_status ? 'checked' : ''}>Ativo</label>` : ''}
+      <div class="janela-acoes" style="justify-content:space-between">
+        ${m.id && isAdmin() ? '<button type="button" class="link-btn danger" id="del">Excluir</button>' : '<span></span>'}
+        <div style="display:flex;gap:8px"><button type="button" class="btn" data-fechar>Cancelar</button><button class="btn primary">Salvar</button></div></div></form>`,
+    aoAbrir: (j, fechar) => {
+      j.querySelector('#mn').focus();
+      j.querySelector('#fm').addEventListener('submit', async (e) => {
         e.preventDefault();
-        const dados = { nome: el.querySelector('#mn').value.trim(), descricao: el.querySelector('#md').value.trim() || null, cor: el.querySelector('#mc').value };
-        if (!dados.nome) return toast('Informe o nome.', 'bad');
-        if (m.id) dados.cd_status = el.querySelector('#ma').checked ? 1 : 0;
-        await carregando(e.submitter, async () => {
-          try {
-            ok(m.id ? await sb.from('ministerios').update(dados).eq('id', m.id) : await sb.from('ministerios').insert(dados));
-            toast('Ministério salvo!'); fechar(); render(content);
-          } catch (err) { toastErro(err); }
+        const corpo = { nome: j.querySelector('#mn').value, descricao: j.querySelector('#md').value, cor: j.querySelector('#mc').value, cd_status: m.id ? (j.querySelector('#ma').checked ? 1 : 0) : 1 };
+        await ocupado(e.submitter, async () => {
+          try { await api(m.id ? 'PUT' : 'POST', m.id ? `/ministerios/${m.id}` : '/ministerios', corpo); aviso('Salvo.'); fechar(); render(conteudo); } catch (err) { avisoErro(err); }
         });
       });
-      el.querySelector('#mdel')?.addEventListener('click', async () => {
+      j.querySelector('#del')?.addEventListener('click', async () => {
         fechar();
-        if (!(await confirmar(`Excluir o ministério ${m.nome}? As pessoas não serão apagadas, só o vínculo.`, { ok: 'Excluir', perigo: true }))) return;
-        try { ok(await sb.from('ministerios').delete().eq('id', m.id)); toast('Ministério excluído.'); render(content); } catch (err) { toastErro(err); }
+        if (!(await confirmar(`Excluir o ministério ${m.nome}? As pessoas continuam cadastradas, só perdem o vínculo.`, { botao: 'Excluir', perigo: true }))) return;
+        try { await api('DELETE', `/ministerios/${m.id}`); aviso('Excluído.'); render(conteudo); } catch (err) { avisoErro(err); }
       });
     },
   });
 
-  content.querySelector('#novo').onclick = () => editar();
-  content.querySelectorAll('[data-edit]').forEach((b) => b.addEventListener('click', () => editar(mins.find((m) => m.id === Number(b.dataset.edit)))));
+  conteudo.querySelector('#novo').onclick = () => editar();
+  conteudo.querySelectorAll('[data-editar]').forEach((b) => b.addEventListener('click', () => editar(lista.find((m) => m.id === Number(b.dataset.editar)))));
+  conteudo.querySelectorAll('[data-ver]').forEach((b) => b.addEventListener('click', () => { sessionStorage.setItem('hype_filtro_min', b.dataset.ver); navegar('/pessoas'); }));
 }

@@ -1,102 +1,91 @@
 # Gestão do Hype
 
-Sistema interno de gestão do grupo de jovens **Hype**: cadastro de pessoas (com foto), presença dos encontros de sexta, ministérios, acompanhamento pastoral de faltantes, dashboard e relatórios semanais, mensais e anuais.
+Sistema interno do grupo de jovens **Hype**: cadastro de pessoas com foto, chamada das sextas, ministérios, acompanhamento pastoral de quem está faltando e relatórios por semana, mês e ano.
 
-> © Arthur Ramon da Silva. Todos os direitos reservados.
-> Responsável pelo sistema e pelos dados: **Arthur Ramon da Silva**.
-
----
-
-## Tecnologias (todas gratuitas)
-
-| Parte | Serviço | Plano grátis |
-|---|---|---|
-| Site (hospedagem) | GitHub Pages | Grátis para repositório público |
-| Banco de dados | Supabase (PostgreSQL) | 500 MB |
-| Login, cadastro, "esqueci a senha" | Supabase Auth | 50 mil usuários/mês |
-| Fotos | Supabase Storage (privado) | 1 GB (as fotos são reduzidas para ~60 KB cada) |
-| Envio de e-mails | Gmail SMTP (senha de app) | ~500 e-mails/dia |
-| Gráficos | Chart.js (já incluso no projeto) | Open source |
-
-Não tem etapa de build: são só HTML, CSS e JavaScript. Basta publicar a pasta.
+© Arthur Ramon da Silva. Todos os direitos reservados. Responsável pelo sistema e pelos dados: **Arthur Ramon da Silva**.
 
 ---
 
-## Passo a passo da instalação
+## Como é montado (tudo no plano gratuito)
 
-### 1. Criar o banco no Supabase
-1. Crie uma conta em <https://supabase.com> (pode entrar com o GitHub).
-2. Clique em **New project**:
-   - Nome: `gestao-hype`
-   - Região: **South America (São Paulo)**
-   - Database password: gere uma e **guarde num lugar seguro**.
-3. Quando o projeto terminar de criar, abra **SQL Editor → New query**, cole todo o conteúdo de [`supabase/schema.sql`](supabase/schema.sql) e clique em **Run**. Deve aparecer "Success".
+| Parte | Serviço |
+|---|---|
+| Banco de dados | **Azure SQL Database** (SQL Server), oferta gratuita: 32 GB e 100.000 segundos de vCore por mês, sem prazo |
+| Site + API | **Azure Static Web Apps**, plano Free (o site e as funções da pasta `api/`) |
+| E-mail de "esqueci a senha" | Gmail com senha de app |
 
-### 2. Ligar o site ao banco
-1. No Supabase, vá em **Project Settings → API** (ou **Data API**).
-2. Copie a **Project URL** e a chave **anon public**.
-3. Cole as duas em [`js/config.js`](js/config.js).
+```
+navegador  →  site (HTML/CSS/JS)  →  /api (Node.js)  →  SQL Server
+                                         └→ Gmail (e-mails)
+```
 
-> A chave *anon* é pública por natureza; quem protege os dados são as regras de segurança (RLS) do `schema.sql`. **Nunca** coloque a chave `service_role` no site.
-
-### 3. Configurar os e-mails ("esqueci a senha" e confirmação de cadastro)
-O e-mail padrão do Supabase só envia para a equipe do projeto. Por isso vamos usar um Gmail, de graça:
-
-1. Use (ou crie) um Gmail do ministério, ex.: `gestaohype@gmail.com`.
-2. Ative a **Verificação em duas etapas** em <https://myaccount.google.com/security>.
-3. Crie uma **Senha de app** em <https://myaccount.google.com/apppasswords> (nome: "Supabase"). Copie a senha de 16 letras.
-4. No Supabase: **Authentication → Emails → SMTP Settings → Enable custom SMTP**:
-   - Sender email: o Gmail
-   - Sender name: `Gestão do Hype`
-   - Host: `smtp.gmail.com` · Port: `465`
-   - Username: o Gmail · Password: a senha de app
-5. Em **Authentication → Emails → Templates**, cole os modelos em português:
-   - **Reset Password** → assunto `Redefinir sua senha — Gestão do Hype`, corpo: [`supabase/email-templates/redefinir-senha.html`](supabase/email-templates/redefinir-senha.html)
-   - **Confirm signup** → assunto `Confirme seu e-mail — Gestão do Hype`, corpo: [`supabase/email-templates/confirmar-cadastro.html`](supabase/email-templates/confirmar-cadastro.html)
-6. Em **Authentication → Rate Limits**, aumente "emails sent per hour" para uns `30`.
-
-### 4. Endereço do site (para os links do e-mail voltarem certo)
-Em **Authentication → URL Configuration**:
-- **Site URL**: `https://arthurramon9.github.io/Software-Hype/`
-- **Redirect URLs**: adicione `https://arthurramon9.github.io/Software-Hype/**`
-
-### 5. Publicar no GitHub Pages
-No GitHub: **Settings → Pages → Build and deployment → Deploy from a branch → `main` / `(root)` → Save**.
-Em 1–2 minutos o site fica em `https://arthurramon9.github.io/Software-Hype/`.
-
-### 6. Primeiro acesso
-1. Abra o site e clique em **Criar conta**. **A primeira conta criada vira administrador automaticamente.**
-2. As próximas contas ficam "aguardando aprovação" até um administrador liberar em **Acessos**.
+O site nunca fala direto com o banco. Quem fala é a API, que confere o login, as permissões e guarda as senhas criptografadas (bcrypt).
 
 ---
 
-## Como funciona
+## Instalação
 
-- **Pessoas**: cadastro completo (foto opcional, idade calculada pela data de nascimento, tipo membro/visitante/frequentador, ministérios, batismo, observações). `cd_status`: 1 = ativo, 0 = inativo.
-- **Presença**: escolha a sexta, marque Presente/Falta (com justificativa), cadastre visitante novo na hora. Botões "Todos presentes" e "Não marcados = falta" agilizam.
-- **Pastoral**: quem tem **2 ou mais faltas seguidas** (ajuste em `FALTAS_ALERTA` no `config.js`) aparece em alerta. Designe um pastor/líder responsável e registre cada contato (Aberto → Em andamento → Concluído).
-- **Relatórios**: semanal (presentes e faltantes do encontro), mensal (frequência de cada pessoa, comparação com o mês anterior) e anual (média mensal comparada com o ano anterior). Exporta CSV (abre no Excel) e imprime/salva em PDF.
-- **Acessos** (admin): aprovar, bloquear e definir papel (Administrador, Líder, Servo).
+### 1. Criar o banco (Azure SQL Database grátis)
+1. Crie uma conta em <https://azure.microsoft.com/free>. A Microsoft pede um cartão só para confirmar identidade.
+2. No portal (<https://portal.azure.com>), procure **Azure SQL Database** → **Criar**. Na tela aparece a faixa **"Aplicar oferta gratuita"**: clique nela.
+   - Grupo de recursos: `hype`
+   - Nome do banco: `hype`
+   - Servidor: **Criar novo** → nome ex. `hype-sql` · região **Brazil South** · autenticação **SQL** · crie um login (ex. `hypeadmin`) e senha. **Guarde.**
+   - **Comportamento ao atingir o limite grátis: "Pausar o banco até o próximo mês"**. Assim nunca há cobrança.
+3. Depois de criado: **Rede** (Networking) do servidor → marque **"Permitir que serviços e recursos do Azure acessem este servidor"** e **"Adicionar seu IP atual"** → Salvar.
+4. Conecte pelo SSMS ou Azure Data Studio (servidor `hype-sql.database.windows.net`, login SQL) e rode **`sql/01_estrutura.sql`**.
+5. Em **Cadeias de conexão** → **ADO.NET**, copie a string (troque `{your_password}` pela senha).
+
+### 2. Senha de app do Gmail
+1. Use um Gmail do ministério (ex.: `gestaohype@gmail.com`) e ative a **verificação em duas etapas**.
+2. Crie uma senha de app em <https://myaccount.google.com/apppasswords> e copie as 16 letras.
+
+### 3. Publicar o site (Azure Static Web Apps)
+1. No portal: **Static Web Apps** → **Criar** → plano **Free** → origem **GitHub** → repositório `Software-Hype`, branch `main`.
+2. Detalhes do build: predefinição **Custom** · App location `/` · Api location `api` · Output location *(vazio)*.
+3. Ao criar, o Azure adiciona sozinho um arquivo em `.github/workflows/` e publica. Cada `git push` publica de novo.
+4. No Static Web App → **Configurações de ambiente** (Environment variables), adicione:
+
+| Nome | Valor |
+|---|---|
+| `SQL_CONNECTION_STRING` | a string do passo 1.5 |
+| `JWT_SECRET` | uma frase longa e aleatória (mín. 24 caracteres) |
+| `SMTP_USER` | o Gmail |
+| `SMTP_PASS` | a senha de app |
+| `SITE_URL` | o endereço do site, ex. `https://xxxx.azurestaticapps.net/` |
+
+### 4. Primeiro acesso
+Abra o site e clique em **Criar conta**. **A primeira conta vira administrador automaticamente.** As próximas ficam aguardando liberação em **Acessos**, e os administradores recebem um e-mail avisando.
+
+---
+
+## Consultas no banco
+
+Além das tabelas, o banco tem views prontas para relatórios próprios:
+
+| View | O que mostra |
+|---|---|
+| `vw_pessoas` | pessoas com idade calculada e ministérios |
+| `vw_presencas` | cada presença/falta com data, nome e tipo |
+| `vw_resumo_encontros` | totais por sexta |
+| `vw_frequencia_pessoa` | presenças, faltas, % e última presença por pessoa |
+
+Exemplos em [`sql/02_consultas_exemplo.sql`](sql/02_consultas_exemplo.sql). Convenção: `cd_status` 1 = ativo, 0 = inativo. As fotos ficam em `pessoas_foto` (separadas, para o `SELECT *` em `pessoas` continuar leve).
+
+## Rodar no computador (opcional)
+```
+cd api
+npm install
+copy local.settings.example.json local.settings.json   (e preencha)
+node dev-server.js
+```
+Abra <http://localhost:4280>.
 
 ## Cuidados
-
-- **Plano grátis do Supabase pausa o projeto após 7 dias sem uso.** O uso semanal já evita isso, e o workflow [`.github/workflows/manter-ativo.yml`](.github/workflows/manter-ativo.yml) faz uma consulta automática a cada 3 dias.
-- O plano grátis **não tem backup automático**: exporte as pessoas em CSV de vez em quando.
-- **LGPD**: o sistema guarda dados pessoais de jovens (alguns menores de idade). Cadastre apenas o necessário, com ciência da pessoa/responsável, e libere acesso só a quem serve no ministério.
-
-## Estrutura
-
-```
-index.html                 página única (SPA)
-assets/css/style.css       visual (responsivo)
-assets/vendor/             Chart.js
-js/config.js               configuração (URL e chave do Supabase)
-js/app.js                  rotas, menu e layout
-js/pages/*.js              telas
-supabase/schema.sql        tabelas, segurança e fotos
-supabase/email-templates/  e-mails em português
-```
+- **Banco "dormindo":** no plano grátis o banco pausa após 1 hora sem uso. O primeiro acesso depois disso leva até ~1 minuto. O site avisa "Conectando ao banco" e tenta de novo sozinho.
+- **Limite mensal:** 100.000 segundos de vCore por mês. O uso de um grupo de jovens fica bem abaixo disso. Deixar o SSMS aberto e conectado o dia todo impede a pausa e gasta o limite, então feche quando terminar.
+- **LGPD:** são dados pessoais de jovens, alguns menores. Cadastre só o necessário e libere acesso só a quem serve.
 
 ---
 
-© Arthur Ramon da Silva. Todos os direitos reservados. É proibida a cópia, distribuição ou uso deste sistema sem autorização do autor. Veja [LICENSE](LICENSE).
+© Arthur Ramon da Silva. Todos os direitos reservados. Proibida a cópia, distribuição ou uso sem autorização do autor. Veja [LICENSE](LICENSE).

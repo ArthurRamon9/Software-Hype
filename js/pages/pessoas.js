@@ -1,340 +1,238 @@
-// Pessoas: lista, cadastro/edição e perfil
+// Pessoas: lista, cadastro/edição e ficha
 // © Arthur Ramon da Silva — Todos os direitos reservados.
-import { sb, ok, urlsFotos, limparCacheFoto, isAdmin } from '../supabase.js';
+import { api, urlFoto, isAdmin } from '../api.js';
 import {
-  icon, esc, $, $$, toast, toastErro, carregando, confirmar, avatar, badgeTipo, TIPOS,
-  idade, fmtData, hojeISO, comprimirImagem, baixarCSV, pct, tempoRelativo,
+  esc, $, $$, aviso, avisoErro, ocupado, confirmar, foto, tagTipo, TIPOS, idade, fmtData, hojeISO,
+  prepararFoto, baixarCSV, pct, semAcento, linkWhats,
 } from '../ui.js';
-import { navegar, atualizarBadges } from '../app.js';
-import { abrirCaso } from './pastoral.js';
+import { navegar, atualizarContadores } from '../app.js';
+import { abrirAcompanhamento } from './pastoral.js';
 
-export async function carregarMinisterios(soAtivos = true) {
-  let q = sb.from('ministerios').select('*').order('nome');
-  if (soAtivos) q = q.eq('cd_status', 1);
-  return ok(await q);
-}
+const filtro = { busca: '', tipo: '', status: '1', ministerio: '' };
 
 // ======================= LISTA =======================
-const filtros = { busca: '', tipo: '', status: '1', ministerio: '' };
+export async function lista(conteudo) {
+  const [pessoas, ministerios] = await Promise.all([api('GET', '/pessoas'), api('GET', '/ministerios')]);
+  const nomeMin = Object.fromEntries(ministerios.map((m) => [m.id, m.nome]));
+  const vindoDeMinisterio = sessionStorage.getItem('hype_filtro_min');
+  if (vindoDeMinisterio) { Object.assign(filtro, { ministerio: vindoDeMinisterio, busca: '', tipo: '', status: '1' }); sessionStorage.removeItem('hype_filtro_min'); }
 
-export async function lista(content) {
-  const [pessoas, ministerios] = await Promise.all([
-    ok(await sb.from('pessoas').select('id,nome,data_nascimento,telefone,email,tipo,foto_path,cd_status,data_cadastro,batizado,pessoa_ministerio(ministerio_id)').order('nome')),
-    carregarMinisterios(false),
-  ]);
-  const minMap = Object.fromEntries(ministerios.map((m) => [m.id, m]));
-  const fotos = await urlsFotos(pessoas.map((p) => p.foto_path));
-
-  content.innerHTML = `
-    <div class="page-head">
-      <div><h1>Pessoas</h1><p>Todos os jovens cadastrados no Hype.</p></div>
-      <div class="actions">
-        <button class="btn btn-ghost" id="csv">${icon('download')} Exportar</button>
-        <a class="btn btn-primary" href="#/pessoas/nova">${icon('userPlus')} Nova pessoa</a>
+  conteudo.innerHTML = `
+    <div class="cabecalho"><div><h1>Pessoas</h1></div>
+      <div class="acoes"><a class="btn primary" href="#/pessoas/nova">Cadastrar pessoa</a></div></div>
+    <div class="painel">
+      <div class="filtros">
+        <input class="input busca" id="busca" type="search" placeholder="Buscar por nome ou telefone" value="${esc(filtro.busca)}">
+        <select class="input" id="tipo"><option value="">Todos os tipos</option>${Object.entries(TIPOS).map(([k, v]) => `<option value="${k}" ${filtro.tipo === k ? 'selected' : ''}>${v}s</option>`).join('')}</select>
+        <select class="input" id="min"><option value="">Todos os ministérios</option>${ministerios.map((m) => `<option value="${m.id}" ${String(filtro.ministerio) === String(m.id) ? 'selected' : ''}>${esc(m.nome)}</option>`).join('')}</select>
+        <select class="input" id="status">
+          <option value="1" ${filtro.status === '1' ? 'selected' : ''}>Ativos</option>
+          <option value="0" ${filtro.status === '0' ? 'selected' : ''}>Inativos</option>
+          <option value="" ${filtro.status === '' ? 'selected' : ''}>Ativos e inativos</option>
+        </select>
       </div>
-    </div>
-    <div class="toolbar">
-      <div class="input-wrap grow">${icon('search')}<input class="input" id="busca" placeholder="Buscar por nome, telefone ou e-mail..." value="${esc(filtros.busca)}"></div>
-      <select class="input" id="f-tipo" style="width:auto">
-        <option value="">Todos os tipos</option>
-        ${Object.entries(TIPOS).map(([k, v]) => `<option value="${k}" ${filtros.tipo === k ? 'selected' : ''}>${v}s</option>`).join('')}
-      </select>
-      <select class="input" id="f-min" style="width:auto">
-        <option value="">Todos os ministérios</option>
-        ${ministerios.map((m) => `<option value="${m.id}" ${String(filtros.ministerio) === String(m.id) ? 'selected' : ''}>${esc(m.nome)}</option>`).join('')}
-      </select>
-      <div class="seg" id="f-status">
-        <button data-v="1" class="${filtros.status === '1' ? 'active' : ''}">Ativos</button>
-        <button data-v="0" class="${filtros.status === '0' ? 'active' : ''}">Inativos</button>
-        <button data-v="" class="${filtros.status === '' ? 'active' : ''}">Todos</button>
+      <div class="tabela-wrap"><table class="tabela">
+        <thead><tr><th>Nome</th><th>Tipo</th><th class="dir">Idade</th><th class="some-mobile">Telefone</th><th class="some-mobile">Ministérios</th></tr></thead>
+        <tbody id="linhas"></tbody>
+      </table></div>
+      <div class="filtros" style="border-top:1px solid var(--line);border-bottom:0;justify-content:space-between">
+        <span class="muted small" id="total"></span><button class="link-btn small" id="csv">Baixar planilha (CSV)</button>
       </div>
-    </div>
-    <p class="muted small" id="contagem" style="margin:-4px 0 12px"></p>
-    <div class="people" id="grid"></div>`;
+    </div>`;
 
-  const filtrar = () => {
-    const b = filtros.busca.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-    return pessoas.filter((p) => {
-      if (filtros.status !== '' && String(p.cd_status) !== filtros.status) return false;
-      if (filtros.tipo && p.tipo !== filtros.tipo) return false;
-      if (filtros.ministerio && !p.pessoa_ministerio.some((x) => String(x.ministerio_id) === String(filtros.ministerio))) return false;
-      if (b) {
-        const alvo = `${p.nome} ${p.telefone || ''} ${p.email || ''}`.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-        if (!alvo.includes(b)) return false;
-      }
-      return true;
-    });
+  const filtradas = () => {
+    const b = semAcento(filtro.busca), bNum = filtro.busca.replace(/\D/g, '');
+    return pessoas.filter((p) => (filtro.status === '' || String(p.cd_status) === filtro.status)
+      && (!filtro.tipo || p.tipo === filtro.tipo)
+      && (!filtro.ministerio || p.ministerios.includes(Number(filtro.ministerio)))
+      && (!b || semAcento(p.nome).includes(b) || (bNum.length >= 3 && (p.telefone || '').replace(/\D/g, '').includes(bNum))));
   };
-
   const desenhar = () => {
-    const lista = filtrar();
-    $('#contagem').textContent = `${lista.length} ${lista.length === 1 ? 'pessoa' : 'pessoas'}`;
-    $('#grid').innerHTML = lista.length ? lista.map((p) => {
-      const i = idade(p.data_nascimento);
-      const mins = p.pessoa_ministerio.map((x) => minMap[x.ministerio_id]?.nome).filter(Boolean);
-      return `<a class="person ${p.cd_status ? '' : 'inativo'}" href="#/pessoas/${p.id}">
-        ${avatar(p.nome, fotos[p.foto_path])}
-        <div class="info"><b>${esc(p.nome)}</b>
-          <div class="meta">${badgeTipo(p.tipo)}${i !== null ? `<span>${i} anos</span>` : ''}${p.cd_status ? '' : '<span class="badge bad">Inativo</span>'}</div>
-          ${mins.length ? `<div class="meta">${mins.map(esc).join(' · ')}</div>` : ''}
-        </div></a>`;
-    }).join('') : `<div class="card empty" style="grid-column:1/-1">${icon('users')}<p>Nenhuma pessoa encontrada.</p>
-      <a class="btn btn-primary" href="#/pessoas/nova">${icon('plus')} Cadastrar pessoa</a></div>`;
+    const l = filtradas();
+    $('#total').textContent = `${l.length} ${l.length === 1 ? 'pessoa' : 'pessoas'}`;
+    $('#linhas').innerHTML = l.length ? l.map((p) => `
+      <tr class="clicavel ${p.cd_status ? '' : 'inativo'}" data-id="${p.id}">
+        <td><div class="pessoa-cel">${foto(p.nome, urlFoto(p.id, p.foto_v))}<b>${esc(p.nome)}</b></div></td>
+        <td>${tagTipo(p.tipo)}</td>
+        <td class="dir num">${idade(p.data_nascimento) ?? ''}</td>
+        <td class="some-mobile num">${esc(p.telefone || '')}</td>
+        <td class="some-mobile muted">${p.ministerios.map((m) => esc(nomeMin[m])).join(', ')}</td>
+      </tr>`).join('') : `<tr><td colspan="5" class="vazio">Nenhuma pessoa encontrada.</td></tr>`;
   };
   desenhar();
 
-  $('#busca').addEventListener('input', (e) => { filtros.busca = e.target.value; desenhar(); });
-  $('#f-tipo').addEventListener('change', (e) => { filtros.tipo = e.target.value; desenhar(); });
-  $('#f-min').addEventListener('change', (e) => { filtros.ministerio = e.target.value; desenhar(); });
-  $$('#f-status button').forEach((b) => b.addEventListener('click', () => {
-    filtros.status = b.dataset.v;
-    $$('#f-status button').forEach((x) => x.classList.toggle('active', x === b));
-    desenhar();
-  }));
-  $('#csv').addEventListener('click', () => {
-    const linhas = [['Nome', 'Tipo', 'Idade', 'Nascimento', 'Telefone', 'E-mail', 'Batizado', 'Ministérios', 'Status', 'Cadastro']];
-    filtrar().forEach((p) => linhas.push([
-      p.nome, TIPOS[p.tipo], idade(p.data_nascimento) ?? '', fmtData(p.data_nascimento), p.telefone, p.email,
-      p.batizado ? 'Sim' : 'Não', p.pessoa_ministerio.map((x) => minMap[x.ministerio_id]?.nome).join(', '),
-      p.cd_status ? 'Ativo' : 'Inativo', fmtData(p.data_cadastro),
-    ]));
-    baixarCSV(`pessoas-hype-${hojeISO()}.csv`, linhas);
-  });
+  $('#linhas').addEventListener('click', (e) => { const tr = e.target.closest('tr[data-id]'); if (tr) navegar(`/pessoas/${tr.dataset.id}`); });
+  $('#busca').addEventListener('input', (e) => { filtro.busca = e.target.value; desenhar(); });
+  $('#tipo').addEventListener('change', (e) => { filtro.tipo = e.target.value; desenhar(); });
+  $('#min').addEventListener('change', (e) => { filtro.ministerio = e.target.value; desenhar(); });
+  $('#status').addEventListener('change', (e) => { filtro.status = e.target.value; desenhar(); });
+  $('#csv').addEventListener('click', () => baixarCSV(`pessoas-hype-${hojeISO()}.csv`, [
+    ['Nome', 'Tipo', 'Idade', 'Nascimento', 'Telefone', 'E-mail', 'Batizado', 'Ministérios', 'Situação', 'Cadastro'],
+    ...filtradas().map((p) => [p.nome, TIPOS[p.tipo], idade(p.data_nascimento) ?? '', fmtData(p.data_nascimento), p.telefone, p.email,
+      p.batizado ? 'Sim' : 'Não', p.ministerios.map((m) => nomeMin[m]).join(', '), p.cd_status ? 'Ativo' : 'Inativo', fmtData(p.data_cadastro)]),
+  ]));
 }
 
 // ======================= FORMULÁRIO =======================
-export async function form(content, { id } = {}) {
+export async function formulario(conteudo, { id } = {}) {
   const editando = !!id;
-  const [ministerios, pessoa] = await Promise.all([
-    carregarMinisterios(),
-    editando ? ok(await sb.from('pessoas').select('*, pessoa_ministerio(ministerio_id)').eq('id', id).single()) : null,
+  const [ministerios, dados] = await Promise.all([
+    api('GET', '/ministerios'),
+    editando ? api('GET', `/pessoas/${id}`) : null,
   ]);
-  const p = pessoa || { tipo: 'visitante', cd_status: 1, data_cadastro: hojeISO(), pessoa_ministerio: [] };
-  const meusMin = new Set(p.pessoa_ministerio.map((x) => x.ministerio_id));
-  const fotoAtual = p.foto_path ? (await urlsFotos([p.foto_path]))[p.foto_path] : null;
+  const p = dados?.pessoa || { tipo: 'visitante', cd_status: 1, data_cadastro: hojeISO(), ministerios: [] };
+  const fotoAtual = editando ? urlFoto(p.id, p.foto_v) : null;
   let novaFoto = null, removerFoto = false;
-
   const v = (k) => esc(p[k] ?? '');
-  content.innerHTML = `
-    <div class="page-head">
-      <div><a href="#/pessoas${editando ? '/' + id : ''}" class="small" style="display:inline-flex;gap:6px;align-items:center">${icon('arrowLeft')} Voltar</a>
-      <h1 style="margin-top:6px">${editando ? 'Editar cadastro' : 'Nova pessoa'}</h1></div>
-    </div>
-    <form id="f" class="card" novalidate>
-      <div class="photo-pick" style="margin-bottom:22px">
-        <div id="prev">${avatar(p.nome || '?', fotoAtual, 'lg')}</div>
-        <div style="display:grid;gap:8px">
-          <label class="btn btn-ghost btn-sm" for="foto">${icon('camera')} ${fotoAtual ? 'Trocar foto' : 'Adicionar foto'}</label>
-          <input type="file" id="foto" accept="image/*">
-          <button type="button" class="btn btn-ghost btn-sm ${fotoAtual ? '' : 'hidden'}" id="rm-foto">${icon('trash')} Remover foto</button>
-          <span class="muted small">Opcional · JPG ou PNG</span>
-        </div>
-      </div>
+  const voltar = editando ? `#/pessoas/${id}` : '#/pessoas';
 
-      <div class="form-grid">
-        <div class="field full"><label for="nome">Nome completo *</label><input class="input" id="nome" required value="${v('nome')}" placeholder="Nome e sobrenome"></div>
-
-        <div class="field full"><label>Tipo *</label>
-          <div class="seg">${Object.entries(TIPOS).map(([k, t]) => `<label><input type="radio" name="tipo" value="${k}" ${p.tipo === k ? 'checked' : ''}>${t}</label>`).join('')}</div>
+  conteudo.innerHTML = `
+    <a class="voltar" href="${voltar}">← ${editando ? esc(p.nome) : 'Pessoas'}</a>
+    <div class="cabecalho"><h1>${editando ? 'Editar cadastro' : 'Cadastrar pessoa'}</h1></div>
+    <form class="painel" id="f" novalidate><div class="painel-corpo">
+      <div class="form">
+        <div class="full" style="display:flex;gap:14px;align-items:center">
+          <span id="prev">${foto(p.nome || '', fotoAtual, 'g')}</span>
+          <div style="display:grid;gap:4px">
+            <label class="link-btn" for="arquivo" style="cursor:pointer">${fotoAtual ? 'Trocar foto' : 'Adicionar foto'}</label>
+            <input type="file" id="arquivo" accept="image/*" hidden>
+            <button type="button" class="link-btn danger ${fotoAtual ? '' : 'hidden'}" id="tirar" style="text-align:left">Remover foto</button>
+            <span class="hint">Opcional</span>
+          </div>
         </div>
 
+        <div class="field full"><label for="nome">Nome completo *</label><input class="input" id="nome" value="${v('nome')}" required></div>
+        <div class="field full"><span class="label">Tipo</span>
+          <div class="radios">${Object.entries(TIPOS).map(([k, t]) => `<label class="check"><input type="radio" name="tipo" value="${k}" ${p.tipo === k ? 'checked' : ''}>${t}</label>`).join('')}</div></div>
         <div class="field"><label for="nasc">Data de nascimento</label><input class="input" type="date" id="nasc" value="${v('data_nascimento')}" max="${hojeISO()}"></div>
-        <div class="field"><label for="sexo">Sexo</label>
-          <select class="input" id="sexo"><option value="">—</option>
-            <option value="M" ${p.sexo === 'M' ? 'selected' : ''}>Masculino</option>
-            <option value="F" ${p.sexo === 'F' ? 'selected' : ''}>Feminino</option></select></div>
+        <div class="field"><label for="sexo">Sexo</label><select class="input" id="sexo"><option value=""></option>
+          <option value="M" ${p.sexo === 'M' ? 'selected' : ''}>Masculino</option><option value="F" ${p.sexo === 'F' ? 'selected' : ''}>Feminino</option></select></div>
+        <div class="field"><label for="tel">Telefone (WhatsApp)</label><input class="input" id="tel" type="tel" inputmode="tel" value="${v('telefone')}"></div>
+        <div class="field"><label for="email">E-mail</label><input class="input" id="email" type="email" value="${v('email')}"></div>
+        <div class="field"><label for="insta">Instagram</label><input class="input" id="insta" value="${v('instagram')}"></div>
+        <div class="field"><label for="end">Bairro / endereço</label><input class="input" id="end" value="${v('endereco')}"></div>
 
-        <div class="field"><label for="tel">Telefone / WhatsApp</label><input class="input" id="tel" type="tel" inputmode="tel" value="${v('telefone')}" placeholder="(00) 00000-0000"></div>
-        <div class="field"><label for="email">E-mail</label><input class="input" id="email" type="email" value="${v('email')}" placeholder="opcional"></div>
-
-        <div class="field"><label for="insta">Instagram</label><input class="input" id="insta" value="${v('instagram')}" placeholder="@usuario"></div>
-        <div class="field"><label for="cad">Data de cadastro</label><input class="input" type="date" id="cad" value="${v('data_cadastro')}"></div>
-
-        <div class="field full"><label for="end">Endereço / bairro</label><input class="input" id="end" value="${v('endereco')}"></div>
-
-        <div class="field full"><label>Ministérios em que serve</label>
-          <div class="chips-select">${ministerios.length ? ministerios.map((m) => `<label><input type="checkbox" name="min" value="${m.id}" ${meusMin.has(m.id) ? 'checked' : ''}><span class="dot" style="background:${esc(m.cor)}"></span>${esc(m.nome)}</label>`).join('') : '<span class="muted small">Nenhum ministério cadastrado.</span>'}</div>
+        <div class="form-section">Igreja</div>
+        <div class="field full"><span class="label">Ministérios em que serve</span>
+          <div class="tags-check">${ministerios.filter((m) => m.cd_status || p.ministerios.includes(m.id)).map((m) => `<label><input type="checkbox" name="min" value="${m.id}" ${p.ministerios.includes(m.id) ? 'checked' : ''}>${esc(m.nome)}</label>`).join('') || '<span class="hint">Nenhum ministério cadastrado.</span>'}</div></div>
+        <div class="field"><label for="conheceu">Como conheceu o Hype</label><input class="input" id="conheceu" value="${v('como_conheceu')}"></div>
+        <div class="field"><label for="cad">Data do cadastro</label><input class="input" type="date" id="cad" value="${v('data_cadastro')}"></div>
+        <div class="field full" style="flex-direction:row;gap:20px">
+          <label class="check"><input type="checkbox" id="batizado" ${p.batizado ? 'checked' : ''}>Batizado(a)</label>
+          ${editando ? `<label class="check"><input type="checkbox" id="ativo" ${p.cd_status ? 'checked' : ''}>Cadastro ativo</label>` : ''}
         </div>
-
-        <div class="field"><label for="conheceu">Como conheceu o Hype?</label><input class="input" id="conheceu" value="${v('como_conheceu')}" placeholder="Ex.: convite de amigo"></div>
-        <div class="field" style="justify-content:flex-end;gap:12px">
-          <label class="check"><input type="checkbox" id="batizado" ${p.batizado ? 'checked' : ''}> É batizado(a)</label>
-          ${editando ? `<label class="check"><input type="checkbox" id="ativo" ${p.cd_status ? 'checked' : ''}> Cadastro ativo</label>` : ''}
-        </div>
-
-        <div class="field full"><label for="obs">Observações</label><textarea class="input" id="obs" placeholder="Pedidos de oração, informações importantes...">${v('observacoes')}</textarea></div>
+        <div class="field full"><label for="obs">Observações</label><textarea class="input" id="obs">${v('observacoes')}</textarea></div>
       </div>
+    </div>
+    <div class="barra-salvar">
+      ${editando && isAdmin() ? '<button type="button" class="link-btn danger" id="excluir">Excluir cadastro</button>' : '<span></span>'}
+      <div style="display:flex;gap:8px"><a class="btn" href="${voltar}">Cancelar</a><button class="btn primary" type="submit">Salvar</button></div>
+    </div></form>`;
 
-      <div class="modal-actions" style="margin-top:24px">
-        <a class="btn btn-ghost" href="#/pessoas${editando ? '/' + id : ''}">Cancelar</a>
-        <button class="btn btn-primary" type="submit">${icon('check')} ${editando ? 'Salvar alterações' : 'Cadastrar'}</button>
-      </div>
-    </form>`;
-
-  const atualizarPreview = (url) => { $('#prev').innerHTML = avatar($('#nome').value || '?', url, 'lg'); };
-  $('#nome').addEventListener('input', () => { if (!novaFoto && (removerFoto || !fotoAtual)) atualizarPreview(null); });
-  $('#foto').addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    try {
-      novaFoto = await comprimirImagem(file);
-      removerFoto = false;
-      atualizarPreview(URL.createObjectURL(novaFoto));
-      $('#rm-foto').classList.remove('hidden');
-    } catch (err) { toastErro(err); }
+  const mostrar = (url) => { $('#prev').innerHTML = foto($('#nome').value || '', url, 'g'); };
+  $('#arquivo').addEventListener('change', async (e) => {
+    const arq = e.target.files[0]; if (!arq) return;
+    try { novaFoto = await prepararFoto(arq); removerFoto = false; mostrar(novaFoto); $('#tirar').classList.remove('hidden'); }
+    catch (err) { avisoErro(err); }
   });
-  $('#rm-foto').addEventListener('click', () => {
-    novaFoto = null; removerFoto = true; $('#foto').value = '';
-    atualizarPreview(null); $('#rm-foto').classList.add('hidden');
+  $('#tirar').addEventListener('click', () => { novaFoto = null; removerFoto = true; $('#arquivo').value = ''; mostrar(null); $('#tirar').classList.add('hidden'); });
+
+  $('#excluir')?.addEventListener('click', async () => {
+    if (!(await confirmar(`Excluir ${p.nome}? O histórico de presença dessa pessoa também será apagado. Se a pessoa só parou de vir, prefira desmarcar "Cadastro ativo".`, { botao: 'Excluir', perigo: true }))) return;
+    try { await api('DELETE', `/pessoas/${id}`); aviso('Cadastro excluído.'); navegar('/pessoas'); } catch (err) { avisoErro(err); }
   });
 
   $('#f').addEventListener('submit', async (e) => {
     e.preventDefault();
     const nome = $('#nome').value.trim();
-    if (nome.length < 2) { toast('Informe o nome.', 'bad'); $('#nome').focus(); return; }
-    const dados = {
-      nome,
-      tipo: $('input[name=tipo]:checked')?.value || 'visitante',
-      data_nascimento: $('#nasc').value || null,
-      sexo: $('#sexo').value || null,
-      telefone: $('#tel').value.trim() || null,
-      email: $('#email').value.trim() || null,
-      instagram: $('#insta').value.trim() || null,
-      endereco: $('#end').value.trim() || null,
-      data_cadastro: $('#cad').value || hojeISO(),
-      como_conheceu: $('#conheceu').value.trim() || null,
-      batizado: $('#batizado').checked,
-      observacoes: $('#obs').value.trim() || null,
+    if (nome.length < 2) { aviso('Informe o nome.', 'erro'); $('#nome').focus(); return; }
+    const corpo = {
+      nome, tipo: $('input[name=tipo]:checked')?.value,
+      data_nascimento: $('#nasc').value || null, sexo: $('#sexo').value || null,
+      telefone: $('#tel').value, email: $('#email').value, instagram: $('#insta').value, endereco: $('#end').value,
+      como_conheceu: $('#conheceu').value, data_cadastro: $('#cad').value || hojeISO(),
+      batizado: $('#batizado').checked, observacoes: $('#obs').value,
+      cd_status: editando ? ($('#ativo').checked ? 1 : 0) : 1,
+      ministerios: $$('input[name=min]:checked').map((c) => Number(c.value)),
     };
-    if (editando) dados.cd_status = $('#ativo').checked ? 1 : 0;
-    const mins = $$('input[name=min]:checked').map((c) => Number(c.value));
-
-    await carregando($('#f button[type=submit]'), async () => {
+    await ocupado($('#f button[type=submit]'), async () => {
       try {
-        let pid = id;
-        if (editando) ok(await sb.from('pessoas').update(dados).eq('id', id));
-        else pid = ok(await sb.from('pessoas').insert(dados).select('id').single()).id;
-
-        // Foto
-        if (novaFoto) {
-          const caminho = `pessoas/${pid}-${Date.now()}.jpg`;
-          const up = await sb.storage.from('fotos').upload(caminho, novaFoto, { contentType: 'image/jpeg', upsert: true });
-          if (up.error) throw new Error('Cadastro salvo, mas a foto não foi enviada: ' + up.error.message);
-          ok(await sb.from('pessoas').update({ foto_path: caminho }).eq('id', pid));
-          if (p.foto_path) { await sb.storage.from('fotos').remove([p.foto_path]); limparCacheFoto(p.foto_path); }
-        } else if (removerFoto && p.foto_path) {
-          await sb.storage.from('fotos').remove([p.foto_path]);
-          limparCacheFoto(p.foto_path);
-          ok(await sb.from('pessoas').update({ foto_path: null }).eq('id', pid));
-        }
-
-        // Ministérios
-        ok(await sb.from('pessoa_ministerio').delete().eq('pessoa_id', pid));
-        if (mins.length) ok(await sb.from('pessoa_ministerio').insert(mins.map((m) => ({ pessoa_id: pid, ministerio_id: m }))));
-
-        toast(editando ? 'Cadastro atualizado!' : `${nome.split(' ')[0]} cadastrado(a) com sucesso!`);
-        navegar(`/pessoas/${pid}`);
-      } catch (err) { toastErro(err); }
+        const r = await api(editando ? 'PUT' : 'POST', editando ? `/pessoas/${id}` : '/pessoas', corpo);
+        if (novaFoto) await api('PUT', `/pessoas/${r.id}/foto`, { imagem: novaFoto });
+        else if (removerFoto) await api('DELETE', `/pessoas/${r.id}/foto`);
+        aviso(editando ? 'Alterações salvas.' : 'Pessoa cadastrada.');
+        navegar(`/pessoas/${r.id}`);
+      } catch (err) { avisoErro(err); }
     });
   });
 }
 
-// ======================= PERFIL =======================
-export async function perfil(content, { id }) {
-  const [p, presencas, casos, ministerios] = await Promise.all([
-    ok(await sb.from('pessoas').select('*, pessoa_ministerio(ministerio_id)').eq('id', id).single()),
-    ok(await sb.from('presencas').select('presente, justificativa, encontros(id,data,tema)').eq('pessoa_id', id)),
-    ok(await sb.from('pastoral_casos').select('*').eq('pessoa_id', id).order('aberto_em', { ascending: false })),
-    carregarMinisterios(false),
-  ]);
-  const foto = p.foto_path ? (await urlsFotos([p.foto_path]))[p.foto_path] : null;
-  const minMap = Object.fromEntries(ministerios.map((m) => [m.id, m]));
-  const hist = presencas.filter((x) => x.encontros).sort((a, b) => b.encontros.data.localeCompare(a.encontros.data));
-  const ult = hist.slice(0, 16);
-  const presentes = hist.filter((x) => x.presente).length;
-  const ultimaPresenca = hist.find((x) => x.presente)?.encontros.data;
-  let seguidas = 0; for (const h of hist) { if (h.presente) break; seguidas++; }
+// ======================= FICHA =======================
+export async function perfil(conteudo, { id }) {
+  const [{ pessoa: p, historico, casos }, ministerios] = await Promise.all([api('GET', `/pessoas/${id}`), api('GET', '/ministerios')]);
+  const nomeMin = Object.fromEntries(ministerios.map((m) => [m.id, m.nome]));
+  const presencas = historico.filter((h) => h.presente).length;
+  let seguidas = 0; for (const h of historico) { if (h.presente) break; seguidas++; }
+  const ultimaVez = historico.find((h) => h.presente)?.data;
+  const whats = linkWhats(p.telefone);
   const i = idade(p.data_nascimento);
-  const tel = (p.telefone || '').replace(/\D/g, '');
-  const info = (l, val) => `<div><span>${l}</span><b>${val || '—'}</b></div>`;
+  const campo = (rot, val) => `<div><dt>${rot}</dt><dd>${val || '<span class="muted">—</span>'}</dd></div>`;
+  const STATUS = { aberto: 'Aberto', em_andamento: 'Em andamento', concluido: 'Concluído' };
+  const casoAberto = casos.some((c) => c.status !== 'concluido');
 
-  content.innerHTML = `
-    <div class="page-head">
-      <div><a href="#/pessoas" class="small" style="display:inline-flex;gap:6px;align-items:center">${icon('arrowLeft')} Pessoas</a></div>
-      <div class="actions">
-        ${tel ? `<a class="btn btn-ghost" target="_blank" rel="noopener" href="https://wa.me/${tel.length <= 11 ? '55' + tel : tel}">${icon('message')} WhatsApp</a>` : ''}
-        <button class="btn btn-ghost" id="pastoral">${icon('heart')} Pastoral</button>
-        <a class="btn btn-primary" href="#/pessoas/${id}/editar">${icon('edit')} Editar</a>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="profile-head">
-        ${avatar(p.nome, foto, 'lg')}
-        <div class="info">
+  conteudo.innerHTML = `
+    <a class="voltar" href="#/pessoas">← Pessoas</a>
+    <div class="painel">
+      <div class="perfil-topo">
+        ${foto(p.nome, urlFoto(p.id, p.foto_v), 'g')}
+        <div style="flex:1;min-width:0">
           <h1>${esc(p.nome)}</h1>
-          <div class="tags">${badgeTipo(p.tipo)}
-            ${p.cd_status ? '<span class="badge ok">Ativo</span>' : '<span class="badge bad">Inativo</span>'}
-            ${p.batizado ? '<span class="badge">Batizado(a)</span>' : ''}
-            ${seguidas >= 2 ? `<span class="badge warn">${icon('alert')} ${seguidas} faltas seguidas</span>` : ''}
-          </div>
+          <div class="tags">${tagTipo(p.tipo)}${p.cd_status ? '' : '<span class="tag bad">Inativo</span>'}${seguidas >= 2 ? `<span class="tag warn">${seguidas} faltas seguidas</span>` : ''}</div>
         </div>
+        <a class="btn" href="#/pessoas/${id}/editar">Editar</a>
       </div>
     </div>
 
-    <div class="grid grid-2-1 mt">
-      <div class="card">
-        <h2 style="margin-bottom:16px">Informações</h2>
-        <div class="dl">
-          ${info('Idade', i !== null ? `${i} anos` : '')}
-          ${info('Nascimento', p.data_nascimento ? fmtData(p.data_nascimento) : '')}
-          ${info('Telefone', esc(p.telefone))}
-          ${info('E-mail', esc(p.email))}
-          ${info('Instagram', esc(p.instagram))}
-          ${info('Sexo', p.sexo === 'M' ? 'Masculino' : p.sexo === 'F' ? 'Feminino' : '')}
-          ${info('Endereço', esc(p.endereco))}
-          ${info('Como conheceu', esc(p.como_conheceu))}
-          ${info('Cadastrado em', fmtData(p.data_cadastro))}
-          ${info('Ministérios', p.pessoa_ministerio.map((x) => esc(minMap[x.ministerio_id]?.nome)).join(', '))}
-        </div>
-        ${p.observacoes ? `<div style="margin-top:18px"><span class="muted small" style="font-weight:600">OBSERVAÇÕES</span><p style="margin:4px 0 0;white-space:pre-wrap">${esc(p.observacoes)}</p></div>` : ''}
-      </div>
+    <div class="colunas c21 mt">
+      <section class="painel"><div class="painel-topo"><h2>Dados</h2></div><div class="painel-corpo">
+        <dl class="campos" style="margin:0">
+          ${campo('Telefone', p.telefone ? `${esc(p.telefone)}${whats ? ` · <a href="${whats}" target="_blank" rel="noopener">WhatsApp</a>` : ''}` : '')}
+          ${campo('Idade', i !== null ? `${i} anos (${fmtData(p.data_nascimento)})` : '')}
+          ${campo('E-mail', esc(p.email))}
+          ${campo('Instagram', esc(p.instagram))}
+          ${campo('Bairro / endereço', esc(p.endereco))}
+          ${campo('Sexo', { M: 'Masculino', F: 'Feminino' }[p.sexo])}
+          ${campo('Ministérios', p.ministerios.map((m) => esc(nomeMin[m])).join(', '))}
+          ${campo('Batizado(a)', p.batizado ? 'Sim' : 'Não')}
+          ${campo('Como conheceu', esc(p.como_conheceu))}
+          ${campo('Cadastrado em', fmtData(p.data_cadastro))}
+        </dl>
+        ${p.observacoes ? `<hr><dt class="muted small">Observações</dt><p style="white-space:pre-wrap;margin-top:2px">${esc(p.observacoes)}</p>` : ''}
+      </div></section>
 
-      <div class="grid" style="align-content:start">
-        <div class="card stat">
-          <div class="label"><span class="ic">${icon('checkSquare')}</span>Frequência geral</div>
-          <div class="value">${hist.length ? pct(presentes, hist.length) + '%' : '—'}</div>
-          <div class="foot">${presentes} presenças em ${hist.length} encontros${ultimaPresenca ? ` · última em ${fmtData(ultimaPresenca)}` : ''}</div>
-        </div>
-        <div class="card">
-          <h3 style="margin-bottom:10px">Últimos encontros</h3>
-          ${ult.length ? `<div class="hist">${ult.slice().reverse().map((h) => `<i class="${h.presente ? 'p' : 'f'}" title="${fmtData(h.encontros.data)} — ${h.presente ? 'Presente' : 'Falta'}${h.justificativa ? ': ' + esc(h.justificativa) : ''}">${h.presente ? 'P' : 'F'}</i>`).join('')}</div>
-            <p class="muted small" style="margin:8px 0 0">Mais antigo → mais recente. P = presente, F = falta.</p>` : '<p class="muted small">Sem registros de presença ainda.</p>'}
-        </div>
-      </div>
+      <section class="painel"><div class="painel-topo"><h2>Presença</h2></div><div class="painel-corpo">
+        ${historico.length ? `
+          <p><span style="font-size:24px;font-weight:600" class="num">${pct(presencas, historico.length)}%</span>
+          <span class="muted"> · ${presencas} de ${historico.length} encontros</span></p>
+          <p class="small muted" style="margin:2px 0 12px">${ultimaVez ? `Veio por último em ${fmtData(ultimaVez)}` : 'Ainda não veio a nenhum encontro marcado'}</p>
+          <div class="historico">${historico.slice(0, 20).reverse().map((h) => `<i class="${h.presente ? 'p' : 'f'}" title="${fmtData(h.data)}: ${h.presente ? 'presente' : 'faltou'}${h.justificativa ? ' (' + esc(h.justificativa) + ')' : ''}"></i>`).join('')}</div>
+          <p class="hint" style="margin-top:6px">Últimas ${Math.min(20, historico.length)} sextas, da mais antiga para a mais recente. Verde = presente.</p>`
+        : '<p class="muted">Sem chamadas registradas ainda.</p>'}
+      </div></section>
     </div>
 
-    <div class="card mt">
-      <div class="card-head"><h2>Acompanhamento pastoral</h2></div>
-      ${casos.length ? `<div class="list">${casos.map((c) => `
-        <div class="list-item"><span class="dot" style="background:${c.status === 'concluido' ? 'var(--ok)' : c.status === 'em_andamento' ? 'var(--warn)' : 'var(--bad)'}"></span>
-          <div class="grow"><b>${esc(c.motivo || 'Acompanhamento')}</b><span>Responsável: ${esc(c.responsavel_nome)} · aberto ${tempoRelativo(c.aberto_em)}</span></div>
-          <span class="badge">${{ aberto: 'Aberto', em_andamento: 'Em andamento', concluido: 'Concluído' }[c.status]}</span></div>`).join('')}</div>`
-        : '<p class="muted small" style="margin:0">Nenhum acompanhamento registrado.</p>'}
-    </div>
+    <section class="painel mt"><div class="painel-topo"><h2>Pastoral</h2>
+      ${casoAberto ? '' : '<button class="link-btn" id="acompanhar">Abrir acompanhamento</button>'}</div>
+      <div class="painel-corpo">
+        ${casos.length ? `<table class="tabela"><tbody>${casos.map((c) => `<tr class="clicavel" data-caso="${c.id}">
+          <td><span class="status-dot st-${c.status}"></span>${STATUS[c.status]}</td><td>${esc(c.motivo || '')}</td>
+          <td class="some-mobile">${esc(c.responsavel_nome)}</td><td class="dir muted">${fmtData(c.dt_abertura)}</td></tr>`).join('')}</tbody></table>`
+        : '<p class="muted">Nenhum acompanhamento.</p>'}
+      </div></section>`;
 
-    ${isAdmin() ? `<div class="card mt" style="border-color:#f4c6c6">
-      <div class="card-head" style="margin:0"><div><h3>Zona de cuidado</h3><p>Prefira inativar. Excluir apaga também o histórico de presença.</p></div>
-      <button class="btn btn-danger btn-sm" id="excluir">${icon('trash')} Excluir</button></div></div>` : ''}`;
-
-  $('#pastoral').addEventListener('click', () => abrirCaso({ pessoa: p, motivo: seguidas >= 2 ? `${seguidas} faltas seguidas` : '', aoSalvar: () => { atualizarBadges(); perfil(content, { id }); } }));
-  $('#excluir')?.addEventListener('click', async () => {
-    if (!(await confirmar(`Excluir definitivamente ${p.nome}? Essa ação não pode ser desfeita.`, { ok: 'Excluir', perigo: true }))) return;
-    try {
-      if (p.foto_path) await sb.storage.from('fotos').remove([p.foto_path]);
-      ok(await sb.from('pessoas').delete().eq('id', id));
-      toast('Cadastro excluído.');
-      navegar('/pessoas');
-    } catch (e) { toastErro(e); }
-  });
+  $('#acompanhar')?.addEventListener('click', () => abrirAcompanhamento({
+    pessoa: p, motivo: seguidas >= 2 ? `${seguidas} faltas seguidas` : '',
+    depois: () => { atualizarContadores(); perfil(conteudo, { id }); },
+  }));
+  conteudo.querySelectorAll('[data-caso]').forEach((tr) => tr.addEventListener('click', () => navegar(`/pastoral?caso=${tr.dataset.caso}`)));
 }

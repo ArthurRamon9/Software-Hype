@@ -1,48 +1,42 @@
-// Gestão de acessos (somente administradores)
+// Acessos ao sistema (só administradores)
 // © Arthur Ramon da Silva — Todos os direitos reservados.
-import { sb, ok, store } from '../supabase.js';
-import { icon, esc, toast, toastErro, avatar, fmtData, confirmar } from '../ui.js';
-import { atualizarBadges } from '../app.js';
+import { api, sessao } from '../api.js';
+import { esc, aviso, avisoErro, fmtData, confirmar } from '../ui.js';
+import { atualizarContadores } from '../app.js';
 
 const PAPEIS = { admin: 'Administrador', lider: 'Líder', servo: 'Servo' };
 
-export async function render(content) {
-  const users = ok(await sb.from('profiles').select('*').order('cd_status').order('nome'));
-  const pend = users.filter((u) => u.cd_status === 0);
+export async function render(conteudo) {
+  const usuarios = await api('GET', '/usuarios');
+  const ativos = usuarios.filter((u) => u.cd_status);
+  const bloqueados = usuarios.filter((u) => !u.cd_status);
 
-  content.innerHTML = `
-    <div class="page-head"><div><h1>Acessos</h1><p>Quem pode entrar no sistema. Novas contas precisam ser aprovadas aqui.</p></div></div>
-    <div class="notice info" style="margin-bottom:16px">${icon('info')}<span><b>Administrador</b>: tudo, inclusive aprovar acessos e excluir registros.
-      <b>Líder</b> e <b>Servo</b>: cadastram, marcam presença e usam a pastoral (a diferença serve para organização).</span></div>
-    ${pend.length ? `<div class="card" style="margin-bottom:16px;border-color:#f5d48f">
-      <div class="card-head"><h2>Aguardando aprovação (${pend.length})</h2></div>
-      <div class="list">${pend.map((u) => `<div class="list-item">${avatar(u.nome, null, 'sm')}<div class="grow"><b>${esc(u.nome)}</b><span>${esc(u.email)} · pediu em ${fmtData(u.created_at)}</span></div>
-        <button class="btn btn-ghost btn-sm" data-recusar="${u.id}">Recusar</button><button class="btn btn-primary btn-sm" data-aprovar="${u.id}">${icon('check')} Aprovar</button></div>`).join('')}</div></div>` : ''}
-    <div class="card">
-      <div class="card-head"><h2>Usuários</h2></div>
-      <div class="table-wrap"><table class="table"><thead><tr><th>Nome</th><th>Papel</th><th>Status</th><th></th></tr></thead><tbody>
-      ${users.filter((u) => u.cd_status === 1 || !pend.includes(u)).map((u) => `<tr>
-        <td><div style="display:flex;gap:10px;align-items:center">${avatar(u.nome, null, 'sm')}<div><b>${esc(u.nome)}</b><div class="muted small">${esc(u.email)}</div></div></div></td>
-        <td><select class="input" data-papel="${u.id}" style="height:36px;width:auto" ${u.id === store.profile.id ? 'disabled' : ''}>
-          ${Object.entries(PAPEIS).map(([k, v]) => `<option value="${k}" ${u.papel === k ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
-        <td>${u.cd_status ? '<span class="badge ok">Ativo</span>' : '<span class="badge bad">Bloqueado</span>'}</td>
-        <td class="num">${u.id === store.profile.id ? '<span class="muted small">você</span>' : `<button class="btn btn-ghost btn-sm" data-status="${u.id}" data-v="${u.cd_status ? 0 : 1}">${u.cd_status ? 'Bloquear' : 'Reativar'}</button>`}</td>
-      </tr>`).join('')}
-      </tbody></table></div>
-    </div>`;
+  conteudo.innerHTML = `
+    <div class="cabecalho"><div><h1>Acessos</h1><p class="sub">Quem pode entrar no sistema.</p></div></div>
+    ${bloqueados.length ? `<section class="painel" style="margin-bottom:16px"><div class="painel-topo"><h2>Aguardando liberação</h2></div><div class="painel-corpo">
+      <div class="lista">${bloqueados.map((u) => `<div><div class="cresce">${esc(u.nome)}<span>${esc(u.email)} · conta criada em ${fmtData(u.dt_criacao)}</span></div>
+        <button class="link-btn danger small" data-recusar="${u.id}">Recusar</button><button class="btn sm primary" data-liberar="${u.id}">Liberar</button></div>`).join('')}</div>
+    </div></section>` : ''}
+    <section class="painel"><div class="tabela-wrap"><table class="tabela">
+      <thead><tr><th>Nome</th><th>Papel</th><th class="some-mobile">Último acesso</th><th></th></tr></thead>
+      <tbody>${ativos.map((u) => `<tr>
+        <td>${esc(u.nome)}<div class="muted small">${esc(u.email)}</div></td>
+        <td>${u.id === sessao.usuario.id ? PAPEIS[u.papel] : `<select class="input" data-papel="${u.id}" style="width:auto;height:30px">${Object.entries(PAPEIS).map(([k, v]) => `<option value="${k}" ${u.papel === k ? 'selected' : ''}>${v}</option>`).join('')}</select>`}</td>
+        <td class="some-mobile muted">${u.dt_ultimo_login ? fmtData(u.dt_ultimo_login) : 'nunca'}</td>
+        <td class="dir">${u.id === sessao.usuario.id ? '<span class="muted small">você</span>' : `<button class="link-btn danger small" data-bloquear="${u.id}">Bloquear</button>`}</td></tr>`).join('')}</tbody>
+    </table></div></section>
+    <p class="hint" style="margin-top:12px">Administrador pode tudo, inclusive liberar acessos e excluir registros. Líder e Servo cadastram, fazem chamada e usam a Pastoral.</p>`;
 
-  const atualizar = async (id, dados, msg) => {
-    try { ok(await sb.from('profiles').update(dados).eq('id', id)); toast(msg); atualizarBadges(); render(content); } catch (e) { toastErro(e); }
+  const alterar = async (id, corpo, msg) => {
+    try { await api('PUT', `/usuarios/${id}`, corpo); aviso(msg); atualizarContadores(); render(conteudo); } catch (e) { avisoErro(e); }
   };
-  content.querySelectorAll('[data-aprovar]').forEach((b) => b.addEventListener('click', () => atualizar(b.dataset.aprovar, { cd_status: 1 }, 'Acesso aprovado!')));
-  content.querySelectorAll('[data-recusar]').forEach((b) => b.addEventListener('click', async () => {
-    if (!(await confirmar('Recusar e remover este pedido de acesso?', { ok: 'Recusar', perigo: true }))) return;
-    try { ok(await sb.from('profiles').delete().eq('id', b.dataset.recusar)); toast('Pedido removido.'); atualizarBadges(); render(content); } catch (e) { toastErro(e); }
+  conteudo.querySelectorAll('[data-liberar]').forEach((b) => b.addEventListener('click', () => alterar(b.dataset.liberar, { cd_status: 1 }, 'Acesso liberado.')));
+  conteudo.querySelectorAll('[data-papel]').forEach((s) => s.addEventListener('change', () => alterar(s.dataset.papel, { papel: s.value }, 'Papel alterado.')));
+  conteudo.querySelectorAll('[data-bloquear]').forEach((b) => b.addEventListener('click', async () => {
+    if (await confirmar('Bloquear o acesso desta pessoa? Ela volta para a lista de aguardando liberação.', { botao: 'Bloquear', perigo: true })) alterar(b.dataset.bloquear, { cd_status: 0 }, 'Acesso bloqueado.');
   }));
-  content.querySelectorAll('[data-papel]').forEach((s) => s.addEventListener('change', () => atualizar(s.dataset.papel, { papel: s.value }, 'Papel atualizado.')));
-  content.querySelectorAll('[data-status]').forEach((b) => b.addEventListener('click', async () => {
-    const v = Number(b.dataset.v);
-    if (!v && !(await confirmar('Bloquear o acesso deste usuário?', { ok: 'Bloquear', perigo: true }))) return;
-    atualizar(b.dataset.status, { cd_status: v }, v ? 'Acesso reativado.' : 'Acesso bloqueado.');
+  conteudo.querySelectorAll('[data-recusar]').forEach((b) => b.addEventListener('click', async () => {
+    if (!(await confirmar('Recusar e apagar esta conta?', { botao: 'Recusar', perigo: true }))) return;
+    try { await api('DELETE', `/usuarios/${b.dataset.recusar}`); aviso('Conta apagada.'); atualizarContadores(); render(conteudo); } catch (e) { avisoErro(e); }
   }));
 }
