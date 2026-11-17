@@ -4,6 +4,9 @@ import { api, pode } from '../api.js';
 import { esc, aviso, avisoErro, ocupado, janela, confirmar } from '../ui.js';
 import { navegar } from '../app.js';
 
+// Paleta de cores para os ministérios (combina com o resto do sistema)
+const CORES = ['#f0561d', '#e0a020', '#1f8a57', '#2a9d8f', '#2a78d6', '#5b4bd6', '#c2417a', '#b03a2e', '#6b5b45', '#4b4852'];
+
 export async function render(conteudo) {
   const lista = await api('GET', '/ministerios');
   conteudo.innerHTML = `
@@ -17,12 +20,13 @@ export async function render(conteudo) {
         <td class="dir">${pode('ministerios.editar') ? `<button class="link-btn" data-editar="${m.id}">Editar</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="4" class="vazio">Nenhum ministério.</td></tr>'}</tbody>
     </table></div></div>`;
 
-  const editar = (m = { nome: '', descricao: '', cor: '#1d5c4f', cd_status: 1 }) => janela({
+  const editar = (m = { nome: '', descricao: '', cor: CORES[0], cd_status: 1 }) => janela({
     titulo: m.id ? 'Editar ministério' : 'Novo ministério',
     corpo: `<form id="fm" style="display:grid;gap:12px">
       <div class="field"><label for="mn">Nome *</label><input class="input" id="mn" value="${esc(m.nome)}" required></div>
       <div class="field"><label for="md">Descrição</label><input class="input" id="md" value="${esc(m.descricao || '')}"></div>
-      <div class="field"><label for="mc">Cor</label><input type="color" id="mc" value="${esc(m.cor)}" style="width:48px;height:32px;padding:0;border:1px solid var(--line-2);border-radius:4px"></div>
+      <div class="field"><span class="label">Cor</span>
+        <div class="cores">${CORES.map((c) => `<label style="--c:${c}" title="${c}"><input type="radio" name="cor" value="${c}" ${(m.cor || CORES[0]).toLowerCase() === c ? 'checked' : ''}></label>`).join('')}</div></div>
       ${m.id ? `<label class="check"><input type="checkbox" id="ma" ${m.cd_status ? 'checked' : ''}>Ativo</label>` : ''}
       <div class="janela-acoes" style="justify-content:space-between">
         ${m.id && pode('ministerios.editar') ? '<button type="button" class="link-btn danger" id="del">Excluir</button>' : '<span></span>'}
@@ -31,7 +35,7 @@ export async function render(conteudo) {
       j.querySelector('#mn').focus();
       j.querySelector('#fm').addEventListener('submit', async (e) => {
         e.preventDefault();
-        const corpo = { nome: j.querySelector('#mn').value, descricao: j.querySelector('#md').value, cor: j.querySelector('#mc').value, cd_status: m.id ? (j.querySelector('#ma').checked ? 1 : 0) : 1 };
+        const corpo = { nome: j.querySelector('#mn').value, descricao: j.querySelector('#md').value, cor: j.querySelector('input[name=cor]:checked')?.value || CORES[0], cd_status: m.id ? (j.querySelector('#ma').checked ? 1 : 0) : 1 };
         await ocupado(e.submitter, async () => {
           try { await api(m.id ? 'PUT' : 'POST', m.id ? `/ministerios/${m.id}` : '/ministerios', corpo); aviso('Salvo.'); fechar(); render(conteudo); } catch (err) { avisoErro(err); }
         });

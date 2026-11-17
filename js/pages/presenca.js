@@ -38,7 +38,7 @@ async function desenhar(conteudo) {
         <span class="contagem" id="contagem"></span>
       </div>
       <div class="filtros">
-        <input class="input busca" id="busca" type="search" placeholder="Procurar nome">
+        <input class="input busca" id="busca" type="search" placeholder="Procurar nome (ex-visitantes aparecem na busca)">
         <input class="input" id="tema" placeholder="Tema da noite (opcional)" value="${esc(encontro?.tema || '')}" style="flex:1;min-width:200px">
       </div>
       <div class="chamada" id="chamada"></div>
@@ -52,16 +52,20 @@ async function desenhar(conteudo) {
   const contar = () => {
     let p = 0, f = 0;
     lista.forEach((x) => { const v = marca.get(x.id); if (v === true) p++; else if (v === false) f++; });
-    const resto = lista.length - p - f;
+    const resto = lista.filter((x) => x.tipo !== 'ex_visitante' && !marca.has(x.id)).length;
     $('#contagem').innerHTML = `<span class="p">${p} presente${p === 1 ? '' : 's'}</span><span class="f">${f} ausente${f === 1 ? '' : 's'}</span>${resto ? `<span>${resto} sem marcar</span>` : ''}`;
   };
   const linha = (p) => {
     const v = marca.get(p.id), j = just.get(p.id);
     return `<div data-id="${p.id}" class="${v === true ? 'marcado-p' : v === false ? 'marcado-f' : ''}">${foto(p.nome, urlFoto(p.id, p.foto_v))}
-      <div class="nome"><b>${esc(p.nome)}</b><span>${TIPOS[p.tipo]}${v === false ? ` · <button class="link-btn small" data-just>${j ? esc(j) : 'justificar'}</button>` : ''}</span></div>
+      <div class="nome"><b>${esc(p.nome)}${p.referencia ? ` <span class="ref">${esc(p.referencia)}</span>` : ''}</b><span>${TIPOS[p.tipo]}${v === false ? ` · <button class="link-btn small" data-just>${j ? esc(j) : 'justificar'}</button>` : ''}</span></div>
       <div class="pf"><button data-v="1" class="${v === true ? 'p' : ''}" aria-label="Presente">P</button><button data-v="0" class="${v === false ? 'f' : ''}" aria-label="Ausente">F</button></div></div>`;
   };
-  const visiveis = () => { const b = semAcento(busca); return lista.filter((p) => !b || semAcento(p.nome).includes(b)); };
+  // Ex-visitantes ficam fora da lista padrão (aparecem na busca ou se já foram marcados)
+  const visiveis = () => {
+    const b = semAcento(busca);
+    return lista.filter((p) => (b ? semAcento(`${p.nome} ${p.referencia || ''}`).includes(b) : (p.tipo !== 'ex_visitante' || marca.has(p.id))));
+  };
   const pintar = () => {
     const v = visiveis();
     $('#chamada').innerHTML = v.length ? v.map(linha).join('') : `<div class="vazio">${lista.length ? 'Ninguém com esse nome.' : '<b>Ninguém para chamar ainda</b>Cadastre as pessoas na aba Pessoas (ou importe a planilha) e volte aqui.'}</div>`;
@@ -94,7 +98,8 @@ async function desenhar(conteudo) {
 
   $('#busca').addEventListener('input', (e) => { busca = e.target.value; pintar(); });
   $('#tema').addEventListener('input', alterou);
-  $('#resto').onclick = () => { lista.forEach((p) => { if (!marca.has(p.id)) marca.set(p.id, false); }); alterou(); pintar(); };
+  // "Restantes como falta" não marca ex-visitantes (eles não são esperados na sexta)
+  $('#resto').onclick = () => { lista.forEach((p) => { if (!marca.has(p.id) && p.tipo !== 'ex_visitante') marca.set(p.id, false); }); alterou(); pintar(); };
 
   const irPara = async (nova) => {
     if (conteudo.dataset.alterado === '1' && !(await confirmar('Você tem marcações não salvas nesta data. Trocar mesmo assim?', { botao: 'Trocar' }))) { $('#data').value = dataSel; return; }
@@ -124,8 +129,8 @@ async function desenhar(conteudo) {
         if (nome.length < 2) return aviso('Informe o nome.', 'erro');
         await ocupado(ev.submitter, async () => {
           try {
-            const r = await api('POST', '/pessoas', { nome, tipo: 'visitante', telefone: j.querySelector('#vt').value, data_nascimento: j.querySelector('#vd').value || null, como_conheceu: j.querySelector('#vc').value, data_cadastro: dataSel });
-            lista = [...lista, { id: r.id, nome, tipo: 'visitante', cd_status: 1 }].sort((a, b) => a.nome.localeCompare(b.nome));
+            const r = await api('POST', '/pessoas', { nome, tipo: 'novo_visitante', telefone: j.querySelector('#vt').value, data_nascimento: j.querySelector('#vd').value || null, como_conheceu: j.querySelector('#vc').value, data_cadastro: dataSel });
+            lista = [...lista, { id: r.id, nome, tipo: 'novo_visitante', cd_status: 1 }].sort((a, b) => a.nome.localeCompare(b.nome));
             marca.set(r.id, true); alterou(); fechar(); pintar();
             aviso(`${nome.split(' ')[0]} cadastrado(a). Não esqueça de salvar a chamada.`);
           } catch (err) { avisoErro(err); }

@@ -1,7 +1,8 @@
 // Relatórios: semana, mês e ano
 // © Arthur Ramon da Silva — Todos os direitos reservados.
 import { api } from '../api.js';
-import { esc, $, $$, tagTipo, fmtData, fmtDiaMes, parseISO, isoLocal, pct, baixarCSV, TIPOS, direitos } from '../ui.js';
+import { esc, $, $$, tagTipo, fmtData, fmtDiaMes, parseISO, isoLocal, pct, TIPOS, ehMembro, direitos } from '../ui.js';
+import { baixarXLSX } from '../xlsx.js';
 import { barras, linhas, tabelaDados, COR } from '../charts.js';
 
 const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
@@ -38,7 +39,7 @@ export async function render(conteudo) {
 
   conteudo.innerHTML = `
     <div class="cabecalho nao-imprimir"><div><h1>Relatórios</h1></div>
-      <div class="acoes"><button class="btn" id="csv">Baixar CSV</button><button class="btn" id="imprimir">Imprimir</button></div></div>
+      <div class="acoes"><button class="btn" id="csv">Baixar planilha</button><button class="btn" id="imprimir">Imprimir</button></div></div>
     <div class="nao-imprimir" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
       <div class="abas" id="modo"><button data-m="semana">Semana</button><button data-m="mes">Mês</button><button data-m="ano">Ano</button></div>
       <select class="input" id="sel-enc" style="width:auto">${encontros.map((e) => `<option value="${e.id}">${fmtData(e.data)}${e.tema ? ' · ' + esc(e.tema) : ''}</option>`).join('') || '<option>Nenhuma chamada</option>'}</select>
@@ -65,7 +66,7 @@ export async function render(conteudo) {
   $('#sel-mes').addEventListener('change', (e) => { if (e.target.value) { estado.mes = e.target.value; gerar(); } });
   $('#sel-ano').addEventListener('change', (e) => { estado.ano = Number(e.target.value); gerar(); });
   $('#imprimir').onclick = () => window.print();
-  $('#csv').onclick = () => csv && baixarCSV(csv.nome, csv.linhas);
+  $('#csv').onclick = () => csv && baixarXLSX(csv.nome, csv.abas || [{ nome: 'Relatório', linhas: csv.linhas }]);
   await gerar();
   return () => { graficos.forEach((g) => g?.destroy()); graficos = []; };
 }
@@ -79,7 +80,8 @@ async function semana(rel, encontros) {
   const { presencas } = await periodo(enc.data, enc.data);
   const r = presencas.sort((a, b) => a.nome.localeCompare(b.nome));
   const pres = r.filter((p) => p.presente), aus = r.filter((p) => !p.presente);
-  const tipo = (t) => pres.filter((p) => p.tipo === t).length;
+  const membrosP = pres.filter((p) => ehMembro(p.tipo)).length;
+  const novos = pres.filter((p) => p.tipo === 'novo_visitante').length;
   const primeiraVez = pres.filter((p) => p.data_cadastro === enc.data).length;
 
   const tabela = (l, comMotivo) => l.length ? `<table class="tabela"><tbody>${l.map((p) => `<tr><td><a href="#/pessoas/${p.pessoa_id}">${esc(p.nome)}</a></td><td>${tagTipo(p.tipo)}</td>${comMotivo ? `<td class="muted">${esc(p.justificativa || '')}</td>` : ''}</tr>`).join('')}</tbody></table>` : '<p class="muted">Ninguém.</p>';
@@ -88,15 +90,15 @@ async function semana(rel, encontros) {
     <div class="numeros">
       ${numero('Presentes', pres.length, ant ? comparar(pres.length, ant.presentes) : '')}
       ${numero('Ausentes', aus.length, `${pct(pres.length, r.length)}% de presença`)}
-      ${numero('Membros presentes', tipo('membro'), `${tipo('frequentador')} frequentadores`)}
-      ${numero('Visitantes', tipo('visitante'), primeiraVez ? `${primeiraVez} na primeira vez` : '')}
+      ${numero('Membros presentes', membrosP, `${pct(membrosP, pres.length)}% dos presentes`)}
+      ${numero('Visitantes', pres.length - membrosP, novos ? `${novos} novo${novos > 1 ? 's' : ''} visitante${novos > 1 ? 's' : ''}${primeiraVez ? ` · ${primeiraVez} na primeira vez` : ''}` : '')}
     </div>
     ${enc.tema ? `<p style="margin-top:12px">Tema: ${esc(enc.tema)}</p>` : ''}
     <div class="colunas c2 mt">
       <section class="painel"><div class="painel-topo"><h2>Presentes (${pres.length})</h2></div><div class="painel-corpo">${tabela(pres)}</div></section>
       <section class="painel"><div class="painel-topo"><h2>Ausentes (${aus.length})</h2><span class="sub">para a Pastoral</span></div><div class="painel-corpo">${tabela(aus, true)}</div></section>
     </div>`;
-  return { nome: `chamada-${enc.data}.csv`, linhas: [['Nome', 'Tipo', 'Situação', 'Motivo da falta'], ...r.map((p) => [p.nome, TIPOS[p.tipo], p.presente ? 'Presente' : 'Ausente', p.justificativa || ''])] };
+  return { nome: `chamada-${enc.data}`, linhas: [['Nome', 'Referência', 'Situação', 'Presença', 'Motivo da falta'], ...r.map((p) => [p.nome, p.referencia, TIPOS[p.tipo], p.presente ? 'Presente' : 'Ausente', p.justificativa || ''])] };
 }
 
 // ---------------- Mês ----------------
@@ -108,7 +110,7 @@ async function mes(rel) {
 
   const porPessoa = new Map();
   atual.presencas.forEach((p) => {
-    const x = porPessoa.get(p.pessoa_id) || { id: p.pessoa_id, nome: p.nome, tipo: p.tipo, pres: 0, tot: 0 };
+    const x = porPessoa.get(p.pessoa_id) || { id: p.pessoa_id, nome: p.nome, referencia: p.referencia, tipo: p.tipo, pres: 0, tot: 0 };
     x.tot++; if (p.presente) x.pres++; porPessoa.set(p.pessoa_id, x);
   });
   const ranking = [...porPessoa.values()].sort((a, b) => b.pres / b.tot - a.pres / a.tot || a.nome.localeCompare(b.nome));
@@ -131,7 +133,10 @@ async function mes(rel) {
       ${ranking.map((p) => `<tr><td><a href="#/pessoas/${p.id}">${esc(p.nome)}</a></td><td>${tagTipo(p.tipo)}</td><td class="dir num">${p.pres} de ${p.tot}</td><td class="dir num">${pct(p.pres, p.tot)}%</td></tr>`).join('')}
       </tbody></table></div></div></section>`;
   graficos.push(barras($('#g-mes'), { rotulos: A.porEnc.map((e) => fmtDiaMes(e.data)), series: [{ rotulo: 'Presentes', dados: A.porEnc.map((e) => e.presentes), cor: COR.s1 }] }));
-  return { nome: `frequencia-${estado.mes}.csv`, linhas: [['Nome', 'Tipo', 'Presenças', 'Encontros', '%'], ...ranking.map((p) => [p.nome, TIPOS[p.tipo], p.pres, p.tot, pct(p.pres, p.tot)])] };
+  return { nome: `frequencia-${estado.mes}`, abas: [
+    { nome: 'Frequência', linhas: [['Nome', 'Referência', 'Situação', 'Presenças', 'Sextas marcadas', '%'], ...ranking.map((p) => [p.nome, p.referencia, TIPOS[p.tipo], p.pres, p.tot, pct(p.pres, p.tot)])] },
+    { nome: 'Por sexta', linhas: [['Data', 'Tema', 'Presentes', 'Ausentes'], ...A.porEnc.map((e) => [e.data, e.tema, e.presentes, e.ausentes])] },
+  ] };
 }
 
 // ---------------- Ano ----------------
@@ -157,5 +162,5 @@ async function ano(rel) {
       ${tabelaDados(MESES, [{ rotulo: String(y), dados: mA }, ...(B ? [{ rotulo: String(y - 1), dados: mB }] : [])])}
     </div></section>`;
   graficos.push(linhas($('#g-ano'), { rotulos: MESES, series: [{ rotulo: String(y), dados: mA, cor: COR.s1 }, ...(B ? [{ rotulo: String(y - 1), dados: mB, cor: COR.s2, tracejado: true }] : [])] }));
-  return { nome: `ano-${y}.csv`, linhas: [['Mês', `Média ${y}`, ...(B ? [`Média ${y - 1}`] : [])], ...MESES.map((m, i) => [m, mA[i] ?? '', ...(B ? [mB[i] ?? ''] : [])])] };
+  return { nome: `ano-${y}`, linhas: [['Mês', `Média ${y}`, ...(B ? [`Média ${y - 1}`] : [])], ...MESES.map((m, i) => [m, mA[i] ?? '', ...(B ? [mB[i] ?? ''] : [])])] };
 }

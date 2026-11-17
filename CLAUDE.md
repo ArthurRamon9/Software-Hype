@@ -17,6 +17,9 @@
 - API: Netlify Function (`netlify/functions/api.mjs`, rota `/api/*`) que chama `api/src/http.js` → `api/src/rotas.js`. Dependências no `package.json` da raiz.
 - Banco: SQL Server no MonsterASP.NET (grátis, sem cartão). Mudanças de estrutura vão em `sql/01_estrutura.sql` (idempotente).
 - `cd_status`: 1 = ativo, 0 = inativo.
+- Situações da pessoa (`pessoas.tipo`): novo_visitante, visitante_regular, novo_membro, membro, membro_ativo, ex_visitante. Membro = novo_membro/membro/membro_ativo (`ehMembro()` em `js/ui.js`).
+- Exportações sempre em **.xlsx** (`js/xlsx.js`), nunca CSV: é o que o pessoal usa.
+- A migração da planilha antiga (Hype_2026.xlsx) é feita por um script gerado fora do repositório, porque contém dados pessoais. Nunca commitar dados de pessoas.
 - Segurança (não regredir): senhas só em bcrypt; sessão em cookie HttpOnly/SameSite=Strict; toda rota declara permissão (tabela no topo de `api/src/rotas.js`) e a API recusa rota sem permissão definida; escrita exige cabeçalho `X-Hype: 1`; CSP sem scripts inline (nada de `onclick=` no HTML); sempre usar `esc()` ao montar HTML com dados; consultas SQL só com parâmetros; o site usa o usuário de banco `hype_app` (sem DDL).
 - Permissões por grupos: tabelas `grupos`, `permissoes`, `grupo_permissao`, `usuario_grupo`. Nova funcionalidade = nova permissão no MERGE de `sql/01_estrutura.sql` + entrada na tabela de rotas + checagem `pode()` na tela.
 - Teste local: `npm run dev` (site + API em http://localhost:4280).

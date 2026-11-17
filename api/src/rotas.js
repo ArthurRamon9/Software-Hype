@@ -33,12 +33,6 @@ const PERMISSAO_DA_ROTA = {
   'POST /presenca':                   'presenca.marcar',
   'GET /encontros':                   'relatorios.ver',
   'DELETE /encontros/:id':            'presenca.excluir',
-  'GET /pastoral':                    'pastoral.ver',
-  'GET /pastoral/casos/:id':          'pastoral.ver',
-  'POST /pastoral/casos':             'pastoral.editar',
-  'PUT /pastoral/casos/:id':          'pastoral.editar',
-  'POST /pastoral/casos/:id/registros': 'pastoral.editar',
-  'DELETE /pastoral/casos/:id':       'pastoral.excluir',
   'GET /painel':                      'aprovado',
   'GET /contadores':                  'aprovado',
   'GET /relatorios':                  'relatorios.ver',
@@ -276,10 +270,14 @@ rota('GET', '/acessos/atividades', async () => query(`
 
 rota('GET', '/responsaveis', async () => query('SELECT id, nome FROM dbo.usuarios WHERE cd_status = 1 ORDER BY nome'), 'pastoral.editar');
 
-rota('GET', '/contadores', async ({ usuario }) => umaLinha(`
-  SELECT CASE WHEN @past = 1 THEN (SELECT COUNT(*) FROM dbo.pastoral_casos WHERE status <> 'concluido') ELSE 0 END AS pastoral,
-         CASE WHEN @adm = 1 THEN (SELECT COUNT(*) FROM dbo.usuarios WHERE cd_status = 0) ELSE 0 END AS pendentes`,
-{ past: pode(usuario, 'pastoral.ver') ? 1 : 0, adm: pode(usuario, 'acessos.gerenciar') ? 1 : 0 }));
+rota('GET', '/contadores', async ({ usuario }) => {
+  const r = await umaLinha(`
+    SELECT CASE WHEN @past = 1 THEN (SELECT COUNT(*) FROM dbo.pastoral_casos WHERE area = 'pastoral' AND status <> 'concluido') ELSE 0 END AS pastoral,
+           CASE WHEN @adm = 1 THEN (SELECT COUNT(*) FROM dbo.usuarios WHERE cd_status = 0) ELSE 0 END AS pendentes`,
+  { past: pode(usuario, 'pastoral.ver') ? 1 : 0, adm: pode(usuario, 'acessos.gerenciar') ? 1 : 0 });
+  r.integracao = pode(usuario, 'integracao.ver') ? (await visitantesSemContato()).length : 0;
+  return r;
+});
 
 // ------------------------------------------------------------------ MINISTÉRIOS
 rota('GET', '/ministerios', async () => query(`
@@ -310,8 +308,11 @@ const ids = (s) => (s ? String(s).split(',').map(Number) : []);
 
 rota('GET', '/pessoas', async () => {
   const rows = await query(`
-    SELECT p.id, p.nome, p.tipo, p.data_nascimento, p.telefone, p.email, p.batizado, p.data_cadastro, p.cd_status,
+    SELECT p.id, p.nome, p.referencia, p.tipo, p.data_nascimento, p.telefone, p.email, p.instagram, p.batizado, p.data_cadastro, p.cd_status,
+           p.endereco, p.como_conheceu, p.grupo_cultivo, p.integrado_por,
            CONVERT(VARCHAR(30), f.dt_atualizacao, 126) AS foto_v,
+           (SELECT MAX(e.data) FROM dbo.presencas pr JOIN dbo.encontros e ON e.id = pr.encontro_id WHERE pr.pessoa_id = p.id AND pr.presente = 1) AS ultima_presenca,
+           (SELECT COUNT(*) FROM dbo.presencas pr WHERE pr.pessoa_id = p.id AND pr.presente = 1) AS presencas,
            (SELECT STRING_AGG(CAST(pm.ministerio_id AS VARCHAR(10)), ',') FROM dbo.pessoa_ministerio pm WHERE pm.pessoa_id = p.id) AS ministerios
     FROM dbo.pessoas p LEFT JOIN dbo.pessoas_foto f ON f.pessoa_id = p.id
     ORDER BY p.nome`);
@@ -327,13 +328,17 @@ rota('GET', '/pessoas/:id', async ({ params, usuario }) => {
     FROM dbo.pessoas p LEFT JOIN dbo.pessoas_foto f ON f.pessoa_id = p.id WHERE p.id = @id;
     SELECT e.data, pr.presente, pr.justificativa FROM dbo.presencas pr JOIN dbo.encontros e ON e.id = pr.encontro_id
      WHERE pr.pessoa_id = @id ORDER BY e.data DESC;
-    SELECT id, responsavel_nome, motivo, status, dt_abertura, dt_conclusao FROM dbo.pastoral_casos WHERE pessoa_id = @id ORDER BY dt_abertura DESC;`,
+    SELECT id, area, responsavel_nome, motivo, status, dt_abertura, dt_conclusao,
+           (SELECT COUNT(*) FROM dbo.pastoral_registros r WHERE r.caso_id = c.id) AS contatos
+      FROM dbo.pastoral_casos c WHERE pessoa_id = @id ORDER BY dt_abertura DESC;`,
   { id }, { todos: true });
   if (!pessoa[0]) throw new HttpError(404, 'Pessoa não encontrada.');
   pessoa[0].ministerios = ids(pessoa[0].ministerios);
-  return { pessoa: pessoa[0], historico, casos: pode(usuario, 'pastoral.ver') ? casos : null };
+  const areas = ['pastoral', 'integracao'].filter((a) => pode(usuario, `${a}.ver`));
+  return { pessoa: pessoa[0], historico, casos: areas.length ? casos.filter((c) => areas.includes(c.area)) : null, areas };
 });
 
+const SITUACOES = ['novo_visitante', 'visitante_regular', 'ex_visitante', 'novo_membro', 'membro', 'membro_ativo'];
 function dadosPessoa(b) {
   const nome = txt(b.nome, 150);
   if (!nome || nome.length < 2) throw new HttpError(400, 'Informe o nome.');
@@ -342,9 +347,11 @@ function dadosPessoa(b) {
     data_nascimento: (() => { const d = dataISO(b.data_nascimento); if (d && d > hojeUTC()) throw new HttpError(400, 'A data de nascimento não pode ser no futuro.'); return d; })(),
     sexo: ['M', 'F'].includes(b.sexo) ? b.sexo : null,
     telefone: txt(b.telefone, 30), email: txt(b.email, 200), instagram: txt(b.instagram, 60), endereco: txt(b.endereco, 250),
-    tipo: ['membro', 'visitante', 'frequentador'].includes(b.tipo) ? b.tipo : 'visitante',
-    batizado: !!b.batizado,
-    como_conheceu: txt(b.como_conheceu, 150), observacoes: txt(b.observacoes, 4000),
+    tipo: SITUACOES.includes(b.tipo) ? b.tipo : 'novo_visitante',
+    batizado: b.batizado === true || b.batizado === 1 || b.batizado === 'sim' ? 1 : (b.batizado === false || b.batizado === 0 || b.batizado === 'nao' ? 0 : null),
+    referencia: txt(b.referencia, 150), grupo_cultivo: txt(b.grupo_cultivo, 300), discipulado_por: txt(b.discipulado_por, 300),
+    batismo_detalhe: txt(b.batismo_detalhe, 200), integrado_por: txt(b.integrado_por, 120),
+    como_conheceu: txt(b.como_conheceu, 1000), observacoes: txt(b.observacoes, 8000),
     data_cadastro: dataISO(b.data_cadastro) || new Date().toISOString().slice(0, 10),
     cd_status: b.cd_status === 0 ? 0 : 1,
     ministerios: JSON.stringify((Array.isArray(b.ministerios) ? b.ministerios : []).map(Number).filter(Number.isInteger)),
@@ -359,8 +366,10 @@ rota('POST', '/pessoas', async ({ body, usuario, ip }) => {
   const d = dadosPessoa(body);
   const r = await umaLinha(`
     SET XACT_ABORT ON; BEGIN TRAN;
-    INSERT INTO dbo.pessoas (nome, data_nascimento, sexo, telefone, email, instagram, endereco, tipo, batizado, como_conheceu, observacoes, data_cadastro, cd_status, criado_por)
-    VALUES (@nome, @data_nascimento, @sexo, @telefone, @email, @instagram, @endereco, @tipo, @batizado, @como_conheceu, @observacoes, @data_cadastro, @cd_status, @uid);
+    INSERT INTO dbo.pessoas (nome, referencia, data_nascimento, sexo, telefone, email, instagram, endereco, tipo, batizado, batismo_detalhe,
+      grupo_cultivo, discipulado_por, integrado_por, como_conheceu, observacoes, data_cadastro, cd_status, criado_por)
+    VALUES (@nome, @referencia, @data_nascimento, @sexo, @telefone, @email, @instagram, @endereco, @tipo, @batizado, @batismo_detalhe,
+      @grupo_cultivo, @discipulado_por, @integrado_por, @como_conheceu, @observacoes, @data_cadastro, @cd_status, @uid);
     DECLARE @pid INT = SCOPE_IDENTITY();
     ${SQL_MINISTERIOS}
     COMMIT;
@@ -390,7 +399,7 @@ rota('POST', '/pessoas/importar', async ({ body, usuario, ip }) => {
       const mins = String(l.ministerios_nomes || '').split(/[,;/]+/).map((n) => n.trim()).filter(Boolean)
         .map((n) => { const id = porNome.get(chave(n)); if (!id) ignorados.add(n); return id; }).filter(Boolean);
       delete d.ministerios;
-      validas.push({ ...d, batizado: d.batizado ? 1 : 0, idx, ministerios: [...new Set(mins)] });
+      validas.push({ ...d, idx, ministerios: [...new Set(mins)] });
     } catch { /* linha sem nome válido: ignora */ }
   });
   if (!validas.length) throw new HttpError(400, 'Nenhuma linha tem nome válido.');
@@ -400,13 +409,16 @@ rota('POST', '/pessoas/importar', async ({ body, usuario, ip }) => {
     MERGE dbo.pessoas AS t
     USING (
       SELECT j.* FROM OPENJSON(@json) WITH (
-        idx INT, nome NVARCHAR(150), data_nascimento DATE, sexo CHAR(1), telefone VARCHAR(30), email NVARCHAR(200),
-        instagram NVARCHAR(60), endereco NVARCHAR(250), tipo VARCHAR(15), batizado BIT, como_conheceu NVARCHAR(150),
+        idx INT, nome NVARCHAR(150), referencia NVARCHAR(150), data_nascimento DATE, sexo CHAR(1), telefone VARCHAR(30), email NVARCHAR(200),
+        instagram NVARCHAR(60), endereco NVARCHAR(250), tipo VARCHAR(20), batizado BIT, batismo_detalhe NVARCHAR(200), grupo_cultivo NVARCHAR(300),
+        discipulado_por NVARCHAR(300), integrado_por NVARCHAR(120), como_conheceu NVARCHAR(1000),
         observacoes NVARCHAR(MAX), data_cadastro DATE, cd_status TINYINT) j
       WHERE @pular = 0 OR NOT EXISTS (SELECT 1 FROM dbo.pessoas p WHERE p.nome = j.nome)
     ) AS s ON 1 = 0
-    WHEN NOT MATCHED THEN INSERT (nome, data_nascimento, sexo, telefone, email, instagram, endereco, tipo, batizado, como_conheceu, observacoes, data_cadastro, cd_status, criado_por)
-      VALUES (s.nome, s.data_nascimento, s.sexo, s.telefone, s.email, s.instagram, s.endereco, s.tipo, s.batizado, s.como_conheceu, s.observacoes, s.data_cadastro, s.cd_status, @uid)
+    WHEN NOT MATCHED THEN INSERT (nome, referencia, data_nascimento, sexo, telefone, email, instagram, endereco, tipo, batizado, batismo_detalhe,
+        grupo_cultivo, discipulado_por, integrado_por, como_conheceu, observacoes, data_cadastro, cd_status, criado_por)
+      VALUES (s.nome, s.referencia, s.data_nascimento, s.sexo, s.telefone, s.email, s.instagram, s.endereco, s.tipo, s.batizado, s.batismo_detalhe,
+        s.grupo_cultivo, s.discipulado_por, s.integrado_por, s.como_conheceu, s.observacoes, s.data_cadastro, s.cd_status, @uid)
     OUTPUT inserted.id, s.idx INTO @novos;
     INSERT INTO dbo.pessoa_ministerio (pessoa_id, ministerio_id)
     SELECT DISTINCT n.id, m.value
@@ -426,8 +438,9 @@ rota('PUT', '/pessoas/:id', async ({ params, body, usuario, ip }) => {
   await query(`
     SET XACT_ABORT ON; BEGIN TRAN;
     DECLARE @pid INT = @id;
-    UPDATE dbo.pessoas SET nome=@nome, data_nascimento=@data_nascimento, sexo=@sexo, telefone=@telefone, email=@email,
-      instagram=@instagram, endereco=@endereco, tipo=@tipo, batizado=@batizado, como_conheceu=@como_conheceu,
+    UPDATE dbo.pessoas SET nome=@nome, referencia=@referencia, data_nascimento=@data_nascimento, sexo=@sexo, telefone=@telefone, email=@email,
+      instagram=@instagram, endereco=@endereco, tipo=@tipo, batizado=@batizado, batismo_detalhe=@batismo_detalhe, grupo_cultivo=@grupo_cultivo,
+      discipulado_por=@discipulado_por, integrado_por=@integrado_por, como_conheceu=@como_conheceu,
       observacoes=@observacoes, data_cadastro=@data_cadastro, cd_status=@cd_status, dt_atualizacao=SYSUTCDATETIME()
     WHERE id = @pid;
     ${SQL_MINISTERIOS}
@@ -465,7 +478,7 @@ rota('GET', '/presenca', async ({ query: q }) => {
   const [enc, pessoas, registros] = await query(`
     DECLARE @eid INT = (SELECT id FROM dbo.encontros WHERE data = @data);
     SELECT id, data, tema FROM dbo.encontros WHERE id = @eid;
-    SELECT p.id, p.nome, p.tipo, p.cd_status, CONVERT(VARCHAR(30), f.dt_atualizacao, 126) AS foto_v
+    SELECT p.id, p.nome, p.referencia, p.tipo, p.cd_status, CONVERT(VARCHAR(30), f.dt_atualizacao, 126) AS foto_v
       FROM dbo.pessoas p LEFT JOIN dbo.pessoas_foto f ON f.pessoa_id = p.id
      WHERE p.cd_status = 1 OR EXISTS (SELECT 1 FROM dbo.presencas x WHERE x.encontro_id = @eid AND x.pessoa_id = p.id)
      ORDER BY p.nome;
@@ -488,8 +501,8 @@ rota('POST', '/presenca', async ({ body, usuario, ip }) => {
       SET @eid = SCOPE_IDENTITY();
     END ELSE UPDATE dbo.encontros SET tema = @tema WHERE id = @eid;
     DELETE FROM dbo.presencas WHERE encontro_id = @eid;
-    INSERT INTO dbo.presencas (encontro_id, pessoa_id, presente, justificativa, marcado_por)
-    SELECT @eid, j.pessoa_id, j.presente, j.justificativa, @uid
+    INSERT INTO dbo.presencas (encontro_id, pessoa_id, presente, justificativa, marcado_por, tipo_na_data)
+    SELECT @eid, j.pessoa_id, j.presente, j.justificativa, @uid, p.tipo
       FROM OPENJSON(@json) WITH (pessoa_id INT, presente BIT, justificativa NVARCHAR(200)) j
       JOIN dbo.pessoas p ON p.id = j.pessoa_id;
     COMMIT;
@@ -509,84 +522,119 @@ rota('DELETE', '/encontros/:id', async ({ params, usuario, ip }) => {
   return { ok: true };
 });
 
-// ------------------------------------------------------------------ PASTORAL
-// Jovens ativos com N+ faltas seguidas nos encontros mais recentes, sem caso aberto
+// ------------------------------------------------------------------ PASTORAL E INTEGRAÇÃO
+// As duas áreas usam a mesma estrutura de acompanhamento (casos + registros de contato),
+// separadas pela coluna "area". Cada área tem suas próprias permissões.
+const MEMBROS_SQL = "('novo_membro','membro','membro_ativo')";
+
+// Pastoral: quem já faz parte (visitante regular e membros), veio em algum dos últimos 6 encontros
+// e está com N+ faltas seguidas, sem acompanhamento pastoral aberto. Novos visitantes são da Integração.
 async function calcularAlertas() {
   const rows = await query(`
-    WITH ult AS (SELECT TOP 10 id, data FROM dbo.encontros ORDER BY data DESC)
-    SELECT p.id, p.nome, p.tipo, p.telefone, CONVERT(VARCHAR(30), f.dt_atualizacao, 126) AS foto_v,
+    WITH ult AS (SELECT TOP 6 e.id, e.data FROM dbo.encontros e WHERE EXISTS (SELECT 1 FROM dbo.presencas x WHERE x.encontro_id = e.id) ORDER BY e.data DESC)
+    SELECT p.id, p.nome, p.referencia, p.tipo, p.telefone, CONVERT(VARCHAR(30), f.dt_atualizacao, 126) AS foto_v,
            u.data, pr.presente
       FROM dbo.pessoas p
       JOIN dbo.presencas pr ON pr.pessoa_id = p.id
       JOIN ult u ON u.id = pr.encontro_id
       LEFT JOIN dbo.pessoas_foto f ON f.pessoa_id = p.id
-     WHERE p.cd_status = 1
-       AND NOT EXISTS (SELECT 1 FROM dbo.pastoral_casos c WHERE c.pessoa_id = p.id AND c.status <> 'concluido')
+     WHERE p.cd_status = 1 AND p.tipo IN ('visitante_regular','novo_membro','membro','membro_ativo')
+       AND NOT EXISTS (SELECT 1 FROM dbo.pastoral_casos c WHERE c.pessoa_id = p.id AND c.area = 'pastoral' AND c.status <> 'concluido')
      ORDER BY p.id, u.data DESC`);
   const porPessoa = new Map();
   for (const r of rows) {
     let a = porPessoa.get(r.id);
-    if (!a) { a = { pessoa: { id: r.id, nome: r.nome, tipo: r.tipo, telefone: r.telefone, foto_v: r.foto_v }, faltas: 0, ultimaPresenca: null, fim: false }; porPessoa.set(r.id, a); }
+    if (!a) { a = { pessoa: { id: r.id, nome: r.nome, referencia: r.referencia, tipo: r.tipo, telefone: r.telefone, foto_v: r.foto_v }, faltas: 0, ultimaPresenca: null, fim: false }; porPessoa.set(r.id, a); }
     if (a.fim) continue;
     if (r.presente) { a.ultimaPresenca = r.data; a.fim = true; } else a.faltas++;
   }
-  return [...porPessoa.values()].filter((a) => a.faltas >= FALTAS_ALERTA)
+  return [...porPessoa.values()].filter((a) => a.faltas >= FALTAS_ALERTA && a.ultimaPresenca)
     .map(({ fim, ...a }) => a).sort((x, y) => y.faltas - x.faltas || x.pessoa.nome.localeCompare(y.pessoa.nome));
 }
 
-rota('GET', '/pastoral', async () => {
-  const [alertas, casos] = await Promise.all([calcularAlertas(), query(`
-    SELECT TOP 300 c.id, c.pessoa_id, c.responsavel_nome, c.motivo, c.status, c.dt_abertura, c.dt_conclusao,
-           p.nome AS pessoa_nome, p.tipo AS pessoa_tipo, CONVERT(VARCHAR(30), f.dt_atualizacao, 126) AS foto_v,
-           (SELECT MAX(r.dt_criacao) FROM dbo.pastoral_registros r WHERE r.caso_id = c.id) AS ultimo_registro
-    FROM dbo.pastoral_casos c JOIN dbo.pessoas p ON p.id = c.pessoa_id LEFT JOIN dbo.pessoas_foto f ON f.pessoa_id = p.id
-    ORDER BY CASE c.status WHEN 'aberto' THEN 0 WHEN 'em_andamento' THEN 1 ELSE 2 END, c.dt_abertura DESC`)]);
-  return { alertas, casos };
-});
+// Integração: visitantes que chegaram nos últimos 60 dias e ainda não têm acompanhamento de integração
+async function visitantesSemContato() {
+  return (await query(`
+    SELECT p.id, p.nome, p.referencia, p.tipo, p.telefone, p.como_conheceu, CONVERT(VARCHAR(30), f.dt_atualizacao, 126) AS foto_v,
+           v.primeira, v.visitas
+      FROM dbo.pessoas p
+      LEFT JOIN dbo.pessoas_foto f ON f.pessoa_id = p.id
+      OUTER APPLY (SELECT MIN(e.data) AS primeira, COUNT(*) AS visitas FROM dbo.presencas pr JOIN dbo.encontros e ON e.id = pr.encontro_id
+                    WHERE pr.pessoa_id = p.id AND pr.presente = 1) v
+     WHERE p.cd_status = 1 AND p.tipo IN ('novo_visitante','visitante_regular')
+       AND COALESCE(v.primeira, p.data_cadastro) >= DATEADD(DAY, -60, CAST(GETDATE() AS DATE))
+       AND NOT EXISTS (SELECT 1 FROM dbo.pastoral_casos c WHERE c.pessoa_id = p.id AND c.area = 'integracao')
+     ORDER BY COALESCE(v.primeira, p.data_cadastro) DESC, p.nome`)).map((r) => ({
+    pessoa: { id: r.id, nome: r.nome, referencia: r.referencia, tipo: r.tipo, telefone: r.telefone, foto_v: r.foto_v, como_conheceu: r.como_conheceu },
+    primeiraVisita: r.primeira, visitas: r.visitas || 0,
+  }));
+}
 
-rota('GET', '/pastoral/casos/:id', async ({ params }) => {
-  const [caso, registros] = await query(`
-    SELECT c.*, p.nome AS pessoa_nome, p.tipo AS pessoa_tipo, p.telefone AS pessoa_telefone, CONVERT(VARCHAR(30), f.dt_atualizacao, 126) AS foto_v
-      FROM dbo.pastoral_casos c JOIN dbo.pessoas p ON p.id = c.pessoa_id LEFT JOIN dbo.pessoas_foto f ON f.pessoa_id = p.id WHERE c.id = @id;
-    SELECT id, texto, autor_nome, dt_criacao FROM dbo.pastoral_registros WHERE caso_id = @id ORDER BY dt_criacao DESC;`, { id: int(params.id) }, { todos: true });
-  if (!caso[0]) throw new HttpError(404, 'Caso não encontrado.');
-  return { caso: caso[0], registros };
-});
+function rotasDeAcompanhamento(area) {
+  const ver = `${area}.ver`, editar = `${area}.editar`;
+  rota('GET', `/${area}`, async () => {
+    const [alertas, casos] = await Promise.all([area === 'pastoral' ? calcularAlertas() : visitantesSemContato(), query(`
+      SELECT TOP 400 c.id, c.pessoa_id, c.responsavel_nome, c.motivo, c.status, c.dt_abertura, c.dt_conclusao,
+             p.nome AS pessoa_nome, p.referencia AS pessoa_referencia, p.tipo AS pessoa_tipo, CONVERT(VARCHAR(30), f.dt_atualizacao, 126) AS foto_v,
+             (SELECT MAX(r.dt_criacao) FROM dbo.pastoral_registros r WHERE r.caso_id = c.id) AS ultimo_registro,
+             (SELECT COUNT(*) FROM dbo.pastoral_registros r WHERE r.caso_id = c.id) AS contatos
+      FROM dbo.pastoral_casos c JOIN dbo.pessoas p ON p.id = c.pessoa_id LEFT JOIN dbo.pessoas_foto f ON f.pessoa_id = p.id
+      WHERE c.area = @area
+      ORDER BY CASE c.status WHEN 'aberto' THEN 0 WHEN 'em_andamento' THEN 1 ELSE 2 END, c.dt_abertura DESC`, { area })]);
+    return { alertas, casos };
+  }, ver);
 
-rota('POST', '/pastoral/casos', async ({ body, usuario }) => {
-  const responsavel = txt(body.responsavel_nome, 120);
-  if (!responsavel) throw new HttpError(400, 'Informe o responsável.');
-  await query(`
-    SET XACT_ABORT ON; BEGIN TRAN;
-    INSERT INTO dbo.pastoral_casos (pessoa_id, responsavel_nome, responsavel_id, motivo, criado_por)
-    VALUES (@pid, @resp, (SELECT TOP 1 id FROM dbo.usuarios WHERE nome = @resp AND cd_status = 1), @motivo, @uid);
-    DECLARE @cid INT = SCOPE_IDENTITY();
-    IF @nota IS NOT NULL INSERT INTO dbo.pastoral_registros (caso_id, texto, autor_nome, autor_id) VALUES (@cid, @nota, @autor, @uid);
-    COMMIT;`, { pid: int(body.pessoa_id), resp: responsavel, motivo: txt(body.motivo, 200), nota: txt(body.nota, 4000), uid: usuario.id, autor: usuario.nome });
-  return { ok: true };
-});
+  rota('GET', `/${area}/casos/:id`, async ({ params }) => {
+    const [caso, registros] = await query(`
+      SELECT c.*, p.nome AS pessoa_nome, p.referencia AS pessoa_referencia, p.tipo AS pessoa_tipo, p.telefone AS pessoa_telefone, CONVERT(VARCHAR(30), f.dt_atualizacao, 126) AS foto_v
+        FROM dbo.pastoral_casos c JOIN dbo.pessoas p ON p.id = c.pessoa_id LEFT JOIN dbo.pessoas_foto f ON f.pessoa_id = p.id WHERE c.id = @id AND c.area = @area;
+      SELECT r.id, r.texto, r.autor_nome, r.dt_criacao FROM dbo.pastoral_registros r JOIN dbo.pastoral_casos c ON c.id = r.caso_id
+       WHERE r.caso_id = @id AND c.area = @area ORDER BY r.dt_criacao DESC;`, { id: int(params.id), area }, { todos: true });
+    if (!caso[0]) throw new HttpError(404, 'Acompanhamento não encontrado.');
+    return { caso: caso[0], registros };
+  }, ver);
 
-rota('PUT', '/pastoral/casos/:id', async ({ params, body }) => {
-  if (!['aberto', 'em_andamento', 'concluido'].includes(body.status)) throw new HttpError(400, 'Status inválido.');
-  await query(`UPDATE dbo.pastoral_casos SET status = @st,
-    dt_conclusao = CASE WHEN @st = 'concluido' THEN SYSUTCDATETIME() ELSE NULL END WHERE id = @id`, { st: body.status, id: int(params.id) });
-  return { ok: true };
-});
+  rota('POST', `/${area}/casos`, async ({ body, usuario }) => {
+    const responsavel = txt(body.responsavel_nome, 120);
+    if (!responsavel) throw new HttpError(400, 'Informe o responsável.');
+    await query(`
+      SET XACT_ABORT ON; BEGIN TRAN;
+      INSERT INTO dbo.pastoral_casos (pessoa_id, area, responsavel_nome, responsavel_id, motivo, criado_por)
+      VALUES (@pid, @area, @resp, (SELECT TOP 1 id FROM dbo.usuarios WHERE nome = @resp AND cd_status = 1), @motivo, @uid);
+      DECLARE @cid INT = SCOPE_IDENTITY();
+      IF @nota IS NOT NULL INSERT INTO dbo.pastoral_registros (caso_id, texto, autor_nome, autor_id) VALUES (@cid, @nota, @autor, @uid);
+      IF @nota IS NOT NULL UPDATE dbo.pastoral_casos SET status = 'em_andamento' WHERE id = @cid;
+      COMMIT;`, { pid: int(body.pessoa_id), area, resp: responsavel, motivo: txt(body.motivo, 200), nota: txt(body.nota, 4000), uid: usuario.id, autor: usuario.nome });
+    return { ok: true };
+  }, editar);
 
-rota('POST', '/pastoral/casos/:id/registros', async ({ params, body, usuario }) => {
-  const texto = txt(body.texto, 4000);
-  if (!texto) throw new HttpError(400, 'Escreva o registro.');
-  await query(`INSERT INTO dbo.pastoral_registros (caso_id, texto, autor_nome, autor_id) VALUES (@id, @texto, @autor, @uid);
-    UPDATE dbo.pastoral_casos SET status = 'em_andamento' WHERE id = @id AND status = 'aberto';`,
-  { id: int(params.id), texto, autor: usuario.nome, uid: usuario.id });
-  return { ok: true };
-});
+  rota('PUT', `/${area}/casos/:id`, async ({ params, body }) => {
+    if (!['aberto', 'em_andamento', 'concluido'].includes(body.status)) throw new HttpError(400, 'Situação inválida.');
+    await query(`UPDATE dbo.pastoral_casos SET status = @st,
+      dt_conclusao = CASE WHEN @st = 'concluido' THEN SYSUTCDATETIME() ELSE NULL END WHERE id = @id AND area = @area`, { st: body.status, id: int(params.id), area });
+    return { ok: true };
+  }, editar);
 
-rota('DELETE', '/pastoral/casos/:id', async ({ params, usuario, ip }) => {
-  const c = await umaLinha(`DELETE c OUTPUT deleted.pessoa_id FROM dbo.pastoral_casos c WHERE c.id = @id`, { id: int(params.id) });
-  if (c) await seg.registrar('caso_excluido', { usuario, ip, detalhe: `acompanhamento ${params.id} (pessoa ${c.pessoa_id})` });
-  return { ok: true };
-});
+  rota('POST', `/${area}/casos/:id/registros`, async ({ params, body, usuario }) => {
+    const texto = txt(body.texto, 4000);
+    if (!texto) throw new HttpError(400, 'Escreva o registro.');
+    const r = await umaLinha(`
+      IF NOT EXISTS (SELECT 1 FROM dbo.pastoral_casos WHERE id = @id AND area = @area) BEGIN SELECT 0 AS ok; RETURN; END
+      INSERT INTO dbo.pastoral_registros (caso_id, texto, autor_nome, autor_id) VALUES (@id, @texto, @autor, @uid);
+      UPDATE dbo.pastoral_casos SET status = 'em_andamento' WHERE id = @id AND status = 'aberto';
+      SELECT 1 AS ok;`, { id: int(params.id), area, texto, autor: usuario.nome, uid: usuario.id });
+    if (!r.ok) throw new HttpError(404, 'Acompanhamento não encontrado.');
+    return { ok: true };
+  }, editar);
+
+  rota('DELETE', `/${area}/casos/:id`, async ({ params, usuario, ip }) => {
+    const c = await umaLinha(`DELETE c OUTPUT deleted.pessoa_id FROM dbo.pastoral_casos c WHERE c.id = @id AND c.area = @area`, { id: int(params.id), area });
+    if (c) await seg.registrar('caso_excluido', { usuario, ip, detalhe: `${area}: acompanhamento ${params.id} (pessoa ${c.pessoa_id})` });
+    return { ok: true };
+  }, 'pastoral.excluir');
+}
+rotasDeAcompanhamento('pastoral');
+rotasDeAcompanhamento('integracao');
 
 // ------------------------------------------------------------------ PAINEL E RELATÓRIOS
 rota('GET', '/painel', async ({ usuario }) => {
@@ -595,13 +643,15 @@ rota('GET', '/painel', async ({ usuario }) => {
   const verPresenca = pode(usuario, 'relatorios.ver') || pode(usuario, 'presenca.marcar');
   const verPastoral = pode(usuario, 'pastoral.ver');
   const [[pessoas, encontros, casos], alertas] = await Promise.all([query(`
-    SELECT p.id, p.nome, p.tipo, p.data_nascimento, p.data_cadastro, CONVERT(VARCHAR(30), f.dt_atualizacao, 126) AS foto_v
+    SELECT p.id, p.nome, p.referencia, p.tipo, p.data_nascimento, p.data_cadastro, p.telefone, CONVERT(VARCHAR(30), f.dt_atualizacao, 126) AS foto_v,
+           (SELECT MIN(e.data) FROM dbo.presencas pr JOIN dbo.encontros e ON e.id = pr.encontro_id WHERE pr.pessoa_id = p.id AND pr.presente = 1) AS primeira_presenca
       FROM dbo.pessoas p LEFT JOIN dbo.pessoas_foto f ON f.pessoa_id = p.id WHERE p.cd_status = 1 AND @vp = 1;
     SELECT TOP 12 encontro_id AS id, data, tema, presentes AS total, membros_presentes AS membros, visitantes_presentes AS visitantes
-      FROM dbo.vw_resumo_encontros WHERE @ve = 1 ORDER BY data DESC;
-    SELECT COUNT(*) AS abertos FROM dbo.pastoral_casos WHERE status <> 'concluido' AND @vc = 1;`,
+      FROM dbo.vw_resumo_encontros WHERE @ve = 1 AND presentes > 0 ORDER BY data DESC;
+    SELECT COUNT(*) AS abertos FROM dbo.pastoral_casos WHERE area = 'pastoral' AND status <> 'concluido' AND @vc = 1;`,
   { vp: verPessoas ? 1 : 0, ve: verPresenca ? 1 : 0, vc: verPastoral ? 1 : 0 }, { todos: true }), verPastoral ? calcularAlertas() : []]);
   return {
+    integracao: pode(usuario, 'integracao.ver') ? (await visitantesSemContato()).length : null,
     pessoas: verPessoas ? pessoas : null,
     encontros: verPresenca ? encontros : null,
     casosAbertos: verPastoral ? casos[0].abertos : null,
@@ -614,7 +664,7 @@ rota('GET', '/relatorios', async ({ query: q }) => {
   if (!ini || !fim) throw new HttpError(400, 'Informe o período.');
   const [encontros, presencas] = await query(`
     SELECT id, data, tema FROM dbo.encontros WHERE data BETWEEN @ini AND @fim ORDER BY data;
-    SELECT pr.encontro_id, pr.pessoa_id, pr.presente, pr.justificativa, p.nome, p.tipo, p.data_cadastro
+    SELECT pr.encontro_id, pr.pessoa_id, pr.presente, pr.justificativa, p.nome, p.referencia, COALESCE(pr.tipo_na_data, p.tipo) AS tipo, p.data_cadastro
       FROM dbo.presencas pr JOIN dbo.encontros e ON e.id = pr.encontro_id JOIN dbo.pessoas p ON p.id = pr.pessoa_id
      WHERE e.data BETWEEN @ini AND @fim;`, { ini, fim }, { todos: true });
   return { encontros, presencas };

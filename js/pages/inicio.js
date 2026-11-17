@@ -1,7 +1,7 @@
 // Início — cada bloco só aparece para quem tem permissão
 // © Arthur Ramon da Silva — Todos os direitos reservados.
 import { api, urlFoto, sessao, pode } from '../api.js';
-import { esc, foto, fmtData, fmtDiaMes, parseISO, isoLocal, pct, TIPOS, idade, saudacao } from '../ui.js';
+import { esc, foto, fmtData, fmtDiaMes, parseISO, isoLocal, pct, SITUACOES, ehMembro, idade, saudacao } from '../ui.js';
 import { barras, tabelaDados, COR } from '../charts.js';
 
 const DIA = 86400000;
@@ -24,7 +24,7 @@ export async function render(conteudo) {
     return;
   }
 
-  const { pessoas, encontros: recentes, casosAbertos, alertas } = await api('GET', '/painel');
+  const { pessoas, encontros: recentes, casosAbertos, alertas, integracao } = await api('GET', '/painel');
   const enc = (recentes || []).slice().reverse().map((e) => ({ ...e, outros: e.total - e.membros }));
   const ult = enc[enc.length - 1], ant = enc[enc.length - 2];
   const ult4 = enc.slice(-4);
@@ -57,14 +57,14 @@ export async function render(conteudo) {
   const numeros = [];
   if (pessoas) {
     const novosMes = pessoas.filter((p) => { const d = parseISO(p.data_cadastro); return d.getMonth() === mes && d.getFullYear() === hoje.getFullYear(); }).length;
-    numeros.push(['Pessoas ativas', pessoas.length, novosMes ? `+${novosMes} em ${nomeMes}` : `${pessoas.filter((p) => p.tipo === 'membro').length} membros`]);
+    numeros.push(['Pessoas ativas', pessoas.length, novosMes ? `+${novosMes} em ${nomeMes}` : `${pessoas.filter((p) => ehMembro(p.tipo)).length} membros`]);
   }
   if (recentes) {
     let comp = 'presentes';
     if (ult && ant) { const d = ult.total - ant.total; comp = d === 0 ? 'igual à semana anterior' : `<span class="${d > 0 ? 'sobe' : 'desce'}">${d > 0 ? '+' : ''}${d}</span> sobre a anterior`; }
-    numeros.push([`Última sexta${ult ? ` · ${fmtDiaMes(ult.data)}` : ''}`, ult ? ult.total : '—', ult ? comp : 'nenhuma chamada ainda']);
-    numeros.push(['Média das últimas 4', media4 ?? '—', 'presentes por sexta']);
+    numeros.push([`Última sexta${ult ? ` · ${fmtDiaMes(ult.data)}` : ''}`, ult ? ult.total : '—', ult ? `${comp}${media4 !== null ? ` · média ${media4}` : ''}` : 'nenhuma chamada ainda']);
   }
+  if (integracao !== null && integracao !== undefined) numeros.push(['Integração', integracao, integracao ? '<span class="desce">visitantes esperando contato</span>' : 'todos os visitantes contatados']);
   if (alertas) numeros.push(['Pastoral', casosAbertos, alertas.length ? `<span class="desce">${alertas.length} sem acompanhamento</span>` : 'acompanhamentos em aberto']);
 
   // ---- Gráfico e faltando
@@ -72,7 +72,7 @@ export async function render(conteudo) {
       <div class="painel-topo"><h2>Presentes por sexta</h2><span class="sub">últimos ${enc.length || 12} encontros</span></div>
       <div class="painel-corpo">
         ${enc.length ? `<div class="grafico"><canvas id="g-presenca" role="img" aria-label="Presentes por encontro"></canvas></div>
-          ${tabelaDados(enc.map((e) => fmtData(e.data)), [{ rotulo: 'Membros', dados: enc.map((e) => e.membros) }, { rotulo: 'Visitantes e frequentadores', dados: enc.map((e) => e.outros) }, { rotulo: 'Total', dados: enc.map((e) => e.total) }])}`
+          ${tabelaDados(enc.map((e) => fmtData(e.data)), [{ rotulo: 'Membros', dados: enc.map((e) => e.membros) }, { rotulo: 'Visitantes', dados: enc.map((e) => e.outros) }, { rotulo: 'Total', dados: enc.map((e) => e.total) }])}`
         : `<div class="vazio"><b>Nenhuma chamada ainda</b>O gráfico aparece depois da primeira chamada salva.${pode('presenca.marcar') ? '<br><a class="btn" href="#/presenca">Fazer a primeira chamada</a>' : ''}</div>`}
       </div></section>` : '';
 
@@ -91,9 +91,9 @@ export async function render(conteudo) {
     const aniversariantes = pessoas.filter((p) => p.data_nascimento && parseISO(p.data_nascimento).getMonth() === mes)
       .sort((a, b) => parseISO(a.data_nascimento).getDate() - parseISO(b.data_nascimento).getDate());
     const limite = isoLocal(new Date(Date.now() - 30 * DIA));
-    const novos = pessoas.filter((p) => p.tipo === 'visitante' && p.data_cadastro >= limite).sort((a, b) => b.data_cadastro.localeCompare(a.data_cadastro));
+    const chegada = (p) => p.primeira_presenca || p.data_cadastro;
+    const novos = pessoas.filter((p) => ['novo_visitante', 'visitante_regular'].includes(p.tipo) && chegada(p) >= limite).sort((a, b) => chegada(b).localeCompare(chegada(a)));
     const idades = pessoas.map((p) => idade(p.data_nascimento)).filter((x) => x !== null);
-    const coresTipo = { membro: '#2a78d6', visitante: 'var(--accent)', frequentador: '#1f8a57' };
 
     blocosPessoas = `<div class="colunas c2 mt">
       <section class="painel">
@@ -108,16 +108,17 @@ export async function render(conteudo) {
       <section class="painel">
         <div class="painel-topo"><h2>Chegaram há pouco</h2><span class="sub">visitantes dos últimos 30 dias</span></div>
         <div class="painel-corpo">
-          ${novos.length ? `<div class="rostos">${novos.slice(0, 12).map((p) => link(p.id, `${foto(p.nome, urlFoto(p.id, p.foto_v), 'm')}<b>${esc(p.nome.split(' ')[0])}</b><span>${fmtDiaMes(p.data_cadastro)}</span>`, 'rosto')).join('')}</div>`
+          ${novos.length ? `<div class="rostos">${novos.slice(0, 12).map((p) => link(p.id, `${foto(p.nome, urlFoto(p.id, p.foto_v), 'm')}<b>${esc(p.nome.split(' ')[0])}</b><span>${fmtDiaMes(chegada(p))}</span>`, 'rosto')).join('')}</div>
+            ${novos.length > 12 ? `<p class="small muted" style="margin-top:10px">e mais ${novos.length - 12}</p>` : ''}`
           : '<p class="muted">Nenhum visitante novo nos últimos 30 dias.</p>'}
         </div>
       </section>
     </div>
     <section class="painel mt">
-      <div class="painel-topo"><h2>Quem é o Hype hoje</h2><span class="sub">${pessoas.length} pessoas ativas${idades.length ? ` · idade média ${Math.round(idades.reduce((a, b) => a + b, 0) / idades.length)} anos` : ''}</span></div>
+      <div class="painel-topo"><h2>A jornada do Hype</h2><span class="sub">${pessoas.length} pessoas ativas${idades.length ? ` · idade média ${Math.round(idades.reduce((a, b) => a + b, 0) / idades.length)} anos` : ''}</span></div>
       <div class="painel-corpo"><div class="barras-tipo">
-        ${Object.entries(TIPOS).map(([t, nome]) => { const n = pessoas.filter((p) => p.tipo === t).length; return `<div class="linha"><span>${nome}s</span>
-          <div class="trilho"><i style="width:${pct(n, pessoas.length)}%;background:${coresTipo[t]}"></i></div><span class="dir num"><b>${n}</b> <span class="muted">${pct(n, pessoas.length)}%</span></span></div>`; }).join('')}
+        ${SITUACOES.map((s) => { const n = pessoas.filter((p) => p.tipo === s.id).length; return `<${pode('pessoas.ver') ? 'a href="#/pessoas"' : 'div'} class="linha" data-situacao="${s.id}"><span>${s.nome}</span>
+          <div class="trilho"><i style="width:${pct(n, pessoas.length)}%;background:${s.cor}"></i></div><span class="dir num"><b>${n}</b> <span class="muted">${pct(n, pessoas.length)}%</span></span></${pode('pessoas.ver') ? 'a' : 'div'}>`; }).join('')}
       </div></div>
     </section>`;
   }
@@ -128,6 +129,8 @@ export async function render(conteudo) {
     ${meio.length ? `<div class="colunas ${meio.length === 2 ? 'c21' : ''} mt">${meio.join('')}</div>` : ''}
     ${blocosPessoas}`;
 
+  conteudo.querySelectorAll('[data-situacao]').forEach((l) => l.addEventListener('click', () => sessionStorage.setItem('hype_filtro_tipo', l.dataset.situacao)));
+
   let grafico = null;
   if (enc.length && document.getElementById('g-presenca')) {
     grafico = barras(document.getElementById('g-presenca'), {
@@ -135,7 +138,7 @@ export async function render(conteudo) {
       empilhado: true,
       series: [
         { rotulo: 'Membros', dados: enc.map((e) => e.membros), cor: COR.s1 },
-        { rotulo: 'Visitantes e frequentadores', dados: enc.map((e) => e.outros), cor: COR.s2 },
+        { rotulo: 'Visitantes', dados: enc.map((e) => e.outros), cor: COR.s2 },
       ],
     });
   }

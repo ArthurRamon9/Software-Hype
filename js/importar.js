@@ -113,16 +113,20 @@ export async function lerPlanilha(arquivo) {
 
 // ------------------------------------------------------------ Campos do sistema e reconhecimento automático
 export const CAMPOS = [
-  { campo: 'nome', rotulo: 'Nome *', chaves: ['nome completo', 'nome'] },
+  { campo: 'nome', rotulo: 'Nome *', chaves: ['nome completo', 'nomes', 'nome'] },
+  { campo: 'referencia', rotulo: 'Referência (quem é)', chaves: ['referencia', 'apelido', 'quem e'] },
   { campo: 'data_nascimento', rotulo: 'Data de nascimento', chaves: ['nascimento', 'nasc', 'aniversario', 'data de nasc', 'dt nasc'] },
   { campo: 'telefone', rotulo: 'Telefone / WhatsApp', chaves: ['whatsapp', 'whats', 'celular', 'telefone', 'fone', 'contato', 'tel'] },
   { campo: 'email', rotulo: 'E-mail', chaves: ['e-mail', 'email'] },
   { campo: 'instagram', rotulo: 'Instagram', chaves: ['instagram', 'insta'] },
   { campo: 'endereco', rotulo: 'Bairro / endereço', chaves: ['bairro', 'endereco', 'rua', 'cidade'] },
-  { campo: 'tipo', rotulo: 'Tipo (membro, visitante...)', chaves: ['tipo', 'membro', 'situacao', 'vinculo', 'categoria'] },
+  { campo: 'tipo', rotulo: 'Situação (membro, visitante...)', chaves: ['status', 'situacao', 'tipo', 'membro', 'vinculo', 'categoria'] },
   { campo: 'sexo', rotulo: 'Sexo', chaves: ['sexo', 'genero'] },
   { campo: 'batizado', rotulo: 'Batizado', chaves: ['batizado', 'batismo', 'batizada'] },
-  { campo: 'ministerios_nomes', rotulo: 'Ministérios', chaves: ['ministerio', 'ministerios', 'serve em', 'area'] },
+  { campo: 'ministerios_nomes', rotulo: 'Ministérios', chaves: ['ministerio', 'ministerios', 'serve em'] },
+  { campo: 'grupo_cultivo', rotulo: 'Grupo cultivo', chaves: ['grupo cultivo', 'cultivo', 'celula'] },
+  { campo: 'discipulado_por', rotulo: 'Discipulado / evangelizado por', chaves: ['discipulado', 'evangelizado'] },
+  { campo: 'integrado_por', rotulo: 'Quem integrou', chaves: ['quem o integrou', 'quem integrou', 'integrou', 'integrado por'] },
   { campo: 'como_conheceu', rotulo: 'Como conheceu', chaves: ['como conheceu', 'conheceu', 'convidado por', 'como chegou', 'quem convidou'] },
   { campo: 'data_cadastro', rotulo: 'Data do cadastro', chaves: ['data de cadastro', 'cadastro', 'data de entrada', 'primeira vez', 'entrada'] },
   { campo: 'idade', rotulo: 'Idade (vai para observações)', chaves: ['idade'] },
@@ -164,12 +168,24 @@ function valida(a, m, d) {
 }
 const simNao = (v) => /^(s|sim|x|yes|true|1|batizad[oa])$/i.test(semAcento(String(v || '')).trim());
 export function converterTipo(v, padrao) {
-  const t = semAcento(String(v || ''));
+  const t = semAcento(String(v || '')).replace(/[-_]/g, ' ').replace(/\s+/g, ' ').trim();
   if (!t) return padrao;
-  if (t.includes('frequent')) return 'frequentador';
-  if (t.includes('visit') || t === 'nao' || t === 'n') return 'visitante';
+  if (t.includes('ex visit') || t.includes('ex-visit')) return 'ex_visitante';
+  if (t.includes('novo visit') || t === 'visitante' || t === 'nao' || t === 'n') return 'novo_visitante';
+  if (t.includes('regular') || t.includes('frequent')) return 'visitante_regular';
+  if (t.includes('novo membro')) return 'novo_membro';
+  if (t.includes('membro ativo') || t.includes('ativo')) return 'membro_ativo';
   if (t.includes('membro') || simNao(t)) return 'membro';
   return padrao;
+}
+function converterBatismo(v) {
+  const t = semAcento(String(v || '')).trim().replace(/[.!]+$/, '');
+  if (!t) return { batizado: null, detalhe: '' };
+  if (/^(s|sim|x|yes)$/.test(t)) return { batizado: true, detalhe: '' };
+  if (/^(n|nao|no)$/.test(t)) return { batizado: false, detalhe: '' };
+  if (t.startsWith('sim')) return { batizado: true, detalhe: String(v).trim() };
+  if (t.startsWith('nao')) return { batizado: false, detalhe: String(v).trim() };
+  return { batizado: null, detalhe: String(v).trim() };
 }
 function converterSexo(v) {
   const t = semAcento(String(v || '')).trim();
@@ -184,11 +200,18 @@ function limparTelefone(v) {
 }
 
 // Monta a pessoa (como a API espera) a partir de uma linha da planilha
-export function montarPessoa(linha, mapa, { tipoPadrao = 'visitante' } = {}) {
+export function montarPessoa(linha, mapa, { tipoPadrao = 'novo_visitante' } = {}) {
   const val = (c) => (mapa[c] >= 0 ? String(linha[mapa[c]] ?? '').trim() : '');
   const obs = [val('observacoes'), val('idade') ? `Idade informada na planilha: ${val('idade')}` : ''].filter(Boolean).join('\n');
+  // "Agatha (namorada do Paulo)" -> nome "Agatha", referência "namorada do Paulo"
+  let nome = val('nome').replace(/\s+/g, ' '), referencia = val('referencia');
+  const m = /^([^()]+?)\s*\((.+)\)\s*$/.exec(nome);
+  if (m && !referencia) { nome = m[1].trim(); referencia = m[2].trim(); }
+  const bat = converterBatismo(val('batizado'));
   return {
-    nome: val('nome').replace(/\s+/g, ' '),
+    nome, referencia,
+    grupo_cultivo: val('grupo_cultivo'), discipulado_por: val('discipulado_por'), integrado_por: val('integrado_por'),
+    batismo_detalhe: bat.detalhe,
     data_nascimento: converterData(val('data_nascimento')),
     telefone: limparTelefone(val('telefone')),
     email: val('email'),
@@ -196,7 +219,7 @@ export function montarPessoa(linha, mapa, { tipoPadrao = 'visitante' } = {}) {
     endereco: val('endereco'),
     tipo: converterTipo(val('tipo'), tipoPadrao),
     sexo: converterSexo(val('sexo')),
-    batizado: simNao(val('batizado')),
+    batizado: bat.batizado,
     ministerios_nomes: val('ministerios_nomes'),
     como_conheceu: val('como_conheceu'),
     data_cadastro: converterData(val('data_cadastro')) || isoLocal(new Date()),

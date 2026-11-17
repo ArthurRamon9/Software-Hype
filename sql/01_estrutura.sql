@@ -56,9 +56,8 @@ CREATE TABLE dbo.pessoas (
     email            NVARCHAR(200) NULL,
     instagram        NVARCHAR(60)  NULL,
     endereco         NVARCHAR(250) NULL,
-    tipo             VARCHAR(15)   NOT NULL CONSTRAINT df_pessoas_tipo DEFAULT 'visitante'
-                     CONSTRAINT ck_pessoas_tipo CHECK (tipo IN ('membro','visitante','frequentador')),
-    batizado         BIT           NOT NULL CONSTRAINT df_pessoas_batizado DEFAULT 0,
+    tipo             VARCHAR(20)   NOT NULL CONSTRAINT df_pessoas_tipo DEFAULT 'novo_visitante',
+    batizado         BIT           NULL,    -- NULL = não informado
     como_conheceu    NVARCHAR(150) NULL,
     observacoes      NVARCHAR(MAX) NULL,
     data_cadastro    DATE          NOT NULL CONSTRAINT df_pessoas_cadastro DEFAULT CAST(GETDATE() AS DATE),
@@ -139,6 +138,50 @@ CREATE TABLE dbo.pastoral_registros (
 GO
 
 /* =====================================================================
+   ATUALIZAÇÃO v3 — campos que vieram da planilha do Hype
+   (seguro rodar em banco novo ou já existente)
+   ===================================================================== */
+-- Situação da pessoa: as 6 etapas usadas pelo Hype
+IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'ck_pessoas_tipo' AND definition LIKE '%frequentador%')
+    ALTER TABLE dbo.pessoas DROP CONSTRAINT ck_pessoas_tipo;
+IF EXISTS (SELECT 1 FROM sys.default_constraints WHERE name = 'df_pessoas_tipo' AND definition LIKE '%''visitante''%')
+    ALTER TABLE dbo.pessoas DROP CONSTRAINT df_pessoas_tipo;
+IF COL_LENGTH('dbo.pessoas', 'tipo') < 20 ALTER TABLE dbo.pessoas ALTER COLUMN tipo VARCHAR(20) NOT NULL;
+GO
+UPDATE dbo.pessoas SET tipo = 'novo_visitante' WHERE tipo = 'visitante';
+UPDATE dbo.pessoas SET tipo = 'visitante_regular' WHERE tipo = 'frequentador';
+IF NOT EXISTS (SELECT 1 FROM sys.default_constraints WHERE name = 'df_pessoas_tipo')
+    ALTER TABLE dbo.pessoas ADD CONSTRAINT df_pessoas_tipo DEFAULT 'novo_visitante' FOR tipo;
+IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'ck_pessoas_tipo')
+    ALTER TABLE dbo.pessoas ADD CONSTRAINT ck_pessoas_tipo
+        CHECK (tipo IN ('novo_visitante','visitante_regular','ex_visitante','novo_membro','membro','membro_ativo'));
+
+-- Batizado passa a aceitar "não informado" (NULL)
+IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.pessoas') AND name = 'batizado' AND is_nullable = 0)
+BEGIN
+    IF EXISTS (SELECT 1 FROM sys.default_constraints WHERE name = 'df_pessoas_batizado') ALTER TABLE dbo.pessoas DROP CONSTRAINT df_pessoas_batizado;
+    ALTER TABLE dbo.pessoas ALTER COLUMN batizado BIT NULL;
+END
+
+-- Campos novos
+IF COL_LENGTH('dbo.pessoas', 'referencia') IS NULL      ALTER TABLE dbo.pessoas ADD referencia NVARCHAR(150) NULL;       -- ex.: "namorada do Paulo"
+IF COL_LENGTH('dbo.pessoas', 'grupo_cultivo') IS NULL   ALTER TABLE dbo.pessoas ADD grupo_cultivo NVARCHAR(300) NULL;
+IF COL_LENGTH('dbo.pessoas', 'discipulado_por') IS NULL ALTER TABLE dbo.pessoas ADD discipulado_por NVARCHAR(300) NULL;
+IF COL_LENGTH('dbo.pessoas', 'batismo_detalhe') IS NULL ALTER TABLE dbo.pessoas ADD batismo_detalhe NVARCHAR(200) NULL;
+IF COL_LENGTH('dbo.pessoas', 'integrado_por') IS NULL   ALTER TABLE dbo.pessoas ADD integrado_por NVARCHAR(120) NULL;
+IF COL_LENGTH('dbo.pessoas', 'como_conheceu') < 2000  ALTER TABLE dbo.pessoas ALTER COLUMN como_conheceu NVARCHAR(1000) NULL;
+IF COL_LENGTH('dbo.pessoas', 'id_planilha') IS NULL     ALTER TABLE dbo.pessoas ADD id_planilha INT NULL;               -- ID da antiga planilha
+
+-- Situação da pessoa no dia de cada encontro (para os números históricos de membros x visitantes)
+IF COL_LENGTH('dbo.presencas', 'tipo_na_data') IS NULL ALTER TABLE dbo.presencas ADD tipo_na_data VARCHAR(20) NULL;
+
+-- Acompanhamentos servem para Pastoral e para Integração
+IF COL_LENGTH('dbo.pastoral_casos', 'area') IS NULL
+    ALTER TABLE dbo.pastoral_casos ADD area VARCHAR(12) NOT NULL CONSTRAINT df_casos_area DEFAULT 'pastoral'
+        CONSTRAINT ck_casos_area CHECK (area IN ('pastoral','integracao'));
+GO
+
+/* =====================================================================
    PERMISSÕES POR GRUPO
    usuário  ->  grupos  ->  permissões
    ===================================================================== */
@@ -198,9 +241,11 @@ USING (VALUES
     ('presenca.excluir',   N'Apagar uma chamada inteira', 21),
     ('pastoral.ver',       N'Ver acompanhamentos pastorais', 30),
     ('pastoral.editar',    N'Abrir acompanhamentos e registrar contatos', 31),
-    ('pastoral.excluir',   N'Apagar acompanhamentos', 32),
+    ('pastoral.excluir',   N'Apagar acompanhamentos (Pastoral e Integração)', 32),
     ('relatorios.ver',     N'Ver relatórios e gráficos', 40),
     ('ministerios.editar', N'Cadastrar e editar ministérios', 50),
+    ('integracao.ver',     N'Ver o acompanhamento de visitantes (Integração)', 35),
+    ('integracao.editar',  N'Registrar contatos com visitantes (Integração)', 36),
     ('acessos.gerenciar',  N'Liberar usuários, gerenciar grupos e ver o registro de atividades', 60)
 ) AS s (codigo, descricao, ordem) ON t.codigo = s.codigo
 WHEN MATCHED THEN UPDATE SET descricao = s.descricao, ordem = s.ordem
@@ -214,7 +259,8 @@ SELECT v.nome, v.descricao, v.sistema FROM (VALUES
     (N'Administradores', N'Acesso total ao sistema', 1),
     (N'Pastoral',        N'Cuida dos jovens faltantes', 0),
     (N'Presença',        N'Faz a chamada das sextas', 0),
-    (N'Cadastro',        N'Cadastra e atualiza as pessoas', 0)
+    (N'Cadastro',        N'Cadastra e atualiza as pessoas', 0),
+    (N'Integração',      N'Acolhe e acompanha os visitantes', 0)
 ) v(nome, descricao, sistema)
 WHERE NOT EXISTS (SELECT 1 FROM dbo.grupos g WHERE g.nome = v.nome);
 
@@ -223,7 +269,8 @@ INSERT INTO dbo.grupo_permissao (grupo_id, permissao)
 SELECT n.id, v.permissao FROM (VALUES
     (N'Pastoral', 'pessoas.ver'), (N'Pastoral', 'pastoral.ver'), (N'Pastoral', 'pastoral.editar'), (N'Pastoral', 'relatorios.ver'),
     (N'Presença', 'pessoas.ver'), (N'Presença', 'presenca.marcar'),
-    (N'Cadastro', 'pessoas.ver'), (N'Cadastro', 'pessoas.editar')
+    (N'Cadastro', 'pessoas.ver'), (N'Cadastro', 'pessoas.editar'),
+    (N'Integração', 'pessoas.ver'), (N'Integração', 'pessoas.editar'), (N'Integração', 'integracao.ver'), (N'Integração', 'integracao.editar')
 ) v(grupo, permissao)
 JOIN @novos n ON n.nome = v.grupo;
 
@@ -237,12 +284,15 @@ GO
    VIEWS — para consultas e relatórios feitos direto no banco
    ===================================================================== */
 CREATE OR ALTER VIEW dbo.vw_pessoas AS
-SELECT p.id, p.nome, p.tipo, p.data_nascimento,
+SELECT p.id, p.nome, p.referencia, p.tipo,
+       CASE WHEN p.tipo IN ('novo_membro','membro','membro_ativo') THEN 'membro' ELSE 'visitante' END AS grupo_tipo,
+       p.data_nascimento,
        CASE WHEN p.data_nascimento IS NULL THEN NULL
             ELSE DATEDIFF(YEAR, p.data_nascimento, GETDATE())
                  - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, p.data_nascimento, GETDATE()), p.data_nascimento) > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END
        END AS idade,
-       p.sexo, p.telefone, p.email, p.instagram, p.batizado, p.data_cadastro, p.cd_status,
+       p.sexo, p.telefone, p.email, p.instagram, p.batizado, p.batismo_detalhe, p.grupo_cultivo, p.discipulado_por,
+       p.integrado_por, p.como_conheceu, p.data_cadastro, p.cd_status, p.id_planilha,
        (SELECT STRING_AGG(m.nome, ', ') WITHIN GROUP (ORDER BY m.nome)
           FROM dbo.pessoa_ministerio pm JOIN dbo.ministerios m ON m.id = pm.ministerio_id
          WHERE pm.pessoa_id = p.id) AS ministerios,
@@ -253,7 +303,8 @@ GO
 
 CREATE OR ALTER VIEW dbo.vw_presencas AS
 SELECT e.id AS encontro_id, e.data, e.tema,
-       p.id AS pessoa_id, p.nome, p.tipo,
+       p.id AS pessoa_id, p.nome, p.referencia, p.tipo AS tipo_atual,
+       COALESCE(pr.tipo_na_data, p.tipo) AS tipo_na_data,
        pr.presente, pr.justificativa,
        YEAR(e.data) AS ano, MONTH(e.data) AS mes
 FROM dbo.presencas pr
@@ -265,8 +316,9 @@ CREATE OR ALTER VIEW dbo.vw_resumo_encontros AS
 SELECT e.id AS encontro_id, e.data, e.tema,
        SUM(CASE WHEN pr.presente = 1 THEN 1 ELSE 0 END)                       AS presentes,
        SUM(CASE WHEN pr.presente = 0 THEN 1 ELSE 0 END)                       AS faltas,
-       SUM(CASE WHEN pr.presente = 1 AND p.tipo = 'membro' THEN 1 ELSE 0 END) AS membros_presentes,
-       SUM(CASE WHEN pr.presente = 1 AND p.tipo = 'visitante' THEN 1 ELSE 0 END) AS visitantes_presentes
+       SUM(CASE WHEN pr.presente = 1 AND COALESCE(pr.tipo_na_data, p.tipo) IN ('novo_membro','membro','membro_ativo') THEN 1 ELSE 0 END) AS membros_presentes,
+       SUM(CASE WHEN pr.presente = 1 AND COALESCE(pr.tipo_na_data, p.tipo) NOT IN ('novo_membro','membro','membro_ativo') THEN 1 ELSE 0 END) AS visitantes_presentes,
+       SUM(CASE WHEN pr.presente = 1 AND COALESCE(pr.tipo_na_data, p.tipo) = 'novo_visitante' THEN 1 ELSE 0 END) AS novos_visitantes_presentes
 FROM dbo.encontros e
 LEFT JOIN dbo.presencas pr ON pr.encontro_id = e.id
 LEFT JOIN dbo.pessoas   p  ON p.id = pr.pessoa_id

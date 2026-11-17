@@ -29,6 +29,7 @@ const PRIVADAS = [
   ['/pessoas/:id/editar', pessoas.formulario, ['pessoas.editar']],
   ['/presenca', presenca.render, ['presenca.marcar']],
   ['/pastoral', pastoral.render, ['pastoral.ver']],
+  ['/integracao', pastoral.renderIntegracao, ['integracao.ver']],
   ['/relatorios', relatorios.render, ['relatorios.ver']],
   ['/ministerios', ministerios.render, ['pessoas.ver', 'ministerios.editar']],
   ['/acessos', usuarios.render, ['acessos.gerenciar']],
@@ -39,6 +40,7 @@ const MENU = [
   { href: '/', rotulo: 'Início', ic: 'inicio', mob: true },
   { href: '/pessoas', rotulo: 'Pessoas', ic: 'pessoas', mob: true, perm: ['pessoas.ver'] },
   { href: '/presenca', rotulo: 'Presença', ic: 'presenca', mob: true, perm: ['presenca.marcar'] },
+  { href: '/integracao', rotulo: 'Integração', ic: 'integracao', mob: true, cont: 'integracao', perm: ['integracao.ver'] },
   { href: '/pastoral', rotulo: 'Pastoral', ic: 'pastoral', mob: true, cont: 'pastoral', perm: ['pastoral.ver'] },
   { href: '/relatorios', rotulo: 'Relatórios', ic: 'relatorios', mob: true, perm: ['relatorios.ver'] },
   { grupo: 'Cadastros', perm: ['pessoas.ver', 'ministerios.editar', 'acessos.gerenciar'] },
@@ -46,7 +48,7 @@ const MENU = [
   { href: '/acessos', rotulo: 'Acessos', ic: 'acessos', cont: 'pendentes', perm: ['acessos.gerenciar'] },
 ];
 const permitido = (perms) => !perms || podeAlgum(...perms);
-const contadores = { pastoral: 0, pendentes: 0 };
+const contadores = { pastoral: 0, pendentes: 0, integracao: 0 };
 
 export const navegar = (c) => { location.hash = '#' + c; };
 export const caminhoAtual = () => location.hash.replace(/^#/, '').split('?')[0] || '/';

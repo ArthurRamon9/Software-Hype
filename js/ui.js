@@ -7,6 +7,7 @@ const P = {
   presenca: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M8 15l2 2 4-4"/>',
   pastoral: '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7z"/>',
   relatorios: '<path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 6-6"/>',
+  integracao: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/>',
   ministerios: '<path d="m12 2 10 5-10 5L2 7z"/><path d="m2 17 10 5 10-5M2 12l10 5 10-5"/>',
   acessos: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
   conta: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
@@ -110,11 +111,24 @@ export function corDoNome(nome = '') {
   return CORES_FOTO[h % CORES_FOTO.length];
 }
 export const foto = (nome, url, classe = '') => `<span class="foto ${classe}" style="--cor:${corDoNome(nome)}">${url ? `<img src="${esc(url)}" alt="" loading="lazy">` : esc(iniciais(nome))}</span>`;
-export const TIPOS = { membro: 'Membro', visitante: 'Visitante', frequentador: 'Frequentador' };
-export const tagTipo = (t) => `<span class="tag ${t}">${TIPOS[t] || t}</span>`;
-export const linkWhats = (tel) => {
+// As 6 situações (a "jornada") usadas pelo Hype, na ordem do caminho de cada pessoa
+export const SITUACOES = [
+  { id: 'novo_visitante', nome: 'Novo visitante', cor: '#f0561d' },
+  { id: 'visitante_regular', nome: 'Visitante regular', cor: '#d98a00' },
+  { id: 'novo_membro', nome: 'Novo membro', cor: '#2a9d8f' },
+  { id: 'membro', nome: 'Membro', cor: '#2a78d6' },
+  { id: 'membro_ativo', nome: 'Membro ativo', cor: '#5b4bd6' },
+  { id: 'ex_visitante', nome: 'Ex-visitante', cor: '#8a8679' },
+];
+export const TIPOS = Object.fromEntries(SITUACOES.map((x) => [x.id, x.nome]));
+export const corSituacao = (t) => SITUACOES.find((x) => x.id === t)?.cor || '#8a8679';
+export const ehMembro = (t) => ['novo_membro', 'membro', 'membro_ativo'].includes(t);
+export const tagTipo = (t) => `<span class="tag situ" style="--c:${corSituacao(t)}">${esc(TIPOS[t] || t)}</span>`;
+export const nomeComRef = (p) => `${esc(p.nome)}${p.referencia ? ` <span class="ref">${esc(p.referencia)}</span>` : ''}`;
+export const linkWhats = (tel, mensagem = '') => {
   const n = String(tel || '').replace(/\D/g, '');
-  return n ? `https://wa.me/${n.length <= 11 ? '55' + n : n}` : null;
+  if (n.length < 10) return null;
+  return `https://wa.me/${n.length <= 11 ? '55' + n : n}${mensagem ? `?text=${encodeURIComponent(mensagem)}` : ''}`;
 };
 
 // Reduz a foto antes de enviar (quadrada, até 600px, JPEG)
@@ -135,14 +149,6 @@ export function prepararFoto(arquivo, max = 600) {
   });
 }
 
-export function baixarCSV(nome, linhas) {
-  const csv = linhas.map((l) => l.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(';')).join('\r\n');
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
-  a.download = nome;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-}
 
 export const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
 export const direitos = () => `© ${new Date().getFullYear()} Gestão do Hype. Todos os direitos reservados a Arthur Ramon da Silva.`;

@@ -44,11 +44,12 @@ Cada usuário pode estar em um ou mais grupos e tem a soma das permissões deles
 | Grupo | Pode |
 |---|---|
 | Administradores | tudo (não pode ser alterado nem ficar vazio) |
-| Pastoral | ver pessoas, ver e registrar acompanhamentos, ver relatórios |
+| Pastoral | ver pessoas, ver e registrar acompanhamentos pastorais, ver relatórios |
+| Integração | ver e cadastrar pessoas, acompanhar e registrar contato com visitantes |
 | Presença | ver pessoas, fazer a chamada (e cadastrar visitante novo nela) |
 | Cadastro | ver, cadastrar e editar pessoas |
 
-Permissões existentes: `pessoas.ver`, `pessoas.editar`, `pessoas.excluir`, `presenca.marcar`, `presenca.excluir`, `pastoral.ver`, `pastoral.editar`, `pastoral.excluir`, `relatorios.ver`, `ministerios.editar`, `acessos.gerenciar`. A tabela de qual rota exige qual permissão fica no topo de `api/src/rotas.js`.
+Permissões existentes: `pessoas.ver`, `pessoas.editar`, `pessoas.excluir`, `presenca.marcar`, `presenca.excluir`, `pastoral.ver`, `pastoral.editar`, `pastoral.excluir`, `integracao.ver`, `integracao.editar`, `relatorios.ver`, `ministerios.editar`, `acessos.gerenciar`. A tabela de qual rota exige qual permissão fica no topo de `api/src/rotas.js`.
 
 ---
 
@@ -83,6 +84,17 @@ Permissões existentes: `pessoas.ver`, `pessoas.editar`, `pessoas.excluir`, `pre
 
 ### 4. Primeiro acesso
 Abra o site e clique em **Criar conta** usando **o mesmo e-mail do `ADMIN_EMAIL`**: essa conta já entra como administrador. Qualquer outra conta fica aguardando liberação em **Acessos**.
+
+## Atualizar um banco que já existe
+Quando sair uma versão nova, rode de novo o **`sql/01_estrutura.sql`** no SSMS. Ele só acrescenta o que falta (campos, permissões, grupos) e converte os dados antigos; não apaga nada.
+
+## Situações (a jornada de cada pessoa)
+`novo_visitante` → `visitante_regular` → `novo_membro` → `membro` → `membro_ativo`, e `ex_visitante` para quem parou de vir. Cada presença guarda também a situação da pessoa **naquele dia** (`presencas.tipo_na_data`), para os números históricos de membros × visitantes não mudarem quando alguém muda de situação.
+
+## Pastoral e Integração
+As duas áreas usam a mesma estrutura (`pastoral_casos` + `pastoral_registros`), separadas pela coluna `area`.
+- **Pastoral** alerta quem já faz parte (visitante regular e membros), veio em alguma das últimas 6 sextas e está com 2 ou mais faltas seguidas.
+- **Integração** lista os visitantes que chegaram nos últimos 60 dias e ainda não tiveram contato, destacando quem chegou há menos de 48 horas.
 
 ## Consultas no banco
 
