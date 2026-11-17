@@ -37,7 +37,7 @@ export async function api(metodo, caminho, corpo, tentativa = 1) {
     location.hash = '#/entrar';
     location.reload();
   }
-  if (!r.ok) throw new Error(dados.erro || 'Algo deu errado. Tente de novo.');
+  if (!r.ok) throw new Error(dados.erro || `Algo deu errado (código ${r.status}). Tente de novo.`);
   return dados;
 }
 
