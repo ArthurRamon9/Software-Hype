@@ -297,8 +297,7 @@ GO
 /* ---------- Ministérios iniciais (edite pelo sistema depois) ---------- */
 INSERT INTO dbo.ministerios (nome, cor)
 SELECT v.nome, v.cor FROM (VALUES
-    (N'Louvor', '#1d5c4f'), (N'Mídia', '#2a6fb0'), (N'Recepção', '#b26a1e'),
-    (N'Pastoral', '#a23b3b'), (N'Intercessão', '#6b5b95')
+    (N'Pastoral', '#c2417a'), (N'Integração', '#f0561d'), (N'Administração', '#2a78d6')
 ) v(nome, cor)
 WHERE NOT EXISTS (SELECT 1 FROM dbo.ministerios m WHERE m.nome = v.nome);
 GO

@@ -3,10 +3,11 @@
 import { api, urlFoto, pode } from '../api.js';
 import {
   esc, $, $$, aviso, avisoErro, ocupado, confirmar, foto, tagTipo, TIPOS, idade, fmtData, hojeISO,
-  prepararFoto, baixarCSV, pct, semAcento, linkWhats,
+  prepararFoto, baixarCSV, pct, semAcento, linkWhats, janela,
 } from '../ui.js';
 import { navegar, atualizarContadores } from '../app.js';
 import { abrirAcompanhamento } from './pastoral.js';
+import { lerPlanilha, CAMPOS, mapearAutomatico, montarPessoa } from '../importar.js';
 
 const filtro = { busca: '', tipo: '', status: '1', ministerio: '' };
 
@@ -19,7 +20,7 @@ export async function lista(conteudo) {
 
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>Pessoas</h1></div>
-      <div class="acoes">${pode('pessoas.editar') ? '<a class="btn primary" href="#/pessoas/nova">Cadastrar pessoa</a>' : ''}</div></div>
+      <div class="acoes">${pode('pessoas.editar') ? '<button class="btn" id="importar">Importar planilha</button><a class="btn primary" href="#/pessoas/nova">Cadastrar pessoa</a>' : ''}</div></div>
     <div class="painel">
       <div class="filtros">
         <input class="input busca" id="busca" type="search" placeholder="Buscar por nome ou telefone" value="${esc(filtro.busca)}">
@@ -57,7 +58,7 @@ export async function lista(conteudo) {
         <td class="dir num">${idade(p.data_nascimento) ?? ''}</td>
         <td class="some-mobile num">${esc(p.telefone || '')}</td>
         <td class="some-mobile muted">${p.ministerios.map((m) => esc(nomeMin[m])).join(', ')}</td>
-      </tr>`).join('') : `<tr><td colspan="5" class="vazio">Nenhuma pessoa encontrada.</td></tr>`;
+      </tr>`).join('') : `<tr><td colspan="5" class="vazio">${pessoas.length ? 'Ninguém encontrado com esses filtros.' : `<b>Nenhuma pessoa cadastrada ainda</b>Comece cadastrando uma pessoa ou importando a planilha que vocês já usam.`}</td></tr>`;
   };
   desenhar();
 
@@ -66,6 +67,7 @@ export async function lista(conteudo) {
   $('#tipo').addEventListener('change', (e) => { filtro.tipo = e.target.value; desenhar(); });
   $('#min').addEventListener('change', (e) => { filtro.ministerio = e.target.value; desenhar(); });
   $('#status').addEventListener('change', (e) => { filtro.status = e.target.value; desenhar(); });
+  $('#importar')?.addEventListener('click', () => abrirImportacao(() => lista(conteudo)));
   $('#csv').addEventListener('click', () => baixarCSV(`pessoas-hype-${hojeISO()}.csv`, [
     ['Nome', 'Tipo', 'Idade', 'Nascimento', 'Telefone', 'E-mail', 'Batizado', 'Ministérios', 'Situação', 'Cadastro'],
     ...filtradas().map((p) => [p.nome, TIPOS[p.tipo], idade(p.data_nascimento) ?? '', fmtData(p.data_nascimento), p.telefone, p.email,
@@ -235,4 +237,105 @@ export async function perfil(conteudo, { id }) {
     depois: () => { atualizarContadores(); perfil(conteudo, { id }); },
   }));
   conteudo.querySelectorAll('[data-caso]').forEach((tr) => tr.addEventListener('click', () => navegar(`/pastoral?caso=${tr.dataset.caso}`)));
+}
+
+// ======================= IMPORTAR PLANILHA =======================
+function abrirImportacao(depois) {
+  let dados = null, mapa = {};
+  janela({
+    titulo: 'Importar planilha',
+    larga: true,
+    corpo: `<div id="imp">
+      <label class="arquivo" for="imp-arq"><b>Escolha a planilha</b>Excel (.xlsx) ou .csv. A primeira linha precisa ter os títulos das colunas (Nome, Telefone, Nascimento...).</label>
+      <input type="file" id="imp-arq" accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
+      <p class="hint" style="margin-top:12px">Nada é gravado antes de você conferir a prévia e clicar em Importar.</p>
+    </div>`,
+    aoAbrir: (j, fechar) => {
+      const area = j.querySelector('#imp');
+      j.querySelector('#imp-arq').addEventListener('change', async (e) => {
+        const arq = e.target.files[0]; if (!arq) return;
+        area.innerHTML = '<div class="boot" style="min-height:120px"><span class="spin"></span></div>';
+        try { dados = await lerPlanilha(arq); mapa = mapearAutomatico(dados.titulos); mostrarMapa(arq.name); }
+        catch (err) { area.innerHTML = `<div class="msg erro">${esc(err.message)}</div>`; }
+      });
+
+      const mostrarMapa = (nomeArquivo) => {
+        area.innerHTML = `
+          <p style="margin-bottom:14px"><b>${esc(nomeArquivo)}</b> · ${dados.linhas.length} linha${dados.linhas.length === 1 ? '' : 's'} encontrada${dados.linhas.length === 1 ? '' : 's'}.
+          Confira de qual coluna vem cada informação:</p>
+          <div class="mapa">${CAMPOS.map((c) => `<div class="field"><label>${c.rotulo}</label>
+            <select class="input" data-campo="${c.campo}"><option value="-1">— não importar —</option>
+            ${dados.titulos.map((t, i) => `<option value="${i}" ${mapa[c.campo] === i ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></div>`).join('')}
+            <div class="field"><label>Quem não tiver tipo informado entra como</label>
+              <select class="input" id="imp-tipo"><option value="visitante">Visitante</option><option value="frequentador">Frequentador</option><option value="membro">Membro</option></select></div>
+          </div>
+          <label class="check" style="margin-top:14px"><input type="checkbox" id="imp-pular" checked>Pular quem já está cadastrado (mesmo nome)</label>
+          <h3 style="margin:18px 0 8px">Prévia</h3>
+          <div id="imp-previa"></div>
+          <div class="janela-acoes"><button class="btn" data-fechar>Cancelar</button><button class="btn primary" id="imp-ok">Importar</button></div>`;
+        area.querySelectorAll('select[data-campo]').forEach((sel) => sel.addEventListener('change', () => { mapa[sel.dataset.campo] = Number(sel.value); previa(); }));
+        area.querySelector('#imp-tipo').addEventListener('change', previa);
+        area.querySelector('[data-fechar]').addEventListener('click', fechar);
+        area.querySelector('#imp-ok').addEventListener('click', importar);
+        previa();
+      };
+
+      const montarTodas = () => {
+        const tipoPadrao = area.querySelector('#imp-tipo').value;
+        const vistos = new Set();
+        const pessoas = [];
+        let semNome = 0, repetidasNoArquivo = 0, datasRuins = 0;
+        for (const l of dados.linhas) {
+          const p = montarPessoa(l, mapa, { tipoPadrao });
+          if (p.nome.length < 2) { semNome++; continue; }
+          const k = semAcento(p.nome);
+          if (vistos.has(k)) { repetidasNoArquivo++; continue; }
+          vistos.add(k);
+          if (p._dataOriginal && !p.data_nascimento) datasRuins++;
+          pessoas.push(p);
+        }
+        return { pessoas, semNome, repetidasNoArquivo, datasRuins };
+      };
+
+      const previa = () => {
+        if (!(mapa.nome >= 0)) { area.querySelector('#imp-previa').innerHTML = '<div class="msg erro">Escolha a coluna do Nome para continuar.</div>'; area.querySelector('#imp-ok').disabled = true; return; }
+        area.querySelector('#imp-ok').disabled = false;
+        const { pessoas, semNome, repetidasNoArquivo, datasRuins } = montarTodas();
+        const avisos = [
+          semNome && `${semNome} linha${semNome > 1 ? 's' : ''} sem nome ser${semNome > 1 ? 'ão' : 'á'} ignorada${semNome > 1 ? 's' : ''}`,
+          repetidasNoArquivo && `${repetidasNoArquivo} nome${repetidasNoArquivo > 1 ? 's aparecem' : ' aparece'} repetido na planilha (entra só uma vez)`,
+          datasRuins && `${datasRuins} data${datasRuins > 1 ? 's' : ''} de nascimento não ${datasRuins > 1 ? 'foram entendidas' : 'foi entendida'} e ficar${datasRuins > 1 ? 'ão' : 'á'} em branco`,
+        ].filter(Boolean);
+        area.querySelector('#imp-previa').innerHTML = `
+          ${avisos.length ? `<div class="msg aviso" style="margin-bottom:10px">${avisos.join('<br>')}</div>` : ''}
+          <div class="previa"><table class="tabela"><thead><tr><th>Nome</th><th>Tipo</th><th>Nascimento</th><th>Telefone</th><th>Ministérios</th></tr></thead><tbody>
+          ${pessoas.slice(0, 8).map((p) => `<tr><td>${esc(p.nome)}</td><td>${tagTipo(p.tipo)}</td>
+            <td>${p.data_nascimento ? fmtData(p.data_nascimento) : (p._dataOriginal ? `<span class="tag warn">${esc(p._dataOriginal)}?</span>` : '')}</td>
+            <td>${esc(p.telefone)}</td><td>${esc(p.ministerios_nomes)}</td></tr>`).join('')}
+          </tbody></table></div>
+          <p class="hint" style="margin-top:6px">${pessoas.length} pessoa${pessoas.length === 1 ? '' : 's'} pronta${pessoas.length === 1 ? '' : 's'} para importar${pessoas.length > 8 ? ' (mostrando as 8 primeiras)' : ''}.</p>`;
+      };
+
+      const importar = async (e) => {
+        const { pessoas } = montarTodas();
+        if (!pessoas.length) return aviso('Nenhuma pessoa com nome para importar.', 'erro');
+        const pular = area.querySelector('#imp-pular').checked;
+        await ocupado(e.currentTarget, async () => {
+          const total = { importadas: 0, repetidas: 0, invalidas: 0, ministerios: new Set() };
+          try {
+            for (let i = 0; i < pessoas.length; i += 300) {
+              const r = await api('POST', '/pessoas/importar', { pessoas: pessoas.slice(i, i + 300).map(({ _dataOriginal, ...p }) => p), pularRepetidos: pular });
+              total.importadas += r.importadas; total.repetidas += r.repetidas; total.invalidas += r.invalidas;
+              r.ministeriosNaoEncontrados.forEach((m) => total.ministerios.add(m));
+            }
+            area.innerHTML = `<div class="msg ok"><b>${total.importadas} pessoa${total.importadas === 1 ? '' : 's'} importada${total.importadas === 1 ? '' : 's'}.</b>
+              ${total.repetidas ? `<br>${total.repetidas} já estava${total.repetidas === 1 ? '' : 'm'} cadastrada${total.repetidas === 1 ? '' : 's'} e ${total.repetidas === 1 ? 'foi pulada' : 'foram puladas'}.` : ''}</div>
+              ${total.ministerios.size ? `<div class="msg aviso" style="margin-top:10px">Estes ministérios da planilha não existem no sistema e foram ignorados: ${[...total.ministerios].map(esc).join(', ')}. Cadastre-os em Ministérios se quiser e ajuste as pessoas depois.</div>` : ''}
+              <div class="janela-acoes"><button class="btn primary" data-fechar>Ver pessoas</button></div>`;
+            area.querySelector('[data-fechar]').addEventListener('click', () => { fechar(); depois?.(); });
+          } catch (err) { avisoErro(err); }
+        });
+      };
+    },
+  });
 }

@@ -5,10 +5,19 @@ import { esc, $, aviso, ocupado, direitos } from '../ui.js';
 import { entrou, sair, parametrosHash, navegar } from '../app.js';
 
 function tela(app, html) {
-  app.innerHTML = `<div class="acesso"><div class="acesso-box">
+  app.innerHTML = `<div class="acesso">
+    <aside class="acesso-lado">
       <div class="marca"><img src="assets/img/logo.svg" alt="">Gestão do Hype</div>
+      <div>
+        <div class="palavra">hype</div>
+        <p class="frase">Ninguém fica de fora.<span>Cadastro, chamada das sextas e cuidado pastoral do ministério de jovens.</span></p>
+      </div>
+      <div class="rod">${direitos()}</div>
+    </aside>
+    <main class="acesso-main"><div class="acesso-box">
+      <div class="marca-mobile"><img src="assets/img/logo.svg" alt="">Gestão do Hype</div>
       ${html}
-    </div><footer>${direitos()}</footer></div>`;
+    </div><footer class="so-mobile">${direitos()}</footer></main></div>`;
   ligarMostrarSenha(app);
 }
 

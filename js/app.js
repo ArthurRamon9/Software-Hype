@@ -1,7 +1,7 @@
 // Gestão do Hype — rotas, menu e layout
 // © Arthur Ramon da Silva — Todos os direitos reservados.
 import { api, sessao, podeAlgum } from './api.js';
-import { icon, esc, direitos, $ } from './ui.js';
+import { icon, esc, direitos, $, foto } from './ui.js';
 import * as acesso from './pages/acesso.js';
 import * as inicio from './pages/inicio.js';
 import * as pessoas from './pages/pessoas.js';
@@ -108,7 +108,7 @@ function montarLayout(caminho) {
       <aside class="lateral">
         <div class="marca"><img src="assets/img/logo.svg" alt="">Gestão do Hype</div>
         <nav class="menu" id="menu"></nav>
-        <div class="conta" id="conta"></div>
+        <a class="conta" id="conta" href="#/conta"></a>
       </aside>
       <div class="principal">
         <header class="topo-mobile"><div class="marca"><img src="assets/img/logo.svg" alt="">Gestão do Hype</div><a href="#/conta" id="conta-mobile"></a></header>
@@ -120,8 +120,8 @@ function montarLayout(caminho) {
   }
   $('#menu').innerHTML = itens.map((i) => (i.grupo ? `<div class="grupo">${i.grupo}</div>` : itemMenu(i, caminho))).join('');
   $('#nav-mobile').innerHTML = itens.filter((i) => i.mob).map((i) => itemMenu(i, caminho, true)).join('');
-  $('#conta').innerHTML = `<b>${esc(u.nome)}</b><a href="#/conta">Minha conta</a>`;
-  $('#conta-mobile').textContent = u.nome.split(' ')[0];
+  $('#conta').innerHTML = `${foto(u.nome, null)}<div><b>${esc(u.nome)}</b><span>Minha conta</span></div>`;
+  $('#conta-mobile').innerHTML = foto(u.nome, null);
 }
 
 export async function atualizarContadores() {

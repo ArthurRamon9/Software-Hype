@@ -103,7 +103,13 @@ export function iniciais(nome = '') {
   const p = nome.trim().split(/\s+/).filter(Boolean);
   return ((p[0]?.[0] || '') + (p.length > 1 ? p[p.length - 1][0] : '')).toUpperCase() || '?';
 }
-export const foto = (nome, url, classe = '') => `<span class="foto ${classe}">${url ? `<img src="${esc(url)}" alt="" loading="lazy">` : esc(iniciais(nome))}</span>`;
+// Cada pessoa ganha sempre a mesma cor (calculada pelo nome)
+const CORES_FOTO = ['#f0561d', '#2a78d6', '#1f8a57', '#c2417a', '#7a5af0', '#0e8a8a', '#b8860b', '#d14d72', '#3f6fb5', '#5a8f29'];
+export function corDoNome(nome = '') {
+  let h = 0; for (const c of nome) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return CORES_FOTO[h % CORES_FOTO.length];
+}
+export const foto = (nome, url, classe = '') => `<span class="foto ${classe}" style="--cor:${corDoNome(nome)}">${url ? `<img src="${esc(url)}" alt="" loading="lazy">` : esc(iniciais(nome))}</span>`;
 export const TIPOS = { membro: 'Membro', visitante: 'Visitante', frequentador: 'Frequentador' };
 export const tagTipo = (t) => `<span class="tag ${t}">${TIPOS[t] || t}</span>`;
 export const linkWhats = (tel) => {
@@ -140,3 +146,8 @@ export function baixarCSV(nome, linhas) {
 
 export const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
 export const direitos = () => `© ${new Date().getFullYear()} Gestão do Hype. Todos os direitos reservados a Arthur Ramon da Silva.`;
+
+export function saudacao() {
+  const h = new Date().getHours();
+  return h < 5 ? 'Boa noite' : h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite';
+}

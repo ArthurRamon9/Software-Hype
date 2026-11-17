@@ -53,18 +53,18 @@ async function desenhar(conteudo) {
     let p = 0, f = 0;
     lista.forEach((x) => { const v = marca.get(x.id); if (v === true) p++; else if (v === false) f++; });
     const resto = lista.length - p - f;
-    $('#contagem').innerHTML = `<b>${p}</b> presentes · <b>${f}</b> ausentes${resto ? ` · <b>${resto}</b> sem marcar` : ''}`;
+    $('#contagem').innerHTML = `<span class="p">${p} presente${p === 1 ? '' : 's'}</span><span class="f">${f} ausente${f === 1 ? '' : 's'}</span>${resto ? `<span>${resto} sem marcar</span>` : ''}`;
   };
   const linha = (p) => {
     const v = marca.get(p.id), j = just.get(p.id);
-    return `<div data-id="${p.id}">${foto(p.nome, urlFoto(p.id, p.foto_v))}
+    return `<div data-id="${p.id}" class="${v === true ? 'marcado-p' : v === false ? 'marcado-f' : ''}">${foto(p.nome, urlFoto(p.id, p.foto_v))}
       <div class="nome"><b>${esc(p.nome)}</b><span>${TIPOS[p.tipo]}${v === false ? ` · <button class="link-btn small" data-just>${j ? esc(j) : 'justificar'}</button>` : ''}</span></div>
       <div class="pf"><button data-v="1" class="${v === true ? 'p' : ''}" aria-label="Presente">P</button><button data-v="0" class="${v === false ? 'f' : ''}" aria-label="Ausente">F</button></div></div>`;
   };
   const visiveis = () => { const b = semAcento(busca); return lista.filter((p) => !b || semAcento(p.nome).includes(b)); };
   const pintar = () => {
     const v = visiveis();
-    $('#chamada').innerHTML = v.length ? v.map(linha).join('') : `<div class="vazio">${lista.length ? 'Ninguém com esse nome.' : 'Nenhuma pessoa ativa cadastrada. Cadastre na aba Pessoas.'}</div>`;
+    $('#chamada').innerHTML = v.length ? v.map(linha).join('') : `<div class="vazio">${lista.length ? 'Ninguém com esse nome.' : '<b>Ninguém para chamar ainda</b>Cadastre as pessoas na aba Pessoas (ou importe a planilha) e volte aqui.'}</div>`;
     contar();
   };
   const repintarLinha = (pid) => { const el = $(`#chamada [data-id="${pid}"]`); if (el) el.outerHTML = linha(lista.find((x) => x.id === pid)); contar(); };

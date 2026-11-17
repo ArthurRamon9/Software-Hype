@@ -23,6 +23,7 @@ const PERMISSAO_DA_ROTA = {
   'GET /pessoas':                     'pessoas.ver',
   'GET /pessoas/:id':                 'pessoas.ver',
   'POST /pessoas':                    ['pessoas.editar', 'presenca.marcar'],  // quem faz chamada cadastra visitante novo
+  'POST /pessoas/importar':           'pessoas.editar',
   'PUT /pessoas/:id':                 'pessoas.editar',
   'DELETE /pessoas/:id':              'pessoas.excluir',
   'PUT /pessoas/:id/foto':            'pessoas.editar',
@@ -54,7 +55,14 @@ const rota = (metodo, caminho, fn, acesso) => {
 };
 const txt = (v, max = 500) => { if (v === undefined || v === null) return null; const s = String(v).trim(); return s ? s.slice(0, max) : null; };
 const int = (v) => { const n = Number(v); if (!Number.isInteger(n) || n <= 0) throw new HttpError(400, 'Identificador inválido.'); return n; };
-const dataISO = (v) => { if (!v) return null; if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new HttpError(400, 'Data inválida.'); return v; };
+const dataISO = (v) => {
+  if (!v) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+  const d = m && new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  if (!d || d.getUTCDate() !== +m[3] || +m[1] < 1900 || +m[1] > 2100) throw new HttpError(400, 'Data inválida.');
+  return v;
+};
+const hojeUTC = () => new Date().toISOString().slice(0, 10);
 const emailValido = (e) => /^[^\s@]{1,64}@[^\s@]+\.[^\s@]{2,}$/.test(e || '');
 const pode = (u, p) => u?.permissoes?.includes(p);
 const emailAdmin = () => String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
@@ -331,7 +339,7 @@ function dadosPessoa(b) {
   if (!nome || nome.length < 2) throw new HttpError(400, 'Informe o nome.');
   return {
     nome,
-    data_nascimento: dataISO(b.data_nascimento),
+    data_nascimento: (() => { const d = dataISO(b.data_nascimento); if (d && d > hojeUTC()) throw new HttpError(400, 'A data de nascimento não pode ser no futuro.'); return d; })(),
     sexo: ['M', 'F'].includes(b.sexo) ? b.sexo : null,
     telefone: txt(b.telefone, 30), email: txt(b.email, 200), instagram: txt(b.instagram, 60), endereco: txt(b.endereco, 250),
     tipo: ['membro', 'visitante', 'frequentador'].includes(b.tipo) ? b.tipo : 'visitante',
@@ -359,6 +367,58 @@ rota('POST', '/pessoas', async ({ body, usuario, ip }) => {
     SELECT @pid AS id;`, { ...d, uid: usuario.id });
   await seg.registrar('pessoa_criada', { usuario, ip, detalhe: `${d.nome} (id ${r.id})` });
   return { id: r.id };
+});
+
+// Importação em lote (planilha). Recebe até 500 linhas por vez.
+rota('POST', '/pessoas/importar', async ({ body, usuario, ip }) => {
+  const linhas = Array.isArray(body.pessoas) ? body.pessoas : [];
+  if (!linhas.length) throw new HttpError(400, 'Nenhuma linha para importar.');
+  if (linhas.length > 500) throw new HttpError(400, 'Envie no máximo 500 linhas por vez.');
+  const ministerios = await query('SELECT id, nome FROM dbo.ministerios');
+  const chave = (t) => String(t || '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const porNome = new Map(ministerios.map((m) => [chave(m.nome), m.id]));
+  const ignorados = new Set();
+  const validas = [];
+  linhas.forEach((l, idx) => {
+    try {
+      // Data ruim não impede a importação: a pessoa entra com a data em branco
+      const limpa = { ...l, ministerios: [] };
+      for (const campo of ['data_nascimento', 'data_cadastro']) {
+        try { if (dataISO(limpa[campo]) > hojeUTC()) limpa[campo] = null; } catch { limpa[campo] = null; }
+      }
+      const d = dadosPessoa(limpa);
+      const mins = String(l.ministerios_nomes || '').split(/[,;/]+/).map((n) => n.trim()).filter(Boolean)
+        .map((n) => { const id = porNome.get(chave(n)); if (!id) ignorados.add(n); return id; }).filter(Boolean);
+      delete d.ministerios;
+      validas.push({ ...d, batizado: d.batizado ? 1 : 0, idx, ministerios: [...new Set(mins)] });
+    } catch { /* linha sem nome válido: ignora */ }
+  });
+  if (!validas.length) throw new HttpError(400, 'Nenhuma linha tem nome válido.');
+  const r = await umaLinha(`
+    SET XACT_ABORT ON; BEGIN TRAN;
+    DECLARE @novos TABLE (id INT, idx INT);
+    MERGE dbo.pessoas AS t
+    USING (
+      SELECT j.* FROM OPENJSON(@json) WITH (
+        idx INT, nome NVARCHAR(150), data_nascimento DATE, sexo CHAR(1), telefone VARCHAR(30), email NVARCHAR(200),
+        instagram NVARCHAR(60), endereco NVARCHAR(250), tipo VARCHAR(15), batizado BIT, como_conheceu NVARCHAR(150),
+        observacoes NVARCHAR(MAX), data_cadastro DATE, cd_status TINYINT) j
+      WHERE @pular = 0 OR NOT EXISTS (SELECT 1 FROM dbo.pessoas p WHERE p.nome = j.nome)
+    ) AS s ON 1 = 0
+    WHEN NOT MATCHED THEN INSERT (nome, data_nascimento, sexo, telefone, email, instagram, endereco, tipo, batizado, como_conheceu, observacoes, data_cadastro, cd_status, criado_por)
+      VALUES (s.nome, s.data_nascimento, s.sexo, s.telefone, s.email, s.instagram, s.endereco, s.tipo, s.batizado, s.como_conheceu, s.observacoes, s.data_cadastro, s.cd_status, @uid)
+    OUTPUT inserted.id, s.idx INTO @novos;
+    INSERT INTO dbo.pessoa_ministerio (pessoa_id, ministerio_id)
+    SELECT DISTINCT n.id, m.value
+      FROM @novos n
+      JOIN OPENJSON(@json) WITH (idx INT, ministerios NVARCHAR(MAX) AS JSON) j ON j.idx = n.idx
+      CROSS APPLY OPENJSON(j.ministerios) m
+      JOIN dbo.ministerios mi ON mi.id = m.value;
+    COMMIT;
+    SELECT COUNT(*) AS importadas FROM @novos;`, { json: JSON.stringify(validas), pular: body.pularRepetidos === false ? 0 : 1, uid: usuario.id });
+  const resultado = { importadas: r.importadas, repetidas: validas.length - r.importadas, invalidas: linhas.length - validas.length, ministeriosNaoEncontrados: [...ignorados] };
+  await seg.registrar('pessoas_importadas', { usuario, ip, detalhe: `${resultado.importadas} importadas, ${resultado.repetidas} já existiam, ${resultado.invalidas} sem nome` });
+  return resultado;
 });
 
 rota('PUT', '/pessoas/:id', async ({ params, body, usuario, ip }) => {
@@ -537,7 +597,7 @@ rota('GET', '/painel', async ({ usuario }) => {
   const [[pessoas, encontros, casos], alertas] = await Promise.all([query(`
     SELECT p.id, p.nome, p.tipo, p.data_nascimento, p.data_cadastro, CONVERT(VARCHAR(30), f.dt_atualizacao, 126) AS foto_v
       FROM dbo.pessoas p LEFT JOIN dbo.pessoas_foto f ON f.pessoa_id = p.id WHERE p.cd_status = 1 AND @vp = 1;
-    SELECT TOP 12 encontro_id AS id, data, tema, presentes AS total, membros_presentes AS membros
+    SELECT TOP 12 encontro_id AS id, data, tema, presentes AS total, membros_presentes AS membros, visitantes_presentes AS visitantes
       FROM dbo.vw_resumo_encontros WHERE @ve = 1 ORDER BY data DESC;
     SELECT COUNT(*) AS abertos FROM dbo.pastoral_casos WHERE status <> 'concluido' AND @vc = 1;`,
   { vp: verPessoas ? 1 : 0, ve: verPresenca ? 1 : 0, vc: verPastoral ? 1 : 0 }, { todos: true }), verPastoral ? calcularAlertas() : []]);

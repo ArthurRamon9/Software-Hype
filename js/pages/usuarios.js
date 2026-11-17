@@ -11,7 +11,7 @@ const ACOES = {
   senha_redefinida: 'Redefiniu a senha', senha_trocada: 'Trocou a senha', usuario_liberado: 'Liberou acesso', usuario_bloqueado: 'Bloqueou acesso',
   usuario_excluido: 'Excluiu conta', grupos_alterados: 'Alterou grupos', grupo_criado: 'Criou grupo', grupo_alterado: 'Alterou grupo',
   grupo_excluido: 'Excluiu grupo', pessoa_criada: 'Cadastrou pessoa', pessoa_editada: 'Editou pessoa', pessoa_excluida: 'Excluiu pessoa',
-  chamada_salva: 'Salvou chamada', chamada_excluida: 'Apagou chamada', caso_excluido: 'Apagou acompanhamento',
+  chamada_salva: 'Salvou chamada', pessoas_importadas: 'Importou planilha', chamada_excluida: 'Apagou chamada', caso_excluido: 'Apagou acompanhamento',
 };
 const dataHora = (iso) => new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
 
