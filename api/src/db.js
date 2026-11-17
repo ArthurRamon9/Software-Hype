@@ -20,7 +20,8 @@ function getPool() {
     poolPromise = pool.connect().catch(async (e) => {
       poolPromise = null;
       const err = erroDeConexao(e);
-      if (err.status === 504) err.message += ' ' + await testarPorta(pool.config.server, pool.config.port || 1433);
+      // O resultado do teste vai só para o log do Netlify (não mostra o endereço do banco na tela)
+      if (err.status === 504) console.error('[banco]', await testarPorta(pool.config.server, pool.config.port || 1433));
       throw err;
     });
   }
@@ -52,9 +53,9 @@ function erroDeConexao(e) {
   }
   if (num === 4060) return new HttpError(502, 'Banco não encontrado. Confira o "Database=" no SQL_CONNECTION_STRING.');
   if (['ETIMEOUT', 'ESOCKET', 'ECONNRESET', 'ECONNCLOSED', 'EINSTLOOKUP', 'ENOTFOUND'].includes(e?.code)) {
-    return new HttpError(504, `O servidor do banco não respondeu a tempo (${e.code}). Confira se o "Server=" tem ".public" e se o acesso remoto está ligado no MonsterASP.`);
+    return new HttpError(504, `O servidor do banco não respondeu a tempo (${e.code}). Tente de novo; se continuar, veja o log da função no Netlify.`);
   }
-  return new HttpError(502, `Falha ao conectar no banco: ${e?.code || ''} ${String(e?.message || '').slice(0, 160)}`.trim());
+  return new HttpError(502, `Falha ao conectar no banco (${e?.code || 'erro'}). Veja o log da função no Netlify.`);
 }
 
 // Colunas DATE voltam como texto 'AAAA-MM-DD'
