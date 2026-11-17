@@ -13,15 +13,30 @@ function getPool() {
     // Respeita o TrustServerCertificate que vier na connection string do painel
     pool.config.options = { ...o, useUTC: true, encrypt: true, trustServerCertificate: process.env.SQL_TRUST_CERT === '1' || o.trustServerCertificate === true };
     pool.config.pool = { max: 5, min: 0, idleTimeoutMillis: 30000 };
-    pool.config.connectionTimeout = 30000;
-    pool.config.requestTimeout = 30000;
-    poolPromise = pool.connect().catch((e) => { poolPromise = null; throw e; });
+    // O Netlify encerra a função em ~10 s: a conexão precisa desistir antes disso
+    pool.config.connectionTimeout = 7000;
+    pool.config.requestTimeout = 8000;
+    poolPromise = pool.connect().catch((e) => { poolPromise = null; throw erroDeConexao(e); });
   }
   return poolPromise;
 }
 
 class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
+}
+
+// Traduz falhas de conexão em mensagens que dizem o que conferir
+function erroDeConexao(e) {
+  const num = e?.number ?? e?.originalError?.number ?? e?.originalError?.info?.number;
+  console.error('[banco] falha ao conectar:', e?.code, num, e?.message);
+  if (num === 18456 || e?.code === 'ELOGIN') {
+    return new HttpError(502, 'O banco recusou a conexão. Confira User Id, Password e Database no SQL_CONNECTION_STRING do Netlify.');
+  }
+  if (num === 4060) return new HttpError(502, 'Banco não encontrado. Confira o "Database=" no SQL_CONNECTION_STRING.');
+  if (['ETIMEOUT', 'ESOCKET', 'ECONNRESET', 'ECONNCLOSED', 'EINSTLOOKUP', 'ENOTFOUND'].includes(e?.code)) {
+    return new HttpError(504, `O servidor do banco não respondeu a tempo (${e.code}). Confira se o "Server=" tem ".public" e se o acesso remoto está ligado no MonsterASP.`);
+  }
+  return new HttpError(502, `Falha ao conectar no banco: ${e?.code || ''} ${String(e?.message || '').slice(0, 160)}`.trim());
 }
 
 // Colunas DATE voltam como texto 'AAAA-MM-DD'
@@ -64,9 +79,10 @@ async function query(texto, params = {}, { todos = false } = {}) {
       r.recordsets.forEach(normalizar);
       return todos ? r.recordsets : (r.recordset || []);
     } catch (e) {
-      if (ehTransitorio(e) && Date.now() - inicio < 32000) {
+      if (e instanceof HttpError) throw e;   // falha de conexão já explicada
+      if (ehTransitorio(e) && Date.now() - inicio < 6000) {
         poolPromise = null;
-        await esperar(Math.min(2000 * tentativa, 8000));
+        await esperar(1500);
         continue;
       }
       if (ehTransitorio(e)) throw new HttpError(503, 'O banco está iniciando. Tente de novo em alguns segundos.');
