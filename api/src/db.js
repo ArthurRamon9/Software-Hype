@@ -9,7 +9,9 @@ function getPool() {
     const cs = process.env.SQL_CONNECTION_STRING;
     if (!cs) throw new HttpError(500, 'Banco não configurado (SQL_CONNECTION_STRING).');
     const pool = new sql.ConnectionPool(cs);
-    pool.config.options = { ...(pool.config.options || {}), useUTC: true, encrypt: true, trustServerCertificate: process.env.SQL_TRUST_CERT === '1' };
+    const o = pool.config.options || {};
+    // Respeita o TrustServerCertificate que vier na connection string do painel
+    pool.config.options = { ...o, useUTC: true, encrypt: true, trustServerCertificate: process.env.SQL_TRUST_CERT === '1' || o.trustServerCertificate === true };
     pool.config.pool = { max: 5, min: 0, idleTimeoutMillis: 30000 };
     pool.config.connectionTimeout = 30000;
     pool.config.requestTimeout = 30000;
