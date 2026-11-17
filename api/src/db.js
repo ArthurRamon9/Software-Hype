@@ -1,4 +1,4 @@
-// Conexão com o SQL Server (Azure SQL Database)
+// Conexão com o SQL Server (MonsterASP.NET ou qualquer SQL Server)
 // © Arthur Ramon da Silva — Todos os direitos reservados.
 const sql = require('mssql');
 

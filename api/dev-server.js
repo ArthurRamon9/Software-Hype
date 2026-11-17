@@ -1,4 +1,4 @@
-// Servidor local para testar o sistema no seu computador: node dev-server.js
+// Servidor local para testar o sistema no seu computador: npm run dev
 // Lê as configurações de local.settings.json e serve o site + API em http://localhost:4280
 // © Arthur Ramon da Silva — Todos os direitos reservados.
 const http = require('http');
@@ -13,7 +13,9 @@ const { atender } = require('./src/http');
 const RAIZ = path.join(__dirname, '..');
 const TIPOS = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json', '.webmanifest': 'application/manifest+json' };
 const PORTA = Number(process.env.PORT || 4280);
-const CABECALHOS_SITE = JSON.parse(fs.readFileSync(path.join(RAIZ, 'staticwebapp.config.json'), 'utf8')).globalHeaders;
+// Mesmos cabeçalhos de segurança do site publicado (arquivo _headers do Netlify)
+const CABECALHOS_SITE = Object.fromEntries(fs.readFileSync(path.join(RAIZ, '_headers'), 'utf8').split('\n')
+  .filter((l) => /^\s+\S+:/.test(l)).map((l) => { const i = l.indexOf(':'); return [l.slice(0, i).trim(), l.slice(i + 1).trim()]; }));
 
 http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
@@ -28,7 +30,7 @@ http.createServer(async (req, res) => {
     return res.end(r.corpo);
   }
   let arq = path.normalize(path.join(RAIZ, decodeURIComponent(url.pathname === '/' ? 'index.html' : url.pathname)));
-  const proibido = /[\\/](api|sql|\.git|\.github|node_modules)([\\/]|$)|\.md$|LICENSE$/.test(arq.slice(RAIZ.length));
+  const proibido = /[\\/](api|sql|netlify|\.git|node_modules)([\\/]|$)|\.md$|\.toml$|LICENSE$|package(-lock)?\.json$/.test(arq.slice(RAIZ.length));
   if (!arq.startsWith(RAIZ + path.sep) || proibido || !fs.existsSync(arq) || fs.statSync(arq).isDirectory()) arq = path.join(RAIZ, 'index.html');
   res.writeHead(200, { 'Content-Type': TIPOS[path.extname(arq)] || 'application/octet-stream', ...CABECALHOS_SITE });
   fs.createReadStream(arq).pipe(res);

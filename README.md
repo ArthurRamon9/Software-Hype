@@ -6,17 +6,17 @@ Sistema interno do grupo de jovens **Hype**: cadastro de pessoas com foto, chama
 
 ---
 
-## Como é montado (tudo no plano gratuito)
+## Como é montado (tudo grátis e sem cartão de crédito)
 
 | Parte | Serviço |
 |---|---|
-| Banco de dados | **Azure SQL Database** (SQL Server), oferta gratuita: 32 GB e 100.000 segundos de vCore por mês, sem prazo |
-| Site + API | **Azure Static Web Apps**, plano Free (o site e as funções da pasta `api/`) |
+| Banco de dados | **SQL Server** no **MonsterASP.NET** (plano Free: 1 GB, acesso pelo SSMS) |
+| Site + API | **Netlify** (plano Free: o site e a função em `netlify/functions/api.mjs`) |
 | E-mail de "esqueci a senha" | Gmail com senha de app |
 
 ```
-navegador  →  site (HTML/CSS/JS)  →  /api (Node.js)  →  SQL Server
-                                         └→ Gmail (e-mails)
+navegador  →  site (HTML/CSS/JS)  →  /api (Node.js no Netlify)  →  SQL Server (MonsterASP)
+                                              └→ Gmail (e-mails)
 ```
 
 O site nunca fala direto com o banco. Quem fala é a API, que confere o login e as permissões em **cada** pedido.
@@ -54,43 +54,35 @@ Permissões existentes: `pessoas.ver`, `pessoas.editar`, `pessoas.excluir`, `pre
 
 ## Instalação
 
-### 1. Criar o banco (Azure SQL Database grátis)
-1. Crie uma conta em <https://azure.microsoft.com/free>. A Microsoft pede um cartão só para confirmar identidade.
-2. No portal (<https://portal.azure.com>), procure **Azure SQL Database** → **Criar**. Na tela aparece a faixa **"Aplicar oferta gratuita"**: clique nela.
-   - Grupo de recursos: `hype`
-   - Nome do banco: `hype`
-   - Servidor: **Criar novo** → nome ex. `hype-sql` · região **Brazil South** · autenticação **SQL** · crie um login (ex. `hypeadmin`) e senha. **Guarde.**
-   - **Comportamento ao atingir o limite grátis: "Pausar o banco até o próximo mês"**. Assim nunca há cobrança.
-3. Depois de criado: **Rede** (Networking) do servidor → marque **"Permitir que serviços e recursos do Azure acessem este servidor"** e **"Adicionar seu IP atual"** → Salvar.
-4. Conecte pelo SSMS (servidor `hype-sql.database.windows.net`, login SQL), **escolha o banco `hype`** e rode **`sql/01_estrutura.sql`**.
-5. Ainda no banco `hype`, abra **`sql/03_usuario_da_aplicacao.sql`**, troque a senha de exemplo por uma forte e rode. Esse é o usuário restrito que o site vai usar.
-6. Em **Cadeias de conexão** → **ADO.NET**, copie a string e troque o `User ID` por `hype_app` e a senha pela do passo 5. **O site nunca usa o login de administrador do servidor.**
+### 1. Gmail para enviar os e-mails
+1. No Gmail do ministério, ative a **verificação em duas etapas** (myaccount.google.com/security).
+2. Crie uma **senha de app** em myaccount.google.com/apppasswords e anote as 16 letras.
 
-### 2. Senha de app do Gmail
-1. Use um Gmail do ministério (ex.: `gestaohype@gmail.com`) e ative a **verificação em duas etapas**.
-2. Crie uma senha de app em <https://myaccount.google.com/apppasswords> e copie as 16 letras.
+### 2. Banco (MonsterASP.NET)
+1. Crie a conta grátis em monsterasp.net (sem cartão).
+2. No painel, crie um **banco MSSQL**. Anote servidor, nome do banco, usuário e senha.
+3. No banco, em **Users and remote**, clique em **Enabled** para liberar o acesso remoto.
+4. Conecte pelo SSMS com esses dados e rode **`sql/01_estrutura.sql`** dentro do banco.
+5. Rode **`sql/03_usuario_da_aplicacao.sql`** (troque a senha de exemplo). Se a hospedagem não permitir criar usuário, pule este passo e use o usuário principal.
 
-### 3. Publicar o site (Azure Static Web Apps)
-1. No portal: **Static Web Apps** → **Criar** → plano **Free** → origem **GitHub** → repositório `Software-Hype`, branch `main`.
-2. Detalhes do build: predefinição **Custom** · App location `/` · Api location `api` · Output location *(vazio)*.
-3. Ao criar, o Azure adiciona sozinho um arquivo em `.github/workflows/` e publica. Cada `git push` publica de novo.
-4. No Static Web App → **Configurações de ambiente** (Environment variables), adicione:
+### 3. Site (Netlify)
+1. Crie a conta grátis em netlify.com entrando com o GitHub.
+2. **Add new project → Import an existing project → GitHub → Software-Hype**. Deixe as opções como vierem (o `netlify.toml` já configura tudo) e publique.
+3. Em **Project configuration → Environment variables**, adicione:
 
 | Nome | Valor |
 |---|---|
-| `SQL_CONNECTION_STRING` | a string do passo 1.6 (com o usuário `hype_app`) |
-| `JWT_SECRET` | 96 caracteres aleatórios (veja abaixo) |
+| `SQL_CONNECTION_STRING` | `Server=SERVIDOR,1433;Initial Catalog=BANCO;User ID=USUARIO;Password=SENHA;Encrypt=True;` |
+| `JWT_SECRET` | 96 caracteres aleatórios |
 | `ADMIN_EMAIL` | **o seu e-mail**: só ele pode virar o primeiro administrador |
 | `SMTP_USER` | o Gmail |
-| `SMTP_PASS` | a senha de app |
-| `SITE_URL` | o endereço do site, ex. `https://xxxx.azurestaticapps.net/` |
+| `SMTP_PASS` | a senha de app (sem espaços) |
+| `SITE_URL` | o endereço do site, ex. `https://gestao-hype.netlify.app/` |
 
-Para gerar o `JWT_SECRET` (a "chave" que assina as sessões), rode no terminal: `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`. Ou me peça um.
+4. **Deploys → Trigger deploy** para aplicar as variáveis.
 
 ### 4. Primeiro acesso
-Abra o site e clique em **Criar conta** usando **o mesmo e-mail do `ADMIN_EMAIL`**: essa conta já entra como administrador. Qualquer outra conta fica aguardando liberação em **Acessos**, onde você escolhe os grupos dela. Os administradores recebem um e-mail a cada pedido novo.
-
----
+Abra o site e clique em **Criar conta** usando **o mesmo e-mail do `ADMIN_EMAIL`**: essa conta já entra como administrador. Qualquer outra conta fica aguardando liberação em **Acessos**.
 
 ## Consultas no banco
 
@@ -107,16 +99,15 @@ Exemplos em [`sql/02_consultas_exemplo.sql`](sql/02_consultas_exemplo.sql). Conv
 
 ## Rodar no computador (opcional)
 ```
-cd api
 npm install
-copy local.settings.example.json local.settings.json   (e preencha)
-node dev-server.js
+copy api\local.settings.example.json api\local.settings.json   (e preencha)
+npm run dev
 ```
 Abra <http://localhost:4280>.
 
 ## Cuidados
-- **Banco "dormindo":** no plano grátis o banco pausa após 1 hora sem uso. O primeiro acesso depois disso leva até ~1 minuto. O site avisa "Conectando ao banco" e tenta de novo sozinho.
-- **Limite mensal:** 100.000 segundos de vCore por mês. O uso de um grupo de jovens fica bem abaixo disso. Deixar o SSMS aberto e conectado o dia todo impede a pausa e gasta o limite, então feche quando terminar.
+- **Backup:** o plano grátis não garante backup. De vez em quando, faça um backup pelo painel do MonsterASP ou exporte as pessoas em CSV pela tela Pessoas.
+- **Limites grátis:** 1 GB de banco (as fotos são reduzidas para ~60 KB, então cabem milhares) e a cota mensal do Netlify, muito acima do uso de um grupo de jovens.
 - **LGPD:** são dados pessoais de jovens, alguns menores. Cadastre só o necessário e libere acesso só a quem serve.
 
 ---

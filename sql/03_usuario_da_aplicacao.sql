@@ -2,8 +2,10 @@
    GESTÃO DO HYPE — Usuário do banco usado pelo site (privilégio mínimo)
    © Arthur Ramon da Silva — Todos os direitos reservados.
 
-   Rode CONECTADO NO BANCO "hype" (não no master), com o login de
-   administrador do servidor. Troque a senha abaixo por uma forte.
+   Rode conectado no banco do sistema, com o usuário principal.
+   Troque a senha abaixo por uma forte.
+   Se a hospedagem não permitir criar usuários (dá erro de permissão),
+   pode pular este script: o site funciona com o usuário principal.
 
    O site usa este usuário: ele só lê e grava dados. Não consegue
    apagar tabelas, mudar a estrutura nem criar usuários. Mesmo que

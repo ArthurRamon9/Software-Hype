@@ -1,0 +1,9 @@
+# Arquivos que não devem ficar acessíveis pelo site
+/sql/*            /404  404!
+/netlify/*        /404  404!
+/node_modules/*   /404  404!
+/*.md             /404  404!
+/LICENSE          /404  404!
+/package.json     /404  404!
+/package-lock.json /404 404!
+/netlify.toml     /404  404!

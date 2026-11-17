@@ -1,5 +1,5 @@
 /* =====================================================================
-   GESTÃO DO HYPE — Estrutura do banco (SQL Server / Azure SQL Database)
+   GESTÃO DO HYPE — Estrutura do banco (SQL Server)
    © Arthur Ramon da Silva — Todos os direitos reservados.
 
    Pode rodar mais de uma vez: só cria o que ainda não existe.

@@ -8,15 +8,15 @@
 
 ## Preferências do Arthur
 - Português do Brasil em tudo.
-- Custo zero: priorizar serviços gratuitos.
+- Custo zero e **sem cadastrar cartão de crédito**: priorizar serviços gratuitos que não pedem cartão.
 - Banco preferido: **SQL Server** (ele trabalha com SQL Server e faz consultas/relatórios direto no banco).
 - Responsivo, simples e com cara de produto feito à mão. Evitar vícios de "site feito por IA": gradiente roxo/azul, emojis na interface, cartões com ícone em quadradinho colorido, botões repetidos fazendo a mesma coisa, textos de marketing genéricos, sombras e cantos exagerados.
 
 ## Técnica
 - Front-end sem build: HTML + CSS + JavaScript (ES modules), rotas por hash.
-- API: Azure Functions (Node 20, modelo v4) em `api/`, uma função que despacha as rotas de `api/src/rotas.js`.
-- Banco: Azure SQL Database. Mudanças de estrutura vão em `sql/01_estrutura.sql` (idempotente).
+- API: Netlify Function (`netlify/functions/api.mjs`, rota `/api/*`) que chama `api/src/http.js` → `api/src/rotas.js`. Dependências no `package.json` da raiz.
+- Banco: SQL Server no MonsterASP.NET (grátis, sem cartão). Mudanças de estrutura vão em `sql/01_estrutura.sql` (idempotente).
 - `cd_status`: 1 = ativo, 0 = inativo.
 - Segurança (não regredir): senhas só em bcrypt; sessão em cookie HttpOnly/SameSite=Strict; toda rota declara permissão (tabela no topo de `api/src/rotas.js`) e a API recusa rota sem permissão definida; escrita exige cabeçalho `X-Hype: 1`; CSP sem scripts inline (nada de `onclick=` no HTML); sempre usar `esc()` ao montar HTML com dados; consultas SQL só com parâmetros; o site usa o usuário de banco `hype_app` (sem DDL).
 - Permissões por grupos: tabelas `grupos`, `permissoes`, `grupo_permissao`, `usuario_grupo`. Nova funcionalidade = nova permissão no MERGE de `sql/01_estrutura.sql` + entrada na tabela de rotas + checagem `pode()` na tela.
-- Teste local: `node api/dev-server.js` (site + API em http://localhost:4280).
+- Teste local: `npm run dev` (site + API em http://localhost:4280).

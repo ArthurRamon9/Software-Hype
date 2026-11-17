@@ -1,0 +1,10 @@
+# Gestão do Hype — © Arthur Ramon da Silva. Todos os direitos reservados.
+[build]
+  publish = "."
+  command = "echo 'sem build: site estatico'"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+  external_node_modules = ["mssql", "tedious", "nodemailer", "bcryptjs", "jsonwebtoken"]
+  included_files = ["api/src/**"]

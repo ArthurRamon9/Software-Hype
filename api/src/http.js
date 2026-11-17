@@ -1,11 +1,11 @@
-// Tradução comum entre HTTP e as rotas (usada pela Azure Function e pelo servidor local)
+// Tradução comum entre HTTP e as rotas (usada pela função do Netlify e pelo servidor local)
 // © Arthur Ramon da Silva — Todos os direitos reservados.
 const { despachar, respostaErro, CABECALHOS } = require('./rotas');
 
 const LIMITE_CORPO = 1.5 * 1024 * 1024;
 
 function ipDe(cabecalhos) {
-  let ip = String(cabecalhos['x-forwarded-for'] || cabecalhos['x-client-ip'] || cabecalhos['x-ip-local'] || '').split(',')[0].trim();
+  let ip = String(cabecalhos['x-nf-client-connection-ip'] || cabecalhos['x-forwarded-for'] || cabecalhos['x-client-ip'] || cabecalhos['x-ip-local'] || '').split(',')[0].trim();
   const v4 = /^(\d{1,3}(?:\.\d{1,3}){3}):\d+$/.exec(ip);   // remove a porta (ex.: 1.2.3.4:5678)
   if (v4) ip = v4[1];
   ip = ip.replace(/^\[/, '').replace(/\](:\d+)?$/, '');
