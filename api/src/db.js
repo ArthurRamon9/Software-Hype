@@ -1,6 +1,7 @@
 // Conexão com o SQL Server (MonsterASP.NET ou qualquer SQL Server)
 // © Arthur Ramon da Silva — Todos os direitos reservados.
 const sql = require('mssql');
+const net = require('net');
 
 let poolPromise = null;
 
@@ -14,15 +15,32 @@ function getPool() {
     pool.config.options = { ...o, useUTC: true, encrypt: true, trustServerCertificate: process.env.SQL_TRUST_CERT === '1' || o.trustServerCertificate === true };
     pool.config.pool = { max: 5, min: 0, idleTimeoutMillis: 30000 };
     // O Netlify encerra a função em ~10 s: a conexão precisa desistir antes disso
-    pool.config.connectionTimeout = 7000;
+    pool.config.connectionTimeout = 6000;
     pool.config.requestTimeout = 8000;
-    poolPromise = pool.connect().catch((e) => { poolPromise = null; throw erroDeConexao(e); });
+    poolPromise = pool.connect().catch(async (e) => {
+      poolPromise = null;
+      const err = erroDeConexao(e);
+      if (err.status === 504) err.message += ' ' + await testarPorta(pool.config.server, pool.config.port || 1433);
+      throw err;
+    });
   }
   return poolPromise;
 }
 
 class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
+}
+
+// Diagnóstico: a porta do servidor responde? (separa "bloqueado" de "lento")
+function testarPorta(host, port) {
+  return new Promise((resolve) => {
+    const inicio = Date.now();
+    const sock = net.connect({ host, port });
+    const fim = (msg) => { sock.destroy(); resolve(msg); };
+    sock.setTimeout(2500, () => fim(`[Teste: ${host}:${port} não respondeu em 2,5 s — conexão bloqueada ou servidor fora do ar.]`));
+    sock.on('connect', () => fim(`[Teste: ${host}:${port} respondeu em ${Date.now() - inicio} ms — a porta está aberta; o problema é no login/criptografia.]`));
+    sock.on('error', (er) => fim(`[Teste: ${host}:${port} erro ${er.code}.]`));
+  });
 }
 
 // Traduz falhas de conexão em mensagens que dizem o que conferir
