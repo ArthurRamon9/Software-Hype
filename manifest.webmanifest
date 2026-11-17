@@ -1,0 +1,9 @@
+{
+  "name": "Gestão do Hype",
+  "short_name": "Hype",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f6f5fb",
+  "theme_color": "#5b3df5",
+  "icons": [{ "src": "assets/img/logo.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
