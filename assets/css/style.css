@@ -815,16 +815,16 @@ a.marca, a.marca:hover { text-decoration: none; color: inherit; }
 
 /* Carregando: o "H" do Hype correndo (só CSS, leve). Nos botões continua a bolinha, em roxo. */
 .boot .spin { width: auto; height: auto; border: 0; border-radius: 0; animation: none; display: inline-block; }
-.boot .spin::before { content: 'H'; display: inline-block; font-family: var(--destaque); font-style: italic; font-size: 46px; line-height: 1; color: var(--ink);
+.boot .spin::before { content: 'H'; display: inline-block; font-family: var(--destaque); font-style: italic; font-size: 22px; line-height: 1; color: var(--ink);
   animation: hype-corre 1.15s cubic-bezier(.45, 0, .55, 1) infinite; }
 @keyframes hype-corre {
-  0%   { transform: translateX(-22px) skewX(-6deg); opacity: 0; text-shadow: 6px 0 0 #19d3f0, 10px 0 0 #ff2e55; }
+  0%   { transform: translateX(-12px) skewX(-6deg); opacity: 0; text-shadow: 3px 0 0 #19d3f0, 5px 0 0 #ff2e55; }
   25%  { opacity: 1; }
-  50%  { transform: translateX(0) skewX(-14deg); text-shadow: -3px 0 0 #19d3f0, 3px 0 0 #ff2e55; }
+  50%  { transform: translateX(0) skewX(-14deg); text-shadow: -1.5px 0 0 #19d3f0, 1.5px 0 0 #ff2e55; }
   75%  { opacity: 1; }
-  100% { transform: translateX(22px) skewX(-6deg); opacity: 0; text-shadow: -10px 0 0 #19d3f0, -6px 0 0 #ff2e55; }
+  100% { transform: translateX(12px) skewX(-6deg); opacity: 0; text-shadow: -5px 0 0 #19d3f0, -3px 0 0 #ff2e55; }
 }
-@media (prefers-reduced-motion: reduce) { .boot .spin::before { animation: none; text-shadow: -3px 0 0 #19d3f0, 3px 0 0 #ff2e55; } }
+@media (prefers-reduced-motion: reduce) { .boot .spin::before { animation: none; text-shadow: -1.5px 0 0 #19d3f0, 1.5px 0 0 #ff2e55; } }
 
 /* ---------- Campos do Hype: lista de escolha, data e hora (js/campos.js) ---------- */
 .campo { position: relative; display: inline-flex; align-items: center; width: 100%; vertical-align: middle; }
