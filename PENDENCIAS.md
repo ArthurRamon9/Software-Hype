@@ -57,9 +57,10 @@ Enquanto isso, o trabalho fica no ramo `desenvolvimento`.
      quem vê todos e pode designar (o Arthur designa).
    - Conta sem vínculo com o cadastro: mostrar "Sua conta ainda não está ligada ao seu cadastro. Peça
      a um administrador." em vez de lista vazia sem explicação.
-   - Lembrar o Arthur: o grupo Pastoral tem `pessoas.ver` (vê o cadastro inteiro). Se quiser que vejam
-     só os seus casos e a ficha dessas pessoas, tirar `pessoas.ver` do grupo e liberar a ficha só das
-     pessoas dos seus casos.
+   - **Decidido:** Pastoral e Integração continuam vendo o cadastro de pessoas (`pessoas.ver`), mas cada
+     grupo só vê a sua área: Pastoral não vê Integração e vice-versa (já é assim hoje pelas permissões;
+     conferir de novo, inclusive na ficha da pessoa, que só mostra os acompanhamentos da área de quem
+     está vendo, e dentro da área só os casos atribuídos a ele).
 6. **Repaginação do visual com a arte do Hype** (logo e cores) — quando o Arthur mandar.
 
 ## Já feito no `desenvolvimento`, esperando publicar
