@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1182 1574" role="img" aria-label="Hype">
+  <!-- "H" do Hype (arte oficial vetorizada): branco com as sombras ciano e vermelha -->
+  <defs><path id="h" d="M273 3 L262 13 L256 32 L70 1547 L72 1562 L78 1569 L90 1573 L349 1573 L365 1567 L370 1562 L378 1541 L451 929 L455 923 L463 920 L685 920 L693 927 L616 1548 L617 1559 L623 1568 L636 1573 L905 1571 L917 1561 L924 1543 L1110 16 L1101 4 L1091 0 L829 0 L818 4 L809 12 L803 26 L729 639 L718 650 L494 650 L488 645 L487 635 L563 34 L562 14 L555 4 L543 0 L282 0Z"/></defs>
+  <use href="#h" fill="#1df4f1" transform="translate(-68 0)"/>
+  <use href="#h" fill="#ff2259" transform="translate(68 0)"/>
+  <use href="#h" fill="#fff"/>
+</svg>

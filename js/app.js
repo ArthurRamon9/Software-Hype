@@ -124,13 +124,13 @@ function montarLayout(caminho) {
     app.innerHTML = `
     <div class="app">
       <aside class="lateral">
-        <a class="marca" href="#/" title="Ir para o Início"><img src="assets/img/logo.svg" alt="">Gestão do Hype</a>
+        <a class="marca" href="#/" title="Ir para o Início"><img src="assets/img/h-hype.svg" alt="">Gestão do Hype</a>
         <nav class="menu" id="menu"></nav>
         <a class="conta" id="conta" href="#/conta"></a>
       </aside>
       <div class="principal">
         <div class="faixa-ver-como" id="faixa-ver-como" hidden></div>
-        <header class="topo-mobile"><a class="marca" href="#/" title="Ir para o Início"><img src="assets/img/logo.svg" alt="">Gestão do Hype</a><a href="#/conta" id="conta-mobile"></a></header>
+        <header class="topo-mobile"><a class="marca" href="#/" title="Ir para o Início"><img src="assets/img/h-hype.svg" alt="">Gestão do Hype</a><a href="#/conta" id="conta-mobile"></a></header>
         <main class="conteudo" id="conteudo"></main>
         <footer class="rodape">${direitos()}</footer>
       </div>
