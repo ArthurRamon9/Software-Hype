@@ -905,3 +905,8 @@ input[type=checkbox]:disabled { opacity: .45; cursor: default; }
 /* Botões: um "afundar" leve ao tocar */
 .btn:active:not(:disabled) { transform: scale(.97); }
 .btn { transition: background .15s, border-color .15s, color .15s, transform .08s, box-shadow .15s; }
+/* Carregando a tela inteira: o H fica no meio da área da página, não lá em cima */
+.conteudo:has(> .boot) { display: flex; flex-direction: column; }
+.conteudo > .boot { flex: 1; min-height: calc(100vh - 160px); min-height: calc(100dvh - 160px); }
+#app > .boot { min-height: 100vh; min-height: 100dvh; }
+@media (max-width: 760px) { .conteudo > .boot { min-height: calc(100dvh - 200px); } }
