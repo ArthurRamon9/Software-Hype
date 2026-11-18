@@ -5,11 +5,33 @@ Aí fazemos a repaginação do visual + tudo desta lista e publicamos **uma vez 
 Enquanto isso, o trabalho fica no ramo `desenvolvimento`.
 
 ## A fazer
-1. **Responsável dos acompanhamentos vindo também do cadastro.** Hoje as sugestões e o filtro de
-   responsável só mostram quem tem login no grupo de acesso da área. Juntar com as pessoas do
-   ministério Pastoral (ou Integração) no cadastro, ex.: a Erika, que está no ministério Pastoral
-   mas não tem login. (Hoje dá para digitar o nome à mão, mas ela não aparece no filtro.)
-2. **Repaginação do visual com a arte do Hype** (logo e cores) — quando o Arthur mandar.
+1. **Responsável escolhido numa lista, não digitado.** No lugar do campo de texto, uma lista para
+   selecionar só quem está no **ministério Pastoral do cadastro** (na Integração, quem está no
+   ministério Integração). Não depende de login: a equipe só é avisada, quem designa é o Arthur.
+   O filtro de responsável usa a mesma lista. Vale para "Designar", "trocar" dentro do caso e
+   "Definir responsável" em massa.
+   - Guardar no caso o vínculo com a pessoa do cadastro (coluna nova, ex.: `responsavel_pessoa_id`,
+     via `01_estrutura.sql`) para saber o telefone do responsável. Ao trocar, manter os casos antigos
+     que só têm o nome (ligar pelo nome quando bater).
+2. **Botão "Enviar para o responsável" (WhatsApp).** Ao selecionar um caso com responsável, abrir o
+   WhatsApp do responsável (telefone dele no cadastro) com a mensagem pronta:
+
+       Olá, {primeiro nome do responsável}! Temos uma pessoa precisando da sua atenção:
+
+       Nome: {nome da pessoa}
+       Telefone: {telefone, se tiver}
+       Instagram: {@instagram, se tiver}
+       Não vem há: {tempo da grade, ex.: 6 Hypes}
+
+       Conto contigo para isso!
+
+   - Linhas de telefone/Instagram só aparecem se existirem.
+   - Botão só habilitado se a pessoa tiver telefone **ou** Instagram (senão o responsável não tem
+     como falar com ela) e se o responsável tiver telefone no cadastro. Quando desabilitado, dizer
+     o motivo (ex.: "Mayck não tem telefone no cadastro").
+   - Disponível dentro do caso e na barra quando 1 caso estiver selecionado. Pensar também em
+     vários casos do mesmo responsável numa mensagem só.
+3. **Repaginação do visual com a arte do Hype** (logo e cores) — quando o Arthur mandar.
 
 ## Já feito no `desenvolvimento`, esperando publicar
 - (nada ainda)
