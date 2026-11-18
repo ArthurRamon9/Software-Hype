@@ -46,7 +46,8 @@ Enquanto isso, o trabalho fica no ramo `desenvolvimento`.
      Se não houver, o admin escolhe a pessoa ali mesmo (busca por nome) ou deixa sem vínculo.
    - Nunca mostrar a lista do cadastro na tela pública de "Criar conta" (expõe dados de jovens) e
      nunca ligar sozinho: o site não verifica se o e-mail é da pessoa.
-   - Depois de ligado: foto do cadastro no avatar e nome igual nos dois lugares.
+   - Depois de ligado: foto do cadastro no avatar (menu e topo do celular) e em **Minha conta**, e nome
+     igual nos dois lugares.
 5. **Cada um vê só os acompanhamentos atribuídos a ele (Pastoral e Integração).**
    - Permissões novas `pastoral.ver_todos` e `integracao.ver_todos` (Administradores e Líderes de equipe
      por padrão). Quem só tem `pastoral.ver`/`integracao.ver` vê **apenas os casos em que é o
@@ -77,7 +78,10 @@ Enquanto isso, o trabalho fica no ramo `desenvolvimento`.
    dos grupos iniciais acontecer **uma vez só** por grupo (ex.: tabela de marcação do que já foi semeado),
    para nenhum grupo apagado voltar ao rodar o 01 de novo. Grupos finais: Administradores, Administração,
    Pastoral, Integração, Líderes de equipe.
-8. **Repaginação do visual com a arte do Hype** (logo e cores) — quando o Arthur mandar.
+8. **Tema claro e escuro**, escolhido em **Minha conta**: Claro / Escuro / Automático (segue o celular).
+   Guardar a escolha no navegador (não precisa de banco). Fazer junto com a repaginação: as cores todas
+   em variáveis, e os gráficos (Chart.js) também trocando de cor. Conferir contraste no escuro.
+9. **Repaginação do visual com a arte do Hype** (logo e cores) — quando o Arthur mandar.
 
 ## Já feito no `desenvolvimento`, esperando publicar
 - (nada ainda)
