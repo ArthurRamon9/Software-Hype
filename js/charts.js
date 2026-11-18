@@ -29,12 +29,44 @@ const eixos = (empilhado) => ({
   y: { stacked: empilhado, beginAtZero: true, grid: { color: COR.grade }, border: { display: false }, ticks: { precision: 0, maxTicksLimit: 5 } },
 });
 
+// Número com vírgula (médias do ano têm casa decimal)
+const fmtNum = (n) => (Number.isInteger(n) ? String(n) : n.toFixed(1).replace('.', ','));
+// Soma das séries visíveis numa coluna (o que está empilhado)
+const somaColuna = (chart, i) => chart.data.datasets.reduce((t, d, k) => t + (chart.isDatasetVisible(k) ? Number(d.data[i]) || 0 : 0), 0);
+// Total em cima de cada barra empilhada: bater o olho e ver; passar o mouse mostra membros e visitantes
+const totalNoTopo = {
+  id: 'totalNoTopo',
+  afterDatasetsDraw(chart) {
+    const { ctx } = chart; const ultimo = chart.data.datasets.map((_, k) => k).filter((k) => chart.isDatasetVisible(k)).pop();
+    if (ultimo === undefined) return;
+    const meta = chart.getDatasetMeta(ultimo);
+    ctx.save();
+    ctx.font = `700 12px ${C_FONTE()}`; ctx.fillStyle = cssVar('--ink', '#18171b'); ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    meta.data.forEach((barra, i) => {
+      const total = somaColuna(chart, i); if (!total) return;
+      // topo da pilha: a barra visível mais alta naquela coluna
+      const topo = Math.min(...chart.data.datasets.map((_, k) => (chart.isDatasetVisible(k) && chart.getDatasetMeta(k).data[i] ? chart.getDatasetMeta(k).data[i].y : Infinity)));
+      ctx.fillText(fmtNum(Math.round(total * 10) / 10), barra.x, topo - 4);
+    });
+    ctx.restore();
+  },
+};
+const C_FONTE = () => getComputedStyle(document.documentElement).fontFamily;
+
 export function barras(canvas, { rotulos, series, empilhado = false }) {
   const C = preparar(canvas); if (!C) return null;
+  const escalas = eixos(empilhado);
+  if (empilhado) escalas.y.grace = '12%';   // espaço para o total em cima da barra
   return new C(canvas, {
     type: 'bar',
     data: { labels: rotulos, datasets: series.map((s) => ({ label: s.rotulo, data: s.dados, backgroundColor: s.cor, borderRadius: 3, borderSkipped: 'start', maxBarThickness: 26, borderColor: COR.fundo, borderWidth: empilhado ? { top: 2 } : 0 })) },
-    options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: legenda(series.length), tooltip: dica }, scales: eixos(empilhado) },
+    options: {
+      responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+      plugins: { legend: legenda(series.length),
+        tooltip: empilhado && series.length > 1 ? { ...dica, callbacks: { footer: (itens) => (itens.length ? `Total: ${fmtNum(Math.round(somaColuna(itens[0].chart, itens[0].dataIndex) * 10) / 10)}` : '') } } : dica },
+      scales: escalas,
+    },
+    plugins: empilhado && series.length > 1 ? [totalNoTopo] : [],
   });
 }
 

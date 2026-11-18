@@ -118,8 +118,8 @@ async function desenhar(conteudo, manter = {}) {
     marcar(pid, marca.get(pid) === presente ? null : presente);
     if (presente) just.delete(pid);
     alterou();
-    // Na porta: marcou alguém que achou pela busca -> a busca limpa e volta o cursor para o próximo nome
-    if (busca.trim()) { busca = ''; $('#busca').value = ''; pintar(); $('#busca').focus(); } else repintarLinha(pid);
+    // A busca continua como estava (a pessoa pode marcar vários do mesmo nome); o "x" do campo limpa
+    repintarLinha(pid);
   });
 
   $('#busca').addEventListener('input', (e) => { busca = e.target.value; pintar(); });
