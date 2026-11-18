@@ -10,7 +10,7 @@ const CORES = ['#f0561d', '#e0a020', '#1f8a57', '#2a9d8f', '#2a78d6', '#5b4bd6',
 export async function render(conteudo) {
   const lista = await api('GET', '/ministerios');
   conteudo.innerHTML = `
-    <div class="cabecalho"><div><h1>Ministérios</h1><p class="sub">${pode('ministerios.editar') ? 'Clique em Editar para mudar o ministério e escolher quem participa.' : 'Os ministérios do Hype e quantas pessoas estão em cada um.'}</p></div><div class="acoes">${pode('ministerios.editar') ? '<button class="btn primary" id="novo">Novo ministério</button>' : ''}</div></div>
+    <div class="cabecalho"><div><h1>Ministérios</h1><p class="sub">Onde cada jovem serve. Isto é só informação: o que cada um pode fazer no sistema fica em Acessos → Grupos.</p></div><div class="acoes">${pode('ministerios.editar') ? '<button class="btn primary" id="novo">Novo ministério</button>' : ''}</div></div>
     <div class="painel"><div class="tabela-wrap"><table class="tabela">
       <thead><tr><th>Nome</th><th class="some-mobile">Descrição</th><th class="dir">Pessoas</th><th></th></tr></thead>
       <tbody>${lista.map((m) => `<tr class="${m.cd_status ? '' : 'inativo'}">

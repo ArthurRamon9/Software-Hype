@@ -1,14 +1,14 @@
 // Acompanhamento de pessoas: Pastoral (quem está faltando) e Integração (visitantes que chegaram)
 // © Arthur Ramon da Silva — Todos os direitos reservados.
 import { api, urlFoto, pode } from '../api.js';
-import { esc, $, icon, aviso, avisoErro, ocupado, janela, confirmar, foto, tagTipo, fmtData, haQuanto, linkWhats, semAcento, estaNoHype, ultimaVez, filtrarPorNome } from '../ui.js';
+import { esc, $, icon, aviso, avisoErro, ocupado, janela, confirmar, foto, tagTipo, fmtData, haQuanto, linkWhats, semAcento, estaNoHype, ultimaVez, filtrarPorNome, sextasDesde } from '../ui.js';
 import { atualizarContadores, parametrosHash } from '../app.js';
 
 const STATUS = { aberto: 'Aberto', em_andamento: 'Em andamento', concluido: 'Concluído' };
 const AREAS = {
   pastoral: {
     titulo: 'Pastoral', sub: 'Quem está faltando e quem está cuidando de cada um.',
-    alertaTitulo: 'Sem acompanhamento', alertaSub: 'regulares e membros que vieram nas últimas 6 sextas e faltaram as 2 últimas ou mais',
+    alertaTitulo: 'Sem acompanhamento', alertaSub: 'membros e visitantes com 2 faltas seguidas (líderes de equipe: 3), até 5 semanas sem vir',
     vazio: ['Todo mundo por perto', 'Ninguém com faltas seguidas sem acompanhamento.'],
     msg: (n) => `Oi, ${n}! Tudo bem? Aqui é do Hype. Sentimos sua falta nas últimas sextas. Está tudo certo por aí?`,
   },
@@ -151,6 +151,9 @@ const alertasAbertos = { pastoral: false, integracao: false };
 const novoFiltro = () => ({ busca: '', freq: '', resp: '', contato: '' });
 const filtroLista = { pastoral: novoFiltro(), integracao: novoFiltro() };
 const QUINZE_DIAS = 14 * 86400000;
+// "Até 5 semanas sem vir" = veio em alguma das últimas 6 sextas (a mesma regra da pendência da Pastoral)
+const dentro5 = (iso) => { const n = sextasDesde(iso); return n !== null && n <= 6; };
+const FREQ = { '5sim': dentro5, '5nao': (iso) => !dentro5(iso), nao: (iso) => !estaNoHype({ ultima_presenca: iso }), sim: (iso) => estaNoHype({ ultima_presenca: iso }) };
 const semResponsavel = (c) => !c.responsavel_nome || semAcento(c.responsavel_nome) === 'a definir';
 
 async function renderArea(conteudo, area) {
@@ -166,7 +169,7 @@ async function renderArea(conteudo, area) {
     const n = a.pessoa.nome.split(' ')[0];
     const whats = linkWhats(a.pessoa.telefone, cfg.msg(n));
     let det, urgente = false;
-    if (area === 'pastoral') det = `${a.faltas} faltas seguidas${a.ultimaPresenca ? ` · última vez em ${fmtData(a.ultimaPresenca)}` : ''}`;
+    if (area === 'pastoral') det = `${a.lider ? '<b>líder de equipe</b> · ' : ''}${a.faltas} faltas seguidas${a.ultimaPresenca ? ` · última vez em ${fmtData(a.ultimaPresenca)}` : ''}`;
     else {
       const d = diasDesde(a.primeiraVisita);
       urgente = d !== null && d <= 2;
@@ -211,7 +214,8 @@ async function renderArea(conteudo, area) {
         </select>
         <select class="input" id="freq-caso" aria-label="Frequência">
           <option value="">Frequência: todos</option>
-          <option value="sim" ${f.freq === 'sim' ? 'selected' : ''}>Ainda vêm</option>
+          <option value="5sim" ${f.freq === '5sim' ? 'selected' : ''}>Vieram nas últimas 5 semanas</option>
+          <option value="5nao" ${f.freq === '5nao' ? 'selected' : ''}>Sem vir há mais de 5 semanas</option>
           <option value="nao" ${f.freq === 'nao' ? 'selected' : ''}>Afastados (3+ meses)</option>
         </select>
         <button class="link-btn small hidden" id="limpar-filtros">Limpar filtros</button>
@@ -243,7 +247,7 @@ async function renderArea(conteudo, area) {
   const visiveis = () => {
     const l = casos.filter((c) => (filtroStatus[area] === 'ativos' ? c.status !== 'concluido' : c.status === 'concluido')
       && doResponsavel(c) && doContato(c)
-      && (!f.freq || (estaNoHype({ ultima_presenca: c.ultima_presenca }) ? 'sim' : 'nao') === f.freq));
+      && (!f.freq || FREQ[f.freq](c.ultima_presenca)));
     return filtrarPorNome(l, f.busca, (c) => c.pessoa_nome)
       .sort((a, b) => (o.col ? o.dir * COLUNAS[o.col](a, b) || comparaTexto(a.pessoa_nome, b.pessoa_nome) : 0));
   };

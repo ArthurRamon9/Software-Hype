@@ -161,10 +161,15 @@ function sextaDeReferencia() {
   while (d.getDay() !== 5) d.setDate(d.getDate() - 1);
   return d;
 }
+// Quantas sextas atrás a pessoa veio (1 = no último Hype; 2 = faltou 1 sexta depois disso...)
+export function sextasDesde(iso) {
+  if (!iso) return null;
+  const data = new Date(String(iso).slice(0, 10) + 'T12:00:00');
+  return Math.max(1, Math.round((sextaDeReferencia() - data) / (7 * 86400000)) + 1);
+}
 export function textoUltimaVez(iso) {
   if (!iso) return 'Nunca veio';
-  const data = new Date(String(iso).slice(0, 10) + 'T12:00:00');
-  const sextas = Math.round((sextaDeReferencia() - data) / (7 * 86400000)) + 1;   // 1 = o último Hype
+  const sextas = sextasDesde(iso);
   if (sextas <= 1) return 'Último Hype';
   if (sextas <= 8) return `Há ${sextas} sextas`;
   const meses = Math.floor(diasDesde(iso) / 30);

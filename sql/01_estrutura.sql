@@ -260,7 +260,9 @@ SELECT v.nome, v.descricao, v.sistema FROM (VALUES
     (N'Pastoral',        N'Cuida dos jovens faltantes', 0),
     (N'Presença',        N'Faz a chamada das sextas', 0),
     (N'Cadastro',        N'Cadastra e atualiza as pessoas', 0),
-    (N'Integração',      N'Acolhe e acompanha os visitantes', 0)
+    (N'Integração',      N'Acolhe e acompanha os visitantes', 0),
+    (N'Administração',   N'Ministério de administração: cadastra pessoas, faz a chamada, cuida dos ministérios e vê relatórios', 0),
+    (N'Líderes de equipe', N'Vê tudo (pessoas, chamada, Pastoral, Integração e relatórios), sem alterar nem apagar', 0)
 ) v(nome, descricao, sistema)
 WHERE NOT EXISTS (SELECT 1 FROM dbo.grupos g WHERE g.nome = v.nome);
 
@@ -270,7 +272,10 @@ SELECT n.id, v.permissao FROM (VALUES
     (N'Pastoral', 'pessoas.ver'), (N'Pastoral', 'pastoral.ver'), (N'Pastoral', 'pastoral.editar'), (N'Pastoral', 'relatorios.ver'),
     (N'Presença', 'pessoas.ver'), (N'Presença', 'presenca.marcar'),
     (N'Cadastro', 'pessoas.ver'), (N'Cadastro', 'pessoas.editar'),
-    (N'Integração', 'pessoas.ver'), (N'Integração', 'pessoas.editar'), (N'Integração', 'integracao.ver'), (N'Integração', 'integracao.editar')
+    (N'Integração', 'pessoas.ver'), (N'Integração', 'pessoas.editar'), (N'Integração', 'integracao.ver'), (N'Integração', 'integracao.editar'),
+    (N'Administração', 'pessoas.ver'), (N'Administração', 'pessoas.editar'), (N'Administração', 'presenca.marcar'),
+    (N'Administração', 'relatorios.ver'), (N'Administração', 'ministerios.editar'),
+    (N'Líderes de equipe', 'pessoas.ver'), (N'Líderes de equipe', 'relatorios.ver'), (N'Líderes de equipe', 'pastoral.ver'), (N'Líderes de equipe', 'integracao.ver')
 ) v(grupo, permissao)
 JOIN @novos n ON n.nome = v.grupo;
 
@@ -377,7 +382,9 @@ GO
 /* ---------- Ministérios iniciais (edite pelo sistema depois) ---------- */
 INSERT INTO dbo.ministerios (nome, cor)
 SELECT v.nome, v.cor FROM (VALUES
-    (N'Pastoral', '#c2417a'), (N'Integração', '#f0561d'), (N'Administração', '#2a78d6')
+    (N'Pastoral', '#c2417a'), (N'Integração', '#f0561d'), (N'Administração', '#2a78d6'),
+    (N'Comunicação', '#5b4bd6'), (N'Cozinha', '#e0a020'), (N'Mídias', '#2a9d8f'), (N'Decoração', '#b03a2e'),
+    (N'Diaconato', '#1f8a57'), (N'Líderes de equipe', '#4b4852')
 ) v(nome, cor)
 WHERE NOT EXISTS (SELECT 1 FROM dbo.ministerios m WHERE m.nome = v.nome);
 GO

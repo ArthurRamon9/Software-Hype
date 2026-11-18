@@ -595,27 +595,39 @@ const MEMBROS_SQL = "('novo_membro','membro','membro_ativo')";
 
 // Pastoral: quem já faz parte (visitante regular e membros), veio em algum dos últimos 6 encontros
 // e está com N+ faltas seguidas, sem acompanhamento pastoral aberto. Novos visitantes são da Integração.
+// Pastoral: quem entra como pendência
+//  - membros (novo membro, membro, membro ativo) e visitantes que faltaram 2 sextas seguidas;
+//  - quem está no ministério "Líderes de equipe" só entra com 3 faltas seguidas;
+//  - só conta quem veio em alguma das últimas 6 sextas (até 5 semanas sem vir). Quem sumiu há mais tempo não entra;
+//  - visitante que veio uma vez só fica com a Integração (primeiro contato), não com a Pastoral.
+const MINISTERIO_LIDERES = 'Líderes de equipe';
+const MAX_FALTAS_PASTORAL = 5;
 async function calcularAlertas() {
   const rows = await query(`
-    WITH ult AS (SELECT TOP 6 e.id, e.data FROM dbo.encontros e WHERE EXISTS (SELECT 1 FROM dbo.presencas x WHERE x.encontro_id = e.id) ORDER BY e.data DESC)
+    WITH ult AS (SELECT TOP (@n) e.id, e.data FROM dbo.encontros e WHERE EXISTS (SELECT 1 FROM dbo.presencas x WHERE x.encontro_id = e.id) ORDER BY e.data DESC)
     SELECT p.id, p.nome, p.referencia, p.tipo, p.telefone, CONVERT(VARCHAR(30), f.dt_atualizacao, 126) AS foto_v,
-           u.data, pr.presente
+           u.data, pr.presente,
+           CASE WHEN EXISTS (SELECT 1 FROM dbo.pessoa_ministerio pm JOIN dbo.ministerios m ON m.id = pm.ministerio_id
+                             WHERE pm.pessoa_id = p.id AND m.nome = @lideres) THEN 1 ELSE 0 END AS lider,
+           (SELECT COUNT(*) FROM dbo.presencas t WHERE t.pessoa_id = p.id AND t.presente = 1) AS visitas
       FROM dbo.pessoas p
       JOIN dbo.presencas pr ON pr.pessoa_id = p.id
       JOIN ult u ON u.id = pr.encontro_id
       LEFT JOIN dbo.pessoas_foto f ON f.pessoa_id = p.id
-     WHERE p.cd_status = 1 AND p.tipo IN ('visitante_regular','novo_membro','membro','membro_ativo')
+     WHERE p.cd_status = 1 AND p.tipo IN ('novo_visitante','visitante_regular','novo_membro','membro','membro_ativo')
        AND NOT EXISTS (SELECT 1 FROM dbo.pastoral_casos c WHERE c.pessoa_id = p.id AND c.area = 'pastoral' AND c.status <> 'concluido')
-     ORDER BY p.id, u.data DESC`);
+     ORDER BY p.id, u.data DESC`, { n: MAX_FALTAS_PASTORAL + 1, lideres: MINISTERIO_LIDERES });
   const porPessoa = new Map();
   for (const r of rows) {
     let a = porPessoa.get(r.id);
-    if (!a) { a = { pessoa: { id: r.id, nome: r.nome, referencia: r.referencia, tipo: r.tipo, telefone: r.telefone, foto_v: r.foto_v }, faltas: 0, ultimaPresenca: null, fim: false }; porPessoa.set(r.id, a); }
+    if (!a) { a = { pessoa: { id: r.id, nome: r.nome, referencia: r.referencia, tipo: r.tipo, telefone: r.telefone, foto_v: r.foto_v }, lider: !!r.lider, visitas: r.visitas, faltas: 0, ultimaPresenca: null, fim: false }; porPessoa.set(r.id, a); }
     if (a.fim) continue;
     if (r.presente) { a.ultimaPresenca = r.data; a.fim = true; } else a.faltas++;
   }
-  return [...porPessoa.values()].filter((a) => a.faltas >= FALTAS_ALERTA && a.ultimaPresenca)
-    .map(({ fim, ...a }) => a).sort((x, y) => y.faltas - x.faltas || x.pessoa.nome.localeCompare(y.pessoa.nome));
+  return [...porPessoa.values()]
+    .filter((a) => a.ultimaPresenca && a.faltas >= (a.lider ? FALTAS_ALERTA + 1 : FALTAS_ALERTA)
+      && !(a.pessoa.tipo === 'novo_visitante' && a.visitas <= 1))
+    .map(({ fim, visitas, ...a }) => a).sort((x, y) => y.faltas - x.faltas || x.pessoa.nome.localeCompare(y.pessoa.nome));
 }
 
 // Integração: visitantes que chegaram nos últimos 60 dias e ainda não têm acompanhamento de integração

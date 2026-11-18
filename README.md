@@ -102,7 +102,7 @@ O cadastro guarda todo mundo que já passou pelo Hype, mas o dia a dia só mostr
 
 ## Pastoral e Integração
 As duas áreas usam a mesma estrutura (`pastoral_casos` + `pastoral_registros`), separadas pela coluna `area`.
-- **Pastoral** alerta quem já faz parte (visitante regular e membros), veio em alguma das últimas 6 sextas e está com 2 ou mais faltas seguidas.
+- **Pastoral** alerta membros (novo membro, membro, membro ativo) e visitantes com **2 faltas seguidas**. Quem está no ministério **Líderes de equipe** só entra com **3 faltas seguidas**. Só entra quem está até **5 semanas** sem vir (quem sumiu há mais tempo não vira pendência). Visitante que veio uma vez só fica com a Integração.
 - O responsável pode ser trocado dentro do acompanhamento ou definido para vários de uma vez (marque e use "Definir responsável"). O filtro de responsável mostra quem está no grupo da área.
 - A lista de acompanhamentos mostra só pessoas ativas, tem lixeira em cada linha e permite marcar várias para concluir ou excluir de uma vez.
 - **Integração** lista os visitantes que chegaram nos últimos 60 dias e ainda não tiveram contato, destacando quem chegou há menos de 48 horas.
@@ -129,6 +129,7 @@ npm run dev
 Abra <http://localhost:4280>.
 
 ## Cuidados
+- **Créditos do Netlify (plano grátis: 300 por mês):** cada publicação do site gasta 15 créditos; o uso do dia a dia (acessos e a API) gasta pouco. Se acabar, o Netlify **pausa o site** até o próximo ciclo (não cobra nada). Por isso as mudanças são juntadas e publicadas de uma vez só (o trabalho fica no ramo `desenvolvimento` e só vai para o `main` quando for publicar).
 - **Backup:** o plano grátis não garante backup. De vez em quando, faça um backup pelo painel do MonsterASP ou baixe a planilha (.xlsx) pela tela Pessoas.
 - **Limites grátis:** 1 GB de banco (as fotos são reduzidas para ~60 KB, então cabem milhares) e a cota mensal do Netlify, muito acima do uso de um grupo de jovens.
 - **LGPD:** são dados pessoais de jovens, alguns menores. Cadastre só o necessário e libere acesso só a quem serve.
