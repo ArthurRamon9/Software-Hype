@@ -346,6 +346,34 @@ JOIN dbo.grupos g ON g.id = ug.grupo_id
 JOIN dbo.grupo_permissao gp ON gp.grupo_id = g.id;
 GO
 
+/* ---------- Telefones no padrão (51) 99999-9999 ----------
+   O site já salva assim. Este bloco arruma os números antigos (ex.: 5191726412 -> (51) 9172-6412).
+   Pode rodar quantas vezes quiser: o que já está no padrão, ou não parece telefone, fica como está. */
+WITH letra AS (
+    SELECT p.id, n.n, SUBSTRING(p.telefone, n.n, 1) AS ch
+    FROM dbo.pessoas p
+    CROSS APPLY (SELECT TOP (LEN(p.telefone)) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS n FROM sys.all_objects) n
+    WHERE p.telefone IS NOT NULL
+), d AS (
+    SELECT id, STRING_AGG(ch, '') WITHIN GROUP (ORDER BY n) AS dig FROM letra WHERE ch LIKE '[0-9]' GROUP BY id
+), sem55 AS (
+    SELECT id, CASE WHEN LEN(dig) IN (12, 13) AND LEFT(dig, 2) = '55' THEN STUFF(dig, 1, 2, '') ELSE dig END AS dig FROM d
+), sem0 AS (
+    SELECT id, CASE WHEN LEN(dig) IN (11, 12) AND LEFT(dig, 1) = '0' THEN STUFF(dig, 1, 1, '') ELSE dig END AS dig FROM sem55
+), f AS (
+    SELECT id, CASE LEN(dig)
+             WHEN 11 THEN '(' + LEFT(dig, 2) + ') ' + SUBSTRING(dig, 3, 5) + '-' + RIGHT(dig, 4)
+             WHEN 10 THEN '(' + LEFT(dig, 2) + ') ' + SUBSTRING(dig, 3, 4) + '-' + RIGHT(dig, 4)
+             WHEN 9  THEN LEFT(dig, 5) + '-' + RIGHT(dig, 4)
+             WHEN 8  THEN LEFT(dig, 4) + '-' + RIGHT(dig, 4)
+           END AS novo
+    FROM sem0
+)
+UPDATE p SET telefone = f.novo
+FROM dbo.pessoas p JOIN f ON f.id = p.id
+WHERE f.novo IS NOT NULL AND f.novo <> p.telefone;
+GO
+
 /* ---------- Ministérios iniciais (edite pelo sistema depois) ---------- */
 INSERT INTO dbo.ministerios (nome, cor)
 SELECT v.nome, v.cor FROM (VALUES

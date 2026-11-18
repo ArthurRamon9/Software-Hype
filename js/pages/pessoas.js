@@ -3,7 +3,7 @@
 import { api, urlFoto, pode } from '../api.js';
 import {
   esc, $, $$, aviso, avisoErro, ocupado, confirmar, foto, tagTipo, TIPOS, SITUACOES, corSituacao, idade, fmtData,
-  hojeISO, prepararFoto, pct, semAcento, linkWhats, janela, estaNoHype, ultimaVez, textoUltimaVez,
+  hojeISO, prepararFoto, pct, semAcento, linkWhats, janela, estaNoHype, ultimaVez, textoUltimaVez, fmtTel, formatarAoSair,
 } from '../ui.js';
 import { navegar, atualizarContadores } from '../app.js';
 import { abrirAcompanhamento } from './pastoral.js';
@@ -73,7 +73,7 @@ export async function lista(conteudo) {
         <td><div class="pessoa-cel">${foto(p.nome, urlFoto(p.id, p.foto_v))}<div class="nome-ref"><b>${esc(p.nome)}</b>${p.referencia ? `<span>${esc(p.referencia)}</span>` : ''}</div></div></td>
         <td>${tagTipo(p.tipo)}</td>
         <td class="small">${ultimaVez(p)}</td>
-        <td class="some-mobile num small">${esc(p.telefone || '')}</td>
+        <td class="some-mobile num small">${esc(fmtTel(p.telefone))}</td>
         <td class="some-mobile muted small">${p.ministerios.map((m) => esc(nomeMin[m])).join(', ')}</td>
       </tr>`).join('') : `<tr><td colspan="5" class="vazio">${pessoas.length ? 'Ninguém encontrado com esses filtros.' : '<b>Nenhuma pessoa cadastrada ainda</b>Comece cadastrando uma pessoa ou importando a planilha que vocês já usam.'}</td></tr>`;
   };
@@ -89,7 +89,7 @@ export async function lista(conteudo) {
     nome: 'Pessoas',
     linhas: [['Nome', 'Referência', 'Situação', 'WhatsApp', 'Instagram', 'E-mail', 'Nascimento', 'Idade', 'Bairro / endereço', 'Ministérios',
       'Grupo cultivo', 'Batizado', 'Quem integrou', 'Como conheceu', 'Presenças', 'Última presença', 'Frequência', 'Cadastro', 'Cadastro ativo'],
-    ...filtradas().map((p) => [p.nome, p.referencia, TIPOS[p.tipo], p.telefone, p.instagram, p.email, p.data_nascimento, idade(p.data_nascimento),
+    ...filtradas().map((p) => [p.nome, p.referencia, TIPOS[p.tipo], fmtTel(p.telefone), p.instagram, p.email, p.data_nascimento, idade(p.data_nascimento),
       p.endereco, p.ministerios.map((m) => nomeMin[m]).join(', '), p.grupo_cultivo, simNao(p.batizado), p.integrado_por, p.como_conheceu,
       p.presencas, p.ultima_presenca, estaNoHype(p) ? 'No Hype' : 'Afastado', p.data_cadastro, p.cd_status ? 'Sim' : 'Não'])],
   }]));
@@ -129,7 +129,7 @@ export async function formulario(conteudo, { id } = {}) {
           <option value="M" ${p.sexo === 'M' ? 'selected' : ''}>Masculino</option><option value="F" ${p.sexo === 'F' ? 'selected' : ''}>Feminino</option></select></div>
 
         <div class="form-section">Contato</div>
-        <div class="field"><label for="tel">WhatsApp</label><input class="input" id="tel" type="tel" inputmode="tel" value="${v('telefone')}" placeholder="(51) 99999-9999"></div>
+        <div class="field"><label for="tel">WhatsApp</label><input class="input" id="tel" type="tel" inputmode="tel" value="${esc(fmtTel(p.telefone))}" placeholder="(51) 99999-9999"></div>
         <div class="field"><label for="insta">Instagram</label><input class="input" id="insta" value="${v('instagram')}" placeholder="@usuario"></div>
         <div class="field"><label for="email">E-mail</label><input class="input" id="email" type="email" value="${v('email')}"></div>
         <div class="field"><label for="end">Bairro / endereço</label><input class="input" id="end" value="${v('endereco')}"></div>
@@ -169,6 +169,7 @@ export async function formulario(conteudo, { id } = {}) {
     try { await api('DELETE', `/pessoas/${id}`); aviso('Cadastro excluído.'); navegar('/pessoas'); } catch (err) { avisoErro(err); }
   });
 
+  formatarAoSair($('#tel'));
   $('#f').addEventListener('submit', async (e) => {
     e.preventDefault();
     const nome = $('#nome').value.trim();
@@ -243,7 +244,7 @@ export async function perfil(conteudo, { id }) {
     <div class="colunas c21 mt">
       <section class="painel"><div class="painel-topo"><h2>Sobre</h2></div><div class="painel-corpo">
         <dl class="campos" style="margin:0">
-          ${campo('WhatsApp', esc(p.telefone))}
+          ${campo('WhatsApp', esc(fmtTel(p.telefone)))}
           ${campo('Idade', i !== null ? `${i} anos (${fmtData(p.data_nascimento)})` : '')}
           ${campo('Instagram', esc(p.instagram))}
           ${campo('E-mail', esc(p.email))}
@@ -263,10 +264,10 @@ export async function perfil(conteudo, { id }) {
       <section class="painel"><div class="painel-topo"><h2>Presença</h2></div><div class="painel-corpo">
         ${historico.length ? `
           <p><span class="grande num">${pct(presencas, historico.length)}%</span>
-          <span class="muted"> · veio ${presencas} de ${historico.length} sextas</span></p>
+          <span class="muted"> · veio ${presencas} de ${historico.length} sexta${historico.length === 1 ? '' : 's'}</span></p>
           <p class="small muted" style="margin:2px 0 14px">${ultimaVezData ? `Última vez: ${fmtData(ultimaVezData)} (${textoUltimaVez(ultimaVezData)})` : 'Ainda não veio a nenhum encontro marcado'}</p>
           <div class="historico">${historico.slice(0, 24).reverse().map((h) => `<i class="${h.presente ? 'p' : 'f'}" title="${fmtData(h.data)}: ${h.presente ? 'veio' : 'faltou'}${h.justificativa ? ' (' + esc(h.justificativa) + ')' : ''}"></i>`).join('')}</div>
-          <p class="hint" style="margin-top:8px">Últimas ${Math.min(24, historico.length)} sextas, da mais antiga para a mais recente.</p>`
+          <p class="hint" style="margin-top:8px">${historico.length === 1 ? 'Primeira sexta registrada.' : `Últimas ${Math.min(24, historico.length)} sextas, da mais antiga para a mais recente.`}</p>`
         : '<p class="muted">Sem chamadas registradas ainda.</p>'}
       </div></section>
     </div>
@@ -361,7 +362,7 @@ function abrirImportacao(depois) {
           <div class="previa"><table class="tabela"><thead><tr><th>Nome</th><th>Tipo</th><th>Nascimento</th><th>Telefone</th><th>Ministérios</th></tr></thead><tbody>
           ${pessoas.slice(0, 8).map((p) => `<tr><td>${esc(p.nome)}</td><td>${tagTipo(p.tipo)}</td>
             <td>${p.data_nascimento ? fmtData(p.data_nascimento) : (p._dataOriginal ? `<span class="tag warn">${esc(p._dataOriginal)}?</span>` : '')}</td>
-            <td>${esc(p.telefone)}</td><td>${esc(p.ministerios_nomes)}</td></tr>`).join('')}
+            <td>${esc(fmtTel(p.telefone))}</td><td>${esc(p.ministerios_nomes)}</td></tr>`).join('')}
           </tbody></table></div>
           <p class="hint" style="margin-top:6px">${pessoas.length} pessoa${pessoas.length === 1 ? '' : 's'} pronta${pessoas.length === 1 ? '' : 's'} para importar${pessoas.length > 8 ? ' (mostrando as 8 primeiras)' : ''}.</p>`;
       };

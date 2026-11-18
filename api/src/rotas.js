@@ -48,6 +48,18 @@ const rota = (metodo, caminho, fn, acesso) => {
   rotas.push({ metodo, re, nomes, fn, acesso });
 };
 const txt = (v, max = 500) => { if (v === undefined || v === null) return null; const s = String(v).trim(); return s ? s.slice(0, max) : null; };
+// Telefone sempre no mesmo padrão: (51) 99172-6412 / (51) 9172-6412. O que não parecer telefone fica como foi digitado.
+function telefoneBR(v) {
+  const s = txt(v, 30); if (!s) return null;
+  let d = s.replace(/\D/g, '');
+  if ((d.length === 12 || d.length === 13) && d.startsWith('55')) d = d.slice(2);
+  if ((d.length === 11 || d.length === 12) && d.startsWith('0')) d = d.slice(1);
+  if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+  if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+  if (d.length === 9) return `${d.slice(0, 5)}-${d.slice(5)}`;
+  if (d.length === 8) return `${d.slice(0, 4)}-${d.slice(4)}`;
+  return s;
+}
 const int = (v) => { const n = Number(v); if (!Number.isInteger(n) || n <= 0) throw new HttpError(400, 'Identificador inválido.'); return n; };
 const dataISO = (v) => {
   if (!v) return null;
@@ -346,7 +358,7 @@ function dadosPessoa(b) {
     nome,
     data_nascimento: (() => { const d = dataISO(b.data_nascimento); if (d && d > hojeUTC()) throw new HttpError(400, 'A data de nascimento não pode ser no futuro.'); return d; })(),
     sexo: ['M', 'F'].includes(b.sexo) ? b.sexo : null,
-    telefone: txt(b.telefone, 30), email: txt(b.email, 200), instagram: txt(b.instagram, 60), endereco: txt(b.endereco, 250),
+    telefone: telefoneBR(b.telefone), email: txt(b.email, 200), instagram: txt(b.instagram, 60), endereco: txt(b.endereco, 250),
     tipo: SITUACOES.includes(b.tipo) ? b.tipo : 'novo_visitante',
     batizado: b.batizado === true || b.batizado === 1 || b.batizado === 'sim' ? 1 : (b.batizado === false || b.batizado === 0 || b.batizado === 'nao' ? 0 : null),
     referencia: txt(b.referencia, 150), grupo_cultivo: txt(b.grupo_cultivo, 300), discipulado_por: txt(b.discipulado_por, 300),

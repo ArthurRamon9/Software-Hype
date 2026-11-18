@@ -1,7 +1,7 @@
 // Chamada dos encontros de sexta
 // © Arthur Ramon da Silva — Todos os direitos reservados.
 import { api, urlFoto, pode } from '../api.js';
-import { esc, $, aviso, avisoErro, ocupado, confirmar, janela, foto, TIPOS, isoLocal, parseISO, ultimaSexta, fmtData, hojeISO, semAcento, estaNoHype } from '../ui.js';
+import { esc, $, aviso, avisoErro, ocupado, confirmar, janela, foto, TIPOS, isoLocal, parseISO, ultimaSexta, fmtData, hojeISO, semAcento, estaNoHype, icon, formatarAoSair } from '../ui.js';
 import { atualizarContadores, navegar } from '../app.js';
 
 let dataSel = null;
@@ -38,7 +38,7 @@ async function desenhar(conteudo) {
         <span class="contagem" id="contagem"></span>
       </div>
       <div class="filtros">
-        <input class="input busca" id="busca" type="search" placeholder="Procurar nome (a busca acha também quem está afastado)">
+        <input class="input busca" id="busca" type="search" placeholder="Procurar pelo nome (acha também quem está afastado)">
         <input class="input" id="tema" placeholder="Tema da noite (opcional)" value="${esc(encontro?.tema || '')}" style="flex:1;min-width:200px">
       </div>
       <div class="chamada" id="chamada"></div>
@@ -59,14 +59,19 @@ async function desenhar(conteudo) {
     const v = marca.get(p.id), j = just.get(p.id);
     return `<div data-id="${p.id}" class="${v === true ? 'marcado-p' : v === false ? 'marcado-f' : ''}">${foto(p.nome, urlFoto(p.id, p.foto_v))}
       <div class="nome"><b>${esc(p.nome)}${p.referencia ? ` <span class="ref">${esc(p.referencia)}</span>` : ''}</b><span>${TIPOS[p.tipo]}${v === false ? ` · <button class="link-btn small" data-just>${j ? esc(j) : 'justificar'}</button>` : ''}</span></div>
-      <div class="pf"><button data-v="1" class="${v === true ? 'p' : ''}" aria-label="Presente">P</button><button data-v="0" class="${v === false ? 'f' : ''}" aria-label="Ausente">F</button></div></div>`;
+      <div class="pf"><button data-v="1" class="${v === true ? 'p' : ''}" aria-label="Presente" title="Veio">${icon('check')}</button><button data-v="0" class="${v === false ? 'f' : ''}" aria-label="Faltou" title="Faltou">${icon('xis')}</button></div></div>`;
   };
   // A chamada mostra quem está "no Hype" (veio nos últimos 3 meses ou acabou de ser cadastrado).
   // Quem está afastado ou é ex-visitante aparece na busca; se for marcado, entra na lista.
   const esperado = (p) => p.tipo !== 'ex_visitante' && p.cd_status === 1 && estaNoHype(p);
   const visiveis = () => {
-    const b = semAcento(busca);
-    return lista.filter((p) => (b ? semAcento(`${p.nome} ${p.referencia || ''}`).includes(b) : (esperado(p) || marca.has(p.id))));
+    const b = semAcento(busca).trim();
+    if (!b) return lista.filter((p) => esperado(p) || marca.has(p.id));
+    // Busca pelo começo do nome (como LIKE 'ana%'): "a" traz Ana, Arthur, Amanda...
+    const comeca = lista.filter((p) => semAcento(p.nome).startsWith(b));
+    if (comeca.length) return comeca;
+    // Se ninguém começa assim, tenta pelo sobrenome (começo de qualquer palavra do nome)
+    return lista.filter((p) => semAcento(p.nome).split(/\s+/).some((w) => w.startsWith(b)));
   };
   const pintar = () => {
     const v = visiveis();
@@ -118,13 +123,14 @@ async function desenhar(conteudo) {
     titulo: 'Novo visitante',
     corpo: `<form id="fv" style="display:grid;gap:12px">
       <div class="field"><label for="vn">Nome *</label><input class="input" id="vn" required></div>
-      <div class="field"><label for="vt">Telefone (WhatsApp)</label><input class="input" id="vt" type="tel"></div>
+      <div class="field"><label for="vt">Telefone (WhatsApp)</label><input class="input" id="vt" type="tel" inputmode="tel" placeholder="(51) 99999-9999"></div>
       <div class="field"><label for="vd">Data de nascimento</label><input class="input" id="vd" type="date" max="${hojeISO()}"></div>
       <div class="field"><label for="vc">Como conheceu o Hype</label><input class="input" id="vc"></div>
       <p class="hint">Fica marcado como presente nesta chamada. O resto do cadastro pode ser completado depois.</p>
       <div class="janela-acoes" style="margin-top:4px"><button type="button" class="btn" data-fechar>Cancelar</button><button class="btn primary">Cadastrar</button></div></form>`,
     aoAbrir: (j, fechar) => {
       j.querySelector('#vn').focus();
+      formatarAoSair(j.querySelector('#vt'));
       j.querySelector('#fv').addEventListener('submit', async (ev) => {
         ev.preventDefault();
         const nome = j.querySelector('#vn').value.trim();

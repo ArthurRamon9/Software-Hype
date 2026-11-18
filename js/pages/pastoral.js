@@ -20,6 +20,21 @@ const AREAS = {
   },
 };
 const filtroStatus = { pastoral: 'ativos', integracao: 'ativos' };
+// Ordenação por coluna: 1º clique crescente, 2º decrescente, 3º volta ao normal
+const ordem = { pastoral: { col: null, dir: 1 }, integracao: { col: null, dir: 1 } };
+const ORDEM_STATUS = { aberto: 0, em_andamento: 1, concluido: 2 };
+const comparaTexto = (a, b) => String(a || '').localeCompare(String(b || ''), 'pt-BR', { sensitivity: 'base' });
+const COLUNAS = {
+  pessoa: (a, b) => comparaTexto(a.pessoa_nome, b.pessoa_nome),
+  situacao: (a, b) => ORDEM_STATUS[a.status] - ORDEM_STATUS[b.status],
+  ultima: (a, b) => String(a.ultima_presenca || '').localeCompare(String(b.ultima_presenca || '')),
+  responsavel: (a, b) => comparaTexto(a.responsavel_nome, b.responsavel_nome),
+  motivo: (a, b) => comparaTexto(a.motivo, b.motivo),
+  contatos: (a, b) => (a.contatos || 0) - (b.contatos || 0),
+  ultimo_contato: (a, b) => String(a.ultimo_registro || '').localeCompare(String(b.ultimo_registro || '')),
+  aberto: (a, b) => String(a.dt_abertura || '').localeCompare(String(b.dt_abertura || '')),
+};
+const th = (col, rotulo, classe = '') => `<th class="${classe}" data-ord="${col}"><button type="button" class="ord">${rotulo}<span class="seta" aria-hidden="true"></span></button></th>`;
 
 export async function abrirAcompanhamento({ area = 'pastoral', pessoa, motivo = '', depois }) {
   const responsaveis = await api('GET', '/responsaveis').catch(() => []);
@@ -162,11 +177,11 @@ async function renderArea(conteudo, area) {
         ${podeExcluir ? `<button class="btn sm danger" id="massa-excluir">${icon('lixeira')} Excluir</button>` : ''}
         <button class="link-btn small" id="massa-limpar">Limpar seleção</button>
       </div>
-      <div class="tabela-wrap"><table class="tabela tabela-larga${podeExcluir || podeEditar ? ' com-sel' : ''}">
+      <div class="tabela-wrap rolagem"><table class="tabela tabela-larga${podeExcluir || podeEditar ? ' com-sel' : ''}">
         <thead><tr>
           ${podeExcluir || podeEditar ? '<th class="sel"><input type="checkbox" id="sel-todos" aria-label="Selecionar todos"></th>' : ''}
-          <th class="fixa">Pessoa</th><th>Situação</th><th>Última vez que veio</th><th>Responsável</th><th>Motivo</th>
-          <th class="dir">Contatos</th><th>Último contato</th><th>Aberto em</th><th class="dir">Ações</th></tr></thead>
+          ${th('pessoa', 'Pessoa', 'fixa')}${th('situacao', 'Situação')}${th('ultima', 'Última vez que veio')}${th('responsavel', 'Responsável')}${th('motivo', 'Motivo')}
+          ${th('contatos', 'Contatos', 'dir')}${th('ultimo_contato', 'Último contato')}${th('aberto', 'Aberto em')}<th class="dir">Ações</th></tr></thead>
         <tbody id="casos"></tbody>
       </table></div>
       <div class="filtros" style="border-top:1px solid var(--line);border-bottom:0"><span class="muted small" id="total-casos"></span></div>
@@ -176,11 +191,20 @@ async function renderArea(conteudo, area) {
     const b = semAcento(f.busca);
     return casos.filter((c) => (filtroStatus[area] === 'ativos' ? c.status !== 'concluido' : c.status === 'concluido')
       && (!b || semAcento(`${c.pessoa_nome} ${c.pessoa_referencia || ''} ${c.responsavel_nome}`).includes(b))
-      && (!f.freq || (estaNoHype({ ultima_presenca: c.ultima_presenca }) ? 'sim' : 'nao') === f.freq));
+      && (!f.freq || (estaNoHype({ ultima_presenca: c.ultima_presenca }) ? 'sim' : 'nao') === f.freq))
+      .sort((a, b) => (o.col ? o.dir * COLUNAS[o.col](a, b) || comparaTexto(a.pessoa_nome, b.pessoa_nome) : 0));
   };
+  const o = ordem[area];
   const temSel = podeExcluir || podeEditar;
   const pintar = () => {
     const l = visiveis();
+    conteudo.querySelectorAll('th[data-ord]').forEach((h) => {
+      const ativa = h.dataset.ord === o.col;
+      h.classList.toggle('ordenada', ativa);
+      h.setAttribute('aria-sort', ativa ? (o.dir === 1 ? 'ascending' : 'descending') : 'none');
+      h.querySelector('.seta').textContent = ativa ? (o.dir === 1 ? '↓' : '↑') : '';
+      h.querySelector('.ord').title = ativa ? (o.dir === 1 ? 'Ordem crescente. Clique para decrescente' : 'Ordem decrescente. Clique para tirar a ordenação') : 'Clique para ordenar';
+    });
     for (const id of [...selecionados]) if (!l.some((c) => c.id === id)) selecionados.delete(id);
     $('#total-casos').textContent = `${l.length} acompanhamento${l.length === 1 ? '' : 's'}`;
     $('#casos').innerHTML = l.length ? l.map((c) => {
@@ -229,6 +253,11 @@ async function renderArea(conteudo, area) {
     if (!(await confirmar(`Marcar ${ids.length} acompanhamento${ids.length === 1 ? '' : 's'} como concluído${ids.length === 1 ? '' : 's'}?`, { botao: 'Concluir' }))) return;
     try { await api('POST', `/${area}/casos/concluir`, { ids }); aviso('Concluídos.'); atualizarContadores(); recarregar(); } catch (err) { avisoErro(err); }
   });
+  conteudo.querySelectorAll('th[data-ord]').forEach((h) => h.querySelector('.ord').addEventListener('click', () => {
+    const col = h.dataset.ord;
+    if (o.col !== col) { o.col = col; o.dir = 1; } else if (o.dir === 1) o.dir = -1; else o.col = null;
+    pintar();
+  }));
   $('#busca-caso').addEventListener('input', (e) => { f.busca = e.target.value; pintar(); });
   $('#freq-caso').addEventListener('change', (e) => { f.freq = e.target.value; pintar(); });
 
