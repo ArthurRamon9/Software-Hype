@@ -801,7 +801,7 @@ a.marca, a.marca:hover { text-decoration: none; color: inherit; }
 .perfil-conta .foto.g { width: 52px; height: 52px; font-size: 17px; }
 /* "GESTÃO DO / HYPE" da tela de entrada, no estilo do Instagram: condensado, inclinado, com as sombras ciano e vermelha */
 .marca-hype { font-family: var(--destaque); font-weight: 400; font-style: italic; text-transform: uppercase; line-height: .86; color: #fff; position: relative; z-index: 1; }
-.marca-hype span { display: block; font-size: clamp(30px, 3.6vw, 52px); letter-spacing: .02em; margin-left: .08em; margin-bottom: .14em; }
+.marca-hype span { display: block; font-size: clamp(30px, 3.6vw, 52px); letter-spacing: .02em; margin-left: .08em; margin-bottom: .32em; line-height: 1; }
 .marca-hype b { display: block; font-weight: 400; font-size: clamp(96px, 13vw, 190px); letter-spacing: .01em; text-shadow: -5px 0 0 #19d3f0, 5px 0 0 #ff2e55; }
 .acesso-box .marca-mobile span { font-size: 22px; }
 .acesso-box .marca-mobile b { font-size: 76px; text-shadow: -3px 0 0 #19d3f0, 3px 0 0 #ff2e55; color: var(--ink); }
