@@ -1198,6 +1198,8 @@ function respostaErro(e) {
   if (e instanceof HttpError || e.status) return { status: e.status, body: { erro: e.message } };
   if (e.number === 2627 || e.number === 2601) return { status: 409, body: { erro: 'Esse registro já existe.' } };
   if (e.number === 547) return { status: 409, body: { erro: 'Não é possível concluir: há registros ligados a este item.' } };
+  // Coluna ou tabela que não existe: o banco não recebeu o 01_estrutura.sql desta versão
+  if (e.number === 207 || e.number === 208) { console.error(e.message); return { status: 500, body: { erro: 'O banco ainda não foi atualizado para esta versão do site. Rode o sql/01_estrutura.sql no SSMS e tente de novo.' } }; }
   console.error(e);
   return { status: 500, body: { erro: 'Erro interno. Tente novamente.' } };
 }
