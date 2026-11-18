@@ -2,6 +2,7 @@
 // © Arthur Ramon da Silva — Todos os direitos reservados.
 import { api, sessao, podeAlgum, urlFoto } from './api.js';
 import { icon, esc, direitos, $, foto } from './ui.js';
+import './campos.js';
 import * as acesso from './pages/acesso.js';
 import * as inicio from './pages/inicio.js';
 import * as pessoas from './pages/pessoas.js';

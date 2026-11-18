@@ -22,7 +22,6 @@ async function desenhar(conteudo, manter = {}) {
   // O que ESTE celular mudou (só isso vai para o servidor; o que outra pessoa marcou não é apagado)
   const mudou = new Map();      // pessoa_id -> { presente, auto }
   const removidos = new Set();  // desmarcados aqui
-  let temaMudou = false;
   let busca = '';
   let soFaltam = !!manter.soFaltam;
   conteudo.dataset.alterado = '0';
@@ -38,17 +37,17 @@ async function desenhar(conteudo, manter = {}) {
       <div class="chamada-topo">
         <div class="data">
           <button class="btn sm" id="ant" title="Sexta anterior" aria-label="Sexta anterior">‹</button>
-          <input type="date" class="input" id="data" value="${dataSel}" max="${hojeISO()}">
+          <input type="date" class="input" id="data" value="${dataSel}" max="${hojeISO()}" required>
           <button class="btn sm" id="prox" title="Próxima sexta" aria-label="Próxima sexta">›</button>
           <span class="muted small dia-semana">${dia.replace(/^./, (c) => c.toUpperCase())}</span>
         </div>
         <span class="contagem" id="contagem"></span>
       </div>
-      <div class="tema-linha ${tema ? '' : 'recolhida'}" id="tema-linha">
-        <button type="button" class="link-btn" id="abrir-tema">${tema ? `Tema: <b>${esc(tema)}</b> · Editar` : '+ Tema da noite'}</button>
+      <div class="tema-linha recolhida" id="tema-linha">
+        <button type="button" class="link-btn" id="abrir-tema" ${futura ? 'disabled' : ''}></button>
         <label for="tema">Tema da noite</label>
         <input class="input" id="tema" maxlength="200" placeholder="Ex.: Identidade em Cristo" value="${esc(tema)}">
-        <span class="hint">Opcional · é salvo junto com a chamada</span>
+        <div class="tema-botoes"><button type="button" class="btn sm" id="tema-cancelar">Cancelar</button><button type="button" class="btn sm primary" id="tema-salvar">Salvar tema</button></div>
       </div>
       <div class="filtros">
         <input class="input busca" id="busca" type="search" placeholder="Procurar pelo nome" title="A busca acha também quem está afastado" autocomplete="off">
@@ -125,8 +124,26 @@ async function desenhar(conteudo, manter = {}) {
 
   $('#busca').addEventListener('input', (e) => { busca = e.target.value; pintar(); });
   $('#so-faltam').addEventListener('change', (e) => { soFaltam = e.target.checked; pintar(); });
-  $('#abrir-tema').addEventListener('click', () => { $('#tema-linha').classList.remove('recolhida'); $('#tema').focus(); });
-  $('#tema').addEventListener('input', () => { temaMudou = true; alterou(); });
+  // Tema da noite: abre, salva sozinho (não depende da chamada) ou cancela
+  let temaSalvo = tema;
+  const mostrarTema = () => { $('#abrir-tema').innerHTML = temaSalvo ? `Tema da noite: <b>${esc(temaSalvo)}</b> <span class="muted">· Editar</span>` : '+ Tema da noite'; };
+  const fecharTema = () => { $('#tema').value = temaSalvo; $('#tema-linha').classList.add('recolhida'); mostrarTema(); };
+  mostrarTema();
+  $('#abrir-tema').addEventListener('click', () => { $('#tema-linha').classList.remove('recolhida'); $('#tema').focus(); $('#tema').select(); });
+  $('#tema-cancelar').addEventListener('click', fecharTema);
+  const salvarTema = (botao) => ocupado(botao, async () => {
+    const novo = $('#tema').value.trim();
+    if (novo === temaSalvo) return fecharTema();
+    try {
+      await api('POST', '/presenca', { data: dataSel, tema: novo, marcacoes: [], remover: [] });
+      temaSalvo = novo; fecharTema(); aviso(novo ? 'Tema salvo.' : 'Tema apagado.');
+    } catch (err) { avisoErro(err); }
+  });
+  $('#tema-salvar').addEventListener('click', (e) => salvarTema(e.currentTarget));
+  $('#tema').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); salvarTema($('#tema-salvar')); }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); fecharTema(); }
+  });
   // "Restantes como falta" só marca quem era esperado na sexta (no Hype), não os afastados.
   // Vão como faltas "automáticas": se outra pessoa marcou alguém como presente em outro celular, vale o dela.
   $('#resto').onclick = () => { lista.forEach((p) => { if (!marca.has(p.id) && esperado(p)) marcar(p.id, false, true); }); alterou(); pintar(); };
@@ -176,10 +193,10 @@ async function desenhar(conteudo, manter = {}) {
   });
 
   $('#salvar').onclick = (e) => ocupado(e.currentTarget, async () => {
-    if (!mudou.size && !removidos.size && !temaMudou) return aviso(marca.size ? 'Nada mudou desde a última vez que foi salva.' : 'Marque pelo menos uma pessoa.', marca.size ? 'ok' : 'erro');
+    if (!mudou.size && !removidos.size) return aviso(marca.size ? 'Nada mudou desde a última vez que foi salva.' : 'Marque pelo menos uma pessoa.', marca.size ? 'ok' : 'erro');
     try {
       const r = await api('POST', '/presenca', {
-        data: dataSel, ...(temaMudou ? { tema: $('#tema').value } : {}),
+        data: dataSel,
         marcacoes: [...mudou].map(([pessoa_id, m]) => ({ pessoa_id, presente: m.presente, auto: m.auto, justificativa: just.get(pessoa_id) })),
         remover: [...removidos],
       });

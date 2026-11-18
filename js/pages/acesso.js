@@ -4,33 +4,43 @@ import { api, sessao, urlFoto } from '../api.js';
 import { esc, $, aviso, ocupado, direitos, icon, foto, temaAtual, aplicarTema } from '../ui.js';
 import { entrou, sair, parametrosHash, navegar, menuPermitido } from '../app.js';
 
+// "GESTÃO DO / HYPE" no estilo do Instagram do Hype
+const marcaHype = (classe = '') => `<div class="marca-hype ${classe}"><span>Gestão do</span><b>Hype</b></div>`;
+
 function tela(app, html) {
   app.innerHTML = `<div class="acesso">
     <aside class="acesso-lado">
-      <div class="marca"><img src="assets/img/logo.svg" alt="">Gestão do Hype</div>
+      <div></div>
       <div>
-        <div class="palavra">hype</div>
-        <p class="frase">Ninguém fica de fora.<span>Cadastro, chamada das sextas e cuidado pastoral do ministério de jovens.</span></p>
+        ${marcaHype()}
+        <p class="frase">Cadastro, chamada das sextas e cuidado pastoral do ministério de jovens.</p>
       </div>
       <div class="rod">${direitos()}</div>
     </aside>
     <main class="acesso-main"><div class="acesso-box">
-      <div class="marca-mobile"><img src="assets/img/logo.svg" alt="">Gestão do Hype</div>
+      ${marcaHype('marca-mobile')}
       ${html}
     </div><footer class="so-mobile">${direitos()}</footer></main></div>`;
   ligarMostrarSenha(app);
 }
 
+// Olhinho para ver a senha
+const OLHO = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+const OLHO_FECHADO = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18M10.6 5.1A10.4 10.4 0 0 1 12 5c6.4 0 10 7 10 7a17.6 17.6 0 0 1-3.2 4.1M6.6 6.6C3.9 8.3 2 12 2 12s3.6 7 10 7a9.7 9.7 0 0 0 5.4-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>';
 function ligarMostrarSenha(raiz) {
   raiz.querySelectorAll('.senha-wrap button').forEach((b) => b.addEventListener('click', () => {
     const inp = b.previousElementSibling;
-    inp.type = inp.type === 'password' ? 'text' : 'password';
-    b.textContent = inp.type === 'password' ? 'mostrar' : 'ocultar';
+    const mostrar = inp.type === 'password';
+    inp.type = mostrar ? 'text' : 'password';
+    b.innerHTML = mostrar ? OLHO_FECHADO : OLHO;
+    b.setAttribute('aria-label', mostrar ? 'Esconder a senha' : 'Ver a senha');
+    b.title = b.getAttribute('aria-label');
+    inp.focus();
   }));
 }
 
 const campoSenha = (id, rotulo, auto = 'current-password') => `<div class="field"><label for="${id}">${rotulo}</label>
-  <div class="senha-wrap"><input class="input" id="${id}" type="password" autocomplete="${auto}" required><button type="button">mostrar</button></div></div>`;
+  <div class="senha-wrap"><input class="input" id="${id}" type="password" autocomplete="${auto}" required><button type="button" aria-label="Ver a senha" title="Ver a senha">${OLHO}</button></div></div>`;
 
 const mensagem = (el, tipo, texto) => { el.className = `msg ${tipo}`; el.innerHTML = texto; };
 
@@ -45,7 +55,7 @@ export function entrar(app) {
       ${campoSenha('senha', 'Senha')}
       <button class="btn primary block" type="submit">Entrar</button>
     </form>
-    <p class="rodape-form"><a href="#/esqueci-senha">Esqueci minha senha</a><br><br>Ainda não tem conta? <a href="#/criar-conta">Criar conta</a></p>`);
+    <p class="rodape-form duas-pontas"><a href="#/esqueci-senha">Esqueci minha senha</a><span>Ainda não tem conta? <a href="#/criar-conta">Criar conta</a></span></p>`);
   $('#email').focus();
   $('#f').addEventListener('submit', async (e) => {
     e.preventDefault();

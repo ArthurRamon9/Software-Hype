@@ -124,12 +124,17 @@ As duas áreas usam a mesma estrutura (`pastoral_casos` + `pastoral_registros`),
 Várias pessoas podem fazer a chamada ao mesmo tempo, cada uma no seu celular: cada uma grava só o que marcou.
 "Restantes como falta" não apaga quem outra pessoa marcou como presente. Não dá para salvar chamada de data futura.
 
+## Campos de data, hora e listas
+`js/campos.js` troca a aparência dos campos do navegador (listas de escolha, data, hora e mês) pela do Hype, em todo o site e sozinho.
+O campo original continua escondido guardando o valor, então o resto do código não muda. Para manter um campo do jeito do navegador: `data-nativo`.
+
 ## Agenda e Escalas
 - **Agenda:** o líder marca a reunião do ministério e o convite chega no Google Agenda (ou iPhone/Outlook) de quem tem e-mail no cadastro,
   um e-mail por pessoa. Mudou o horário ou cancelou, a agenda deles atualiza sozinha. Cada um vê as reuniões dos seus ministérios.
-- **Escalas:** o líder monta a escala das sextas do mês. Funções (Som, Projeção...) são criadas pelo próprio líder; sem funções, a escala é só a lista de quem serve.
-  Todos os líderes veem as escalas de todos e o sistema avisa quando alguém está em dois ministérios na mesma sexta.
-  Cada pessoa vê "Minhas escalas". Dá para copiar o texto para o grupo do WhatsApp e baixar em planilha.
+- **Escalas:** uma tabela por ministério, no jeito da planilha: colunas = sextas do mês, um bloco por função (Entrada, Saída...) com os nomes um embaixo do outro.
+  Funções são criadas pelo próprio líder; sem funções, a escala é só a lista de quem serve.
+  Todos veem as escalas de todos os ministérios; só o líder (ou administrador) altera a do seu. O sistema avisa quando alguém está em dois ministérios na mesma sexta.
+  No topo aparecem as próximas sextas em que a pessoa serve. Dá para copiar o texto para o grupo do WhatsApp e baixar em planilha.
 
 ## Aparência
 Cores do Hype (preto, branco e roxo; ciano e vermelho só no "H"), títulos na fonte Anton (OFL, em `assets/fonts`).

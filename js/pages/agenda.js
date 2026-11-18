@@ -75,7 +75,7 @@ async function editar(conteudo, r, possoCriar) {
         <div><label for="r-fim">Termina</label><input class="input" id="r-fim" type="time" value="${r ? r.fim.slice(11, 16) : ''}"></div></div>
       <div class="field full"><label for="r-local">Local ou link</label><input class="input" id="r-local" maxlength="250" value="${esc(r?.local || '')}" placeholder="Ex.: Sala 2 da igreja"></div>
       <div class="field full"><label for="r-desc">Descrição (opcional)</label><textarea class="input" id="r-desc" maxlength="1000">${esc(r?.descricao || '')}</textarea></div>
-      <div class="field full"><span class="label">Quem participa <span class="muted small">(todos do ministério já vêm marcados)</span></span><div class="part" id="r-part"><span class="muted">Carregando…</span></div></div>
+      <div class="field full"><div class="part-topo"><span class="label">Quem participa <span class="muted small" id="r-conta"></span></span><button type="button" class="link-btn" id="r-todos" hidden></button></div><div class="part" id="r-part"><span class="muted">Carregando…</span></div></div>
       <label class="field full envio check"><input type="checkbox" id="r-enviar" checked><span><b>${novo ? 'Enviar convite por e-mail' : 'Mandar a atualização por e-mail'}</b><small id="r-aviso-email">Chega como convite no Google Agenda (e no celular) de quem tem e-mail no cadastro. Se você mudar o horário ou cancelar, a agenda deles atualiza sozinha.</small></span></label>
       <div class="janela-acoes full" style="justify-content:space-between">
         ${novo ? '<span></span>' : '<button type="button" class="link-btn danger" id="cancelar-r">Cancelar a reunião</button>'}
@@ -87,13 +87,35 @@ async function editar(conteudo, r, possoCriar) {
         try {
           const membros = await api('GET', `/agenda/membros/${mid}`);
           const marcados = r ? new Set(r.pessoas.map((p) => p.id)) : new Set(membros.map((m) => m.id));
-          box.innerHTML = membros.length ? membros.map((m) => `<label><input type="checkbox" name="rp" value="${m.id}" ${marcados.has(m.id) ? 'checked' : ''}>${esc(m.nome)}${m.tem_email ? '' : '<small>Sem e-mail</small>'}</label>`).join('')
+          box.innerHTML = membros.length ? membros.map((m) => `<label title="${esc(m.nome)}"><input type="checkbox" name="rp" value="${m.id}" ${marcados.has(m.id) ? 'checked' : ''}><span class="nome-p">${esc(m.nome)}</span>${m.tem_email ? '' : '<small>Sem e-mail</small>'}</label>`).join('')
             : '<span class="muted">Ninguém neste ministério ainda. Coloque as pessoas em Ministérios.</span>';
+          contar();
           const sem = membros.filter((m) => !m.tem_email).map((m) => m.nome.split(' ')[0]);
           if (sem.length) j.querySelector('#r-aviso-email').textContent += ` ${sem.join(', ')} ${sem.length === 1 ? 'não tem' : 'não têm'} e-mail no cadastro: avise por WhatsApp.`;
         } catch (e) { box.innerHTML = `<span class="muted">${esc(e.message)}</span>`; }
       };
+      // "3 de 5 marcadas" + marcar/desmarcar todos
+      const contar = () => {
+        const todos = [...j.querySelectorAll('input[name=rp]')], n = todos.filter((c) => c.checked).length;
+        j.querySelector('#r-conta').textContent = todos.length ? `· ${n} de ${todos.length}` : '';
+        const bt = j.querySelector('#r-todos');
+        bt.hidden = todos.length < 2;
+        bt.textContent = n === todos.length ? 'Desmarcar todos' : 'Marcar todos';
+      };
+      j.querySelector('#r-part').addEventListener('change', contar);
+      j.querySelector('#r-todos').addEventListener('click', () => {
+        const todos = [...j.querySelectorAll('input[name=rp]')], marcar = todos.some((c) => !c.checked);
+        todos.forEach((c) => { c.checked = marcar; });
+        contar();
+      });
       carregarMembros();
+      // Escolheu o começo e o fim está vazio: sugere 1 hora depois
+      j.querySelector('#r-ini').addEventListener('change', (e) => {
+        const fim = j.querySelector('#r-fim'); const v = e.target.value;
+        if (!v || fim.value) return;
+        const [h, m] = v.split(':').map(Number);
+        if (h < 23) fim.value = `${String(h + 1).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+      });
       j.querySelector('#r-min').addEventListener('change', (e) => { mid = Number(e.target.value); carregarMembros(); });
       j.querySelector('#fr').addEventListener('submit', async (e) => {
         e.preventDefault();

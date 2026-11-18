@@ -943,7 +943,6 @@ rotasDeAcompanhamento('integracao');
 const ehGestor = (u) => pode(u, 'acessos.gerenciar');
 const meusMinisterios = (u) => (u.ministerios || []).map((m) => m.id);
 const lideraMinisterio = (u, id) => ehGestor(u) || (u.ministerios || []).some((m) => m.id === id && m.lider);
-const veTodasEscalas = (u) => ehGestor(u) || (u.ministerios || []).some((m) => m.lider || chaveNome(m.nome) === chaveNome(MINISTERIO_LIDERES));
 const precisaLiderar = (u, id) => { if (!lideraMinisterio(u, id)) throw new HttpError(403, 'Só o líder deste ministério (ou um administrador) pode fazer isso.'); };
 const horaValida = (h) => (/^([01]\d|2[0-3]):[0-5]\d$/.test(h || '') ? h : null);
 
@@ -1046,7 +1045,8 @@ rota('POST', '/agenda/:id/cancelar', async ({ params, usuario, ip }) => {
 // ---------- Escalas ----------
 rota('GET', '/escalas', async ({ query: q, usuario }) => {
   const mes = /^\d{4}-\d{2}$/.test(q.mes || '') ? q.mes : hojeBrasil().slice(0, 7);
-  const todos = veTodasEscalas(usuario);
+  // Todo mundo com acesso vê as escalas de todos os ministérios (só o líder altera a do seu)
+  const todos = true;
   const [ministerios, funcoes, itens, membros] = await query(`
     SELECT m.id, m.nome, m.cor FROM dbo.ministerios m WHERE m.cd_status = 1 AND (@todos = 1 OR m.id IN (SELECT value FROM OPENJSON(@mins))) ORDER BY m.nome;
     SELECT f.id, f.ministerio_id, f.nome, f.ordem FROM dbo.escala_funcoes f ORDER BY f.ministerio_id, f.ordem, f.nome;
@@ -1059,9 +1059,10 @@ rota('GET', '/escalas', async ({ query: q, usuario }) => {
   return {
     mes, ve_todas: todos,
     ministerios: ministerios.map((m) => ({ ...m, pode_editar: lideraMinisterio(usuario, m.id),
-      funcoes: funcoes.filter((f) => f.ministerio_id === m.id), membros: membros.filter((x) => x.ministerio_id === m.id).map(({ ministerio_id, ...x }) => x) })),
-    // Para avisar conflitos, quem vê todas recebe os itens de todos; os outros, só dos seus ministérios
-    itens: itens.filter((i) => todos || ids.has(i.ministerio_id)),
+      funcoes: funcoes.filter((f) => f.ministerio_id === m.id),
+      // a lista da equipe só vai para quem monta a escala daquele ministério
+      membros: lideraMinisterio(usuario, m.id) ? membros.filter((x) => x.ministerio_id === m.id).map(({ ministerio_id, ...x }) => x) : [] })),
+    itens: itens.filter((i) => ids.has(i.ministerio_id)),
   };
 });
 
