@@ -1,7 +1,7 @@
 // Entrar, criar conta, esqueci a senha, nova senha, minha conta
 // © Arthur Ramon da Silva — Todos os direitos reservados.
-import { api, sessao } from '../api.js';
-import { esc, $, aviso, ocupado, direitos } from '../ui.js';
+import { api, sessao, podeAlgum } from '../api.js';
+import { esc, $, aviso, ocupado, direitos, icon } from '../ui.js';
 import { entrou, sair, parametrosHash, navegar } from '../app.js';
 
 function tela(app, html) {
@@ -159,6 +159,10 @@ export function minhaConta(conteudo) {
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>Minha conta</h1><p class="sub">${esc(u.email)}</p></div>
       <div class="acoes"><button class="btn" id="sair">Sair</button></div></div>
+    ${podeAlgum('pessoas.ver', 'ministerios.editar', 'acessos.gerenciar') ? `<nav class="painel so-mobile mais-telas" style="margin-bottom:16px">
+      ${podeAlgum('pessoas.ver', 'ministerios.editar') ? `<a href="#/ministerios">${icon('ministerios')}Ministérios</a>` : ''}
+      ${podeAlgum('acessos.gerenciar') ? `<a href="#/acessos">${icon('acessos')}Acessos <span class="muted small">usuários, grupos e atividades</span></a>` : ''}
+    </nav>` : ''}
     <div class="colunas c2">
       <form class="painel" id="fn"><div class="painel-topo"><h2>Nome</h2></div><div class="painel-corpo" style="display:grid;gap:12px">
         <div class="field"><label for="nome">Como aparece no sistema</label><input class="input" id="nome" value="${esc(u.nome)}"></div>

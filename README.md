@@ -39,7 +39,9 @@ O site nunca fala direto com o banco. Quem fala é a API, que confere o login e 
 | Saber quem fez o quê | Registro de atividades (tabela `auditoria`, tela Acessos → Atividades): logins, tentativas falhas, liberações, bloqueios, cadastros, exclusões, chamadas salvas. |
 
 ### Grupos e permissões
-Cada usuário pode estar em um ou mais grupos e tem a soma das permissões deles. Grupos que já vêm criados (dá para mudar ou criar outros em **Acessos → Grupos**):
+Cada usuário pode estar em um ou mais grupos e tem a soma das permissões deles.
+
+**Dar acesso a alguém:** a pessoa clica em **Criar conta** na tela de entrada; ela aparece em **Acessos → Usuários** aguardando liberação. Para escolher os grupos, clique na pessoa (aba Usuários) ou abra o grupo (aba Grupos) e marque quem está nele. No celular, Acessos e Ministérios ficam em **Minha conta** (toque no seu avatar no topo). Grupos que já vêm criados (dá para mudar ou criar outros em **Acessos → Grupos**):
 
 | Grupo | Pode |
 |---|---|
@@ -101,6 +103,7 @@ O cadastro guarda todo mundo que já passou pelo Hype, mas o dia a dia só mostr
 ## Pastoral e Integração
 As duas áreas usam a mesma estrutura (`pastoral_casos` + `pastoral_registros`), separadas pela coluna `area`.
 - **Pastoral** alerta quem já faz parte (visitante regular e membros), veio em alguma das últimas 6 sextas e está com 2 ou mais faltas seguidas.
+- O responsável pode ser trocado dentro do acompanhamento ou definido para vários de uma vez (marque e use "Definir responsável"). O filtro de responsável mostra quem está no grupo da área.
 - A lista de acompanhamentos mostra só pessoas ativas, tem lixeira em cada linha e permite marcar várias para concluir ou excluir de uma vez.
 - **Integração** lista os visitantes que chegaram nos últimos 60 dias e ainda não tiveram contato, destacando quem chegou há menos de 48 horas.
 

@@ -37,9 +37,13 @@ async function desenhar(conteudo) {
         </div>
         <span class="contagem" id="contagem"></span>
       </div>
+      <div class="tema-linha">
+        <label for="tema">Tema da noite</label>
+        <input class="input" id="tema" maxlength="200" placeholder="Ex.: Identidade em Cristo" value="${esc(encontro?.tema || '')}">
+        <span class="hint">opcional · é salvo junto com a chamada</span>
+      </div>
       <div class="filtros">
-        <input class="input busca" id="busca" type="search" placeholder="Procurar pelo nome (acha também quem está afastado)">
-        <input class="input" id="tema" placeholder="Tema da noite (opcional)" value="${esc(encontro?.tema || '')}" style="flex:1;min-width:200px">
+        <input class="input busca" id="busca" type="search" placeholder="Procurar pelo nome" title="A busca acha também quem está afastado">
       </div>
       <div class="chamada" id="chamada"></div>
       <div class="barra-salvar">

@@ -49,6 +49,7 @@ export async function render(conteudo) {
       <h2>${sexta.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' }).replace(/^./, (c) => c.toUpperCase())}</h2>
       <p style="font-size:16px;color:#fff">${faltam === 1 ? 'É amanhã!' : `Faltam ${faltam} dias.`}</p>`;
   }
+  if (ult && !ehHoje && ult.tema) destaque += `<p>Tema da última sexta: <b style="color:#fff">${esc(ult.tema)}</b></p>`;
   if (ult && !ehHoje && ult.visitantes) {
     destaque += `<p>Na última sexta, ${ult.visitantes} visitante${ult.visitantes > 1 ? 's vieram' : ' veio'}. Que tal mandar uma mensagem para ${ult.visitantes > 1 ? 'eles' : 'ele'}?</p>`;
   }

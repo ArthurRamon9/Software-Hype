@@ -63,6 +63,30 @@ export async function abrirAcompanhamento({ area = 'pastoral', pessoa, motivo = 
   });
 }
 
+// Janela pequena para escolher o responsável (sugere quem está no grupo da área, mas aceita outro nome)
+async function pedirResponsavel(area, titulo, atual = '') {
+  const equipe = await api('GET', `/${area}/equipe`).catch(() => []);
+  return new Promise((ok) => {
+    let valor = null;
+    janela({
+      titulo,
+      corpo: `<form id="fp" style="display:grid;gap:12px">
+        <div class="field"><label for="pr">${ROTULO_RESP[area]} *</label>
+          <input class="input" id="pr" list="pr-lista" required value="${esc(semResponsavelNome(atual) ? '' : atual)}" placeholder="Nome de quem vai acompanhar">
+          <datalist id="pr-lista">${equipe.map((u) => `<option value="${esc(u.nome)}">`).join('')}</datalist>
+          ${equipe.length ? `<div class="escolhidas" style="margin-top:8px">${equipe.map((u) => `<button type="button" data-nome="${esc(u.nome)}">${esc(u.nome)}</button>`).join('')}</div>` : `<span class="hint">Ninguém no grupo ${area === 'pastoral' ? 'Pastoral' : 'Integração'} ainda. Coloque as pessoas no grupo em Acessos → Grupos.</span>`}</div>
+        <div class="janela-acoes"><button type="button" class="btn" data-fechar>Cancelar</button><button class="btn primary">Salvar</button></div></form>`,
+      aoAbrir: (j, fechar) => {
+        const inp = j.querySelector('#pr'); inp.focus();
+        j.querySelectorAll('[data-nome]').forEach((b) => b.addEventListener('click', () => { inp.value = b.dataset.nome; }));
+        j.querySelector('#fp').addEventListener('submit', (e) => { e.preventDefault(); valor = inp.value.trim() || null; fechar(); });
+      },
+      aoFechar: () => ok(valor),
+    });
+  });
+}
+const semResponsavelNome = (n) => !n || semAcento(n) === 'a definir';
+
 async function verCaso(area, id, depois) {
   const { caso: c, registros } = await api('GET', `/${area}/casos/${id}`);
   const whats = linkWhats(c.pessoa_telefone, AREAS[area].msg(c.pessoa_nome.split(' ')[0]));
@@ -72,7 +96,7 @@ async function verCaso(area, id, depois) {
     larga: true,
     corpo: `
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">${tagTipo(c.pessoa_tipo)}
-        <span class="muted small">aberto em ${fmtData(c.dt_abertura)} · responsável: <b style="color:var(--ink)">${esc(c.responsavel_nome)}</b></span>
+        <span class="muted small">aberto em ${fmtData(c.dt_abertura)} · ${ROTULO_RESP[area].toLowerCase()}: <b style="color:var(--ink)">${esc(c.responsavel_nome)}</b>${podeEditar ? ` <button type="button" class="link-btn small" id="trocar-resp">${semResponsavelNome(c.responsavel_nome) ? 'definir' : 'trocar'}</button>` : ''}</span>
         <span style="margin-left:auto;display:flex;gap:8px">${whats ? `<a class="btn sm" href="${whats}" target="_blank" rel="noopener">WhatsApp</a>` : ''}<a class="btn sm" href="#/pessoas/${c.pessoa_id}">Ver ficha</a></span></div>
       ${c.pessoa_referencia ? `<p class="muted" style="margin-bottom:8px">${esc(c.pessoa_referencia)}</p>` : ''}
       ${c.motivo ? `<p style="margin-bottom:14px">Motivo: <b>${esc(c.motivo)}</b></p>` : ''}
@@ -88,6 +112,12 @@ async function verCaso(area, id, depois) {
       <div class="registros">${registros.length ? registros.map((r) => `<div><small>${fmtData(r.dt_criacao)} · ${esc(r.autor_nome || '')}</small>${esc(r.texto).replace(/\n/g, '<br>')}</div>`).join('') : '<p class="muted">Nenhum registro ainda.</p>'}</div>
       ${pode('pastoral.excluir') ? '<hr><button class="link-btn danger small" id="apagar">Apagar este acompanhamento</button>' : ''}`,
     aoAbrir: (j, fechar) => {
+      j.querySelector('#trocar-resp')?.addEventListener('click', async () => {
+        fechar();
+        const nome = await pedirResponsavel(area, `${ROTULO_RESP[area]}: ${c.pessoa_nome}`, c.responsavel_nome);
+        if (nome) { try { await api('PUT', `/${area}/casos/${id}`, { responsavel_nome: nome }); aviso('Responsável salvo.'); depois?.(); } catch (e) { avisoErro(e); } }
+        verCaso(area, id, depois).catch(avisoErro);
+      });
       j.querySelectorAll('#st button').forEach((b) => b.addEventListener('click', async () => {
         try {
           await api('PUT', `/${area}/casos/${id}`, { status: b.dataset.v });
@@ -188,7 +218,7 @@ async function renderArea(conteudo, area) {
       </div>
       <div class="barra-massa hidden" id="massa">
         <b id="massa-n"></b>
-        ${podeEditar && filtroStatus[area] === 'ativos' ? `<button class="btn sm" id="massa-concluir">${icon('check')} Concluir</button>` : ''}
+        ${podeEditar && filtroStatus[area] === 'ativos' ? `<button class="btn sm" id="massa-resp">Definir ${ROTULO_RESP[area] === 'Responsável' ? 'responsável' : 'quem integra'}</button><button class="btn sm" id="massa-concluir">${icon('check')} Concluir</button>` : ''}
         ${podeExcluir ? `<button class="btn sm danger" id="massa-excluir">${icon('lixeira')} Excluir</button>` : ''}
         <button class="link-btn small" id="massa-limpar">Cancelar seleção</button>
       </div>
@@ -276,6 +306,12 @@ async function renderArea(conteudo, area) {
   $('#sel-todos')?.addEventListener('change', (e) => { visiveis().forEach((c) => (e.target.checked ? selecionados.add(c.id) : selecionados.delete(c.id))); pintar(); });
   $('#massa-limpar').addEventListener('click', () => { selecionados.clear(); pintar(); });
   $('#massa-excluir')?.addEventListener('click', () => excluir([...selecionados]));
+  $('#massa-resp')?.addEventListener('click', async () => {
+    const ids = [...selecionados];
+    const nome = await pedirResponsavel(area, `${ROTULO_RESP[area]} de ${ids.length} acompanhamento${ids.length === 1 ? '' : 's'}`);
+    if (!nome) return;
+    try { await api('POST', `/${area}/casos/responsavel`, { ids, responsavel_nome: nome }); aviso(`${ids.length === 1 ? 'Acompanhamento designado' : `${ids.length} acompanhamentos designados`} para ${nome}.`); recarregar(); } catch (err) { avisoErro(err); }
+  });
   $('#massa-concluir')?.addEventListener('click', async () => {
     const ids = [...selecionados];
     if (!(await confirmar(`Marcar ${ids.length} acompanhamento${ids.length === 1 ? '' : 's'} como concluído${ids.length === 1 ? '' : 's'}?`, { botao: 'Concluir' }))) return;

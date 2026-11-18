@@ -10,8 +10,8 @@ const ACOES = {
   login: 'Entrou', login_falhou: 'Tentativa de login falhou', conta_criada: 'Conta criada', esqueci_senha: 'Pediu nova senha',
   senha_redefinida: 'Redefiniu a senha', senha_trocada: 'Trocou a senha', usuario_liberado: 'Liberou acesso', usuario_bloqueado: 'Bloqueou acesso',
   usuario_excluido: 'Excluiu conta', grupos_alterados: 'Alterou grupos', grupo_criado: 'Criou grupo', grupo_alterado: 'Alterou grupo',
-  grupo_excluido: 'Excluiu grupo', pessoa_criada: 'Cadastrou pessoa', pessoa_editada: 'Editou pessoa', pessoa_excluida: 'Excluiu pessoa',
-  chamada_salva: 'Salvou chamada', pessoas_importadas: 'Importou planilha', casos_concluidos: 'Concluiu acompanhamentos', chamada_excluida: 'Apagou chamada', caso_excluido: 'Apagou acompanhamento',
+  grupo_excluido: 'Excluiu grupo', ministerio_salvo: 'Alterou ministério', ministerio_excluido: 'Excluiu ministério', pessoa_criada: 'Cadastrou pessoa', pessoa_editada: 'Editou pessoa', pessoa_excluida: 'Excluiu pessoa',
+  chamada_salva: 'Salvou chamada', pessoas_importadas: 'Importou planilha', casos_concluidos: 'Concluiu acompanhamentos', casos_designados: 'Designou acompanhamentos', chamada_excluida: 'Apagou chamada', caso_excluido: 'Apagou acompanhamento',
 };
 const dataHora = (iso) => new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
 
@@ -65,27 +65,41 @@ export async function render(conteudo) {
     },
   });
 
-  // Janela: criar/editar grupo e suas permissões
+  // Janela: criar/editar grupo, suas permissões e quem está nele
   const editarGrupo = (g = { nome: '', descricao: '', permissoes: [], sistema: false }) => janela({
     titulo: g.id ? g.nome : 'Novo grupo',
     larga: true,
-    corpo: `<form id="fg" style="display:grid;gap:14px">
-      ${g.sistema ? '<p class="msg aviso">O grupo Administradores sempre tem todas as permissões e não pode ser alterado.</p>' : `
+    corpo: `<form id="fg" style="display:grid;gap:16px">
+      ${g.sistema ? '<p class="msg aviso">O grupo Administradores sempre tem todas as permissões. Aqui você só escolhe quem faz parte dele.</p>' : `
       <div class="field"><label for="gn">Nome *</label><input class="input" id="gn" value="${esc(g.nome)}" required></div>
       <div class="field"><label for="gd">Descrição</label><input class="input" id="gd" value="${esc(g.descricao || '')}"></div>`}
-      <div class="field"><span class="label">Pode</span>
-        <div style="display:grid;gap:8px">${permissoes.map((p) => `<label class="check"><input type="checkbox" name="p" value="${p.codigo}" ${g.sistema || g.permissoes.includes(p.codigo) ? 'checked' : ''} ${g.sistema ? 'disabled' : ''}>${esc(p.descricao)}</label>`).join('')}</div></div>
+      <div class="field"><span class="label">Quem está no grupo</span>
+        ${ativos.length ? `<div class="lista-check">${ativos.map((u) => `<label class="check"><input type="checkbox" name="m" value="${u.id}" ${g.id && u.grupos.includes(g.id) ? 'checked' : ''}>
+          <span>${esc(u.nome)}${u.id === sessao.usuario.id ? ' <span class="muted small">(você)</span>' : ''} <span class="muted small">${esc(u.email)}</span></span></label>`).join('')}</div>` : '<p class="hint">Nenhuma conta ativa ainda.</p>'}
+        <span class="hint">Para alguém aparecer aqui, a pessoa cria a conta no site (botão "Criar conta" na tela de entrada) e você libera na aba Usuários.</span></div>
+      ${g.sistema ? '' : `<div class="field"><span class="label">O que o grupo pode fazer</span>
+        <div style="display:grid;gap:8px">${permissoes.map((p) => `<label class="check"><input type="checkbox" name="p" value="${p.codigo}" ${g.permissoes.includes(p.codigo) ? 'checked' : ''}>${esc(p.descricao)}</label>`).join('')}</div></div>`}
       <div class="janela-acoes" style="justify-content:space-between">
         ${g.id && !g.sistema ? '<button type="button" class="link-btn danger" id="excluir">Excluir grupo</button>' : '<span></span>'}
-        <div style="display:flex;gap:8px"><button type="button" class="btn" data-fechar>${g.sistema ? 'Fechar' : 'Cancelar'}</button>${g.sistema ? '' : '<button class="btn primary">Salvar</button>'}</div>
+        <div style="display:flex;gap:8px"><button type="button" class="btn" data-fechar>Cancelar</button><button class="btn primary">Salvar</button></div>
       </div></form>`,
     aoAbrir: (j, fechar) => {
       j.querySelector('#fg').addEventListener('submit', async (e) => {
         e.preventDefault();
-        if (g.sistema) return fechar();
-        const corpo = { nome: j.querySelector('#gn').value, descricao: j.querySelector('#gd').value, permissoes: [...j.querySelectorAll('input[name=p]:checked')].map((c) => c.value) };
+        const membros = [...j.querySelectorAll('input[name=m]:checked')].map((c) => Number(c.value));
         await ocupado(e.submitter, async () => {
-          try { await api(g.id ? 'PUT' : 'POST', g.id ? `/acessos/grupos/${g.id}` : '/acessos/grupos', corpo); aviso('Grupo salvo.'); fechar(); recarregar(); } catch (err) { avisoErro(err); }
+          try {
+            let id = g.id;
+            if (!g.sistema) {
+              const corpo = { nome: j.querySelector('#gn').value, descricao: j.querySelector('#gd').value, permissoes: [...j.querySelectorAll('input[name=p]:checked')].map((c) => c.value) };
+              const r = await api(g.id ? 'PUT' : 'POST', g.id ? `/acessos/grupos/${g.id}` : '/acessos/grupos', corpo);
+              id = id || r.id;
+            }
+            await api('PUT', `/acessos/grupos/${id}/membros`, { membros });
+            aviso('Grupo salvo.'); fechar();
+            if (membros.includes(sessao.usuario.id) !== (g.id ? ativos.find((u) => u.id === sessao.usuario.id)?.grupos.includes(g.id) : false)) location.reload();   // mudou o meu acesso: recarrega o menu
+            else recarregar();
+          } catch (err) { avisoErro(err); }
         });
       });
       j.querySelector('#excluir')?.addEventListener('click', async () => {
@@ -105,13 +119,14 @@ export async function render(conteudo) {
         ${pendentes.length ? `<section class="painel" style="margin-bottom:16px"><div class="painel-topo"><h2>Aguardando liberação</h2><span class="sub">inclui contas bloqueadas</span></div><div class="painel-corpo">
           <div class="lista">${pendentes.map((u) => `<div><div class="cresce">${esc(u.nome)}<span>${esc(u.email)} · conta criada em ${fmtData(u.dt_criacao)}</span></div>
             <button class="btn sm" data-usuario="${u.id}">Analisar</button></div>`).join('')}</div></div></section>` : ''}
-        <section class="painel"><div class="tabela-wrap"><table class="tabela">
+        <section class="painel"><div class="filtros"><span class="muted small">Clique em uma pessoa para escolher os grupos dela. Quem ainda não tem conta cria pelo botão "Criar conta" na tela de entrada e aparece aqui para você liberar.</span></div>
+          <div class="tabela-wrap"><table class="tabela">
           <thead><tr><th>Nome</th><th>Grupos</th><th class="some-mobile">Último acesso</th><th></th></tr></thead>
-          <tbody>${ativos.map((u) => `<tr>
+          <tbody>${ativos.map((u) => `<tr class="clicavel" data-usuario="${u.id}">
             <td>${esc(u.nome)}${u.id === sessao.usuario.id ? ' <span class="muted small">(você)</span>' : ''}<div class="muted small">${esc(u.email)}</div></td>
             <td>${u.grupos.map((g) => `<span class="tag">${esc(nomeGrupo[g])}</span>`).join(' ') || '<span class="tag warn">nenhum</span>'}</td>
             <td class="some-mobile muted">${u.dt_ultimo_login ? fmtData(u.dt_ultimo_login) : 'nunca'}</td>
-            <td class="dir"><button class="link-btn" data-usuario="${u.id}">Editar</button></td></tr>`).join('')}</tbody>
+            <td class="dir"><button class="link-btn">Mudar grupos</button></td></tr>`).join('')}</tbody>
         </table></div></section>`;
       corpo.querySelectorAll('[data-usuario]').forEach((b) => b.addEventListener('click', () => editarUsuario(usuarios.find((u) => u.id === Number(b.dataset.usuario)))));
     }
@@ -121,12 +136,12 @@ export async function render(conteudo) {
         <section class="painel"><div class="filtros" style="justify-content:space-between"><span class="muted small">A pessoa tem a soma das permissões de todos os grupos em que está.</span>
           <button class="btn sm" id="novo-grupo">Novo grupo</button></div>
           <div class="tabela-wrap"><table class="tabela">
-          <thead><tr><th>Grupo</th><th>Permissões</th><th class="dir">Pessoas</th><th></th></tr></thead>
-          <tbody>${grupos.map((g) => `<tr>
+          <thead><tr><th>Grupo</th><th>Permissões</th><th>Quem está</th><th></th></tr></thead>
+          <tbody>${grupos.map((g) => `<tr class="clicavel" data-grupo="${g.id}">
             <td><b style="font-weight:500">${esc(g.nome)}</b><div class="muted small">${esc(g.descricao || '')}</div></td>
             <td class="small">${g.sistema ? 'Todas' : permissoes.filter((p) => g.permissoes.includes(p.codigo)).map((p) => esc(p.descricao)).join('<br>') || '<span class="muted">nenhuma</span>'}</td>
-            <td class="dir num">${g.membros}</td>
-            <td class="dir"><button class="link-btn" data-grupo="${g.id}">${g.sistema ? 'Ver' : 'Editar'}</button></td></tr>`).join('')}</tbody>
+            <td class="small">${ativos.filter((u) => u.grupos.includes(g.id)).map((u) => esc(u.nome)).join('<br>') || '<span class="muted">ninguém ainda</span>'}</td>
+            <td class="dir"><button class="link-btn">Editar</button></td></tr>`).join('')}</tbody>
         </table></div></section>`;
       corpo.querySelector('#novo-grupo').addEventListener('click', () => editarGrupo());
       corpo.querySelectorAll('[data-grupo]').forEach((b) => b.addEventListener('click', () => editarGrupo(grupos.find((g) => g.id === Number(b.dataset.grupo)))));
