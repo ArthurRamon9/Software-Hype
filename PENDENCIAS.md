@@ -31,6 +31,13 @@ Enquanto isso, o trabalho fica no ramo `desenvolvimento`.
      o motivo (ex.: "Mayck não tem telefone no cadastro").
    - Disponível dentro do caso e na barra quando 1 caso estiver selecionado. Pensar também em
      vários casos do mesmo responsável numa mensagem só.
+   - **Combinado com o Arthur:**
+     - Ao clicar, registrar sozinho no histórico do caso "Enviado para {responsável} em {data}" e
+       passar a situação de Aberto para Em andamento (evita mandar duas vezes).
+     - A mensagem leva **só** nome, telefone, Instagram e há quanto tempo não vem. Nada das
+       anotações/retornos da Pastoral (LGPD; WhatsApp é fácil de encaminhar).
+     - Destacar na grade os casos enviados há mais de 7 dias sem nenhum contato registrado depois
+       do envio ("cobrar o responsável").
 3. **Repaginação do visual com a arte do Hype** (logo e cores) — quando o Arthur mandar.
 
 ## Já feito no `desenvolvimento`, esperando publicar
