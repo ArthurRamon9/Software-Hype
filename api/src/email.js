@@ -36,7 +36,15 @@ function layout({ titulo, paragrafos, botao, link, rodape }) {
 
 async function enviar(para, assunto, html) {
   const t = getTransporte();
-  if (!t) { console.warn(`[email] SMTP não configurado. Para: ${para} | ${assunto}`); return false; }
+  if (!t) {
+    console.warn(`[email] SMTP não configurado. Para: ${para} | ${assunto}`);
+    // No teste local (sem Gmail configurado) os links do e-mail aparecem aqui no terminal
+    if (process.env.MODO_LOCAL === '1') {
+      const links = [...new Set([...html.matchAll(/href="([^"]+)"/g)].map((m) => m[1].replace(/&amp;/g, '&')))];
+      if (links.length) console.warn(`[email] Link do e-mail: ${links.join('  ')}`);
+    }
+    return false;
+  }
   await t.sendMail({ from: `"Gestão do Hype" <${process.env.SMTP_USER}>`, to: para, subject: assunto, html });
   return true;
 }
