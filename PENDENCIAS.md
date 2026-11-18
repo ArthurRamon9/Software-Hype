@@ -38,7 +38,9 @@ Enquanto isso, o trabalho fica no ramo `desenvolvimento`.
        anotações/retornos da Pastoral (LGPD; WhatsApp é fácil de encaminhar).
      - Destacar na grade os casos enviados há mais de 7 dias sem nenhum contato registrado depois
        do envio ("cobrar o responsável").
-3. **Repaginação do visual com a arte do Hype** (logo e cores) — quando o Arthur mandar.
+3. **Clicar no logo leva para o Início.** Hoje o logo "Gestão do Hype" (barra lateral no computador e
+   topo no celular) não faz nada; virar link para `#/`.
+4. **Repaginação do visual com a arte do Hype** (logo e cores) — quando o Arthur mandar.
 
 ## Já feito no `desenvolvimento`, esperando publicar
 - (nada ainda)
