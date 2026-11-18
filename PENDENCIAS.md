@@ -69,6 +69,8 @@ Enquanto isso, o trabalho fica no ramo `desenvolvimento`.
    - Quando "Administradores" estiver marcado, os outros grupos não mudam nada (admin já pode tudo):
      deixar os outros apagados/desabilitados com a nota "Administradores já pode tudo", para não
      marcar 5 caixinhas à toa.
+   - Na tabela de Usuários, quem é Administrador mostra só a etiqueta "Administradores" (os outros grupos
+     em cinza/recolhidos, ex.: "+6"), para a linha não virar uma fila de etiquetas.
 7. **Repaginação do visual com a arte do Hype** (logo e cores) — quando o Arthur mandar.
 
 ## Já feito no `desenvolvimento`, esperando publicar
