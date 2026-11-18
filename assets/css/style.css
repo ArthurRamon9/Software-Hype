@@ -270,7 +270,7 @@ table.tabela { width: 100%; border-collapse: collapse; }
 
 /* ---------- Busca/filtros ---------- */
 .filtros { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 16px; border-bottom: 1px solid var(--line); align-items: center; }
-.filtros .busca { flex: 1; min-width: 200px; }
+.filtros .busca { flex: 1; min-width: 170px; }
 .filtros select { width: auto; }
 .abas { display: inline-flex; background: var(--sunken); border-radius: 999px; padding: 3px; gap: 2px; align-self: flex-start; max-width: 100%; overflow-x: auto; }
 .abas button { border: 0; background: none; padding: 0 14px; height: 32px; border-radius: 999px; font: inherit; font-weight: 550; color: var(--ink-2); cursor: pointer; white-space: nowrap; }
@@ -507,7 +507,8 @@ a.linha:hover { background: var(--sunken); }
 .tabela th .ord { all: unset; cursor: pointer; display: inline-flex; align-items: center; vertical-align: middle; line-height: 1.2; gap: 4px; font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; }
 .tabela th .ord:hover, .tabela th.ordenada .ord { color: var(--ink); }
 .tabela th .ord:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
-.tabela th .seta { font-size: 13px; line-height: 1; color: var(--accent); min-width: 8px; }
+.tabela th .seta { display: inline-flex; min-width: 13px; color: var(--ink); }
+.tabela th .seta svg.i { width: 13px; height: 13px; stroke-width: 3; }
 .tabela th.dir .ord { flex-direction: row-reverse; }
 /* No computador a grade tem a altura da tela: a barra de rolagem lateral fica sempre à vista e o cabeçalho fica parado */
 @media (min-width: 721px) {
@@ -524,14 +525,13 @@ a.linha:hover { background: var(--sunken); }
 @media (max-width: 720px) { .tabela-larga .fixa { max-width: 170px; } }
 .tabela th.sel, .tabela td.sel { width: 38px; padding-right: 0; }
 .tabela td.sel input, .tabela th.sel input { width: 17px; height: 17px; accent-color: var(--accent); cursor: pointer; margin: 0; }
-.tabela tr.selecionada td { background: var(--accent-soft) !important; }
+.tabela tr.selecionada td { background: #fff8f4 !important; }
 .tabela td.motivo { max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .acoes-linha { white-space: nowrap; }
 .acoes-linha .btn + .btn { margin-left: 6px; }
 .btn.icone { width: 32px; padding: 0; }
 .btn.icone svg.i { width: 16px; height: 16px; }
-.barra-massa { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 16px; background: var(--night); color: #fff; }
-.barra-massa .btn { border-color: #3a3940; background: #2a292f; color: #fff; }
-.barra-massa .btn:hover { background: #34333a; }
-.barra-massa .btn.danger { color: #ffb4a8; }
-.barra-massa .link-btn { color: #b9b5aa; margin-left: auto; }
+.barra-massa { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 18px; background: var(--accent-soft); border-bottom: 1px solid var(--line); }
+.barra-massa b { font-weight: 650; margin-right: 6px; }
+.barra-massa .btn svg.i { width: 15px; height: 15px; }
+.barra-massa .link-btn { margin-left: auto; color: var(--ink-2); }

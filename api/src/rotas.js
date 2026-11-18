@@ -280,7 +280,6 @@ rota('DELETE', '/acessos/grupos/:id', async ({ params, usuario, ip }) => {
 rota('GET', '/acessos/atividades', async () => query(`
   SELECT TOP 200 dt, usuario_nome, acao, detalhe, email, ip FROM dbo.auditoria ORDER BY id DESC`), 'acessos.gerenciar');
 
-rota('GET', '/responsaveis', async () => query('SELECT id, nome FROM dbo.usuarios WHERE cd_status = 1 ORDER BY nome'), 'pastoral.editar');
 
 rota('GET', '/contadores', async ({ usuario }) => {
   const r = await umaLinha(`
@@ -583,19 +582,29 @@ async function visitantesSemContato() {
   }));
 }
 
+// Equipe da área: usuários ativos que estão em algum grupo (fora o de Administradores) com permissão de editar a área.
+// Ex.: quem está no grupo Pastoral. Serve para o filtro "Responsável" e para sugerir nomes ao designar.
+const equipeDaArea = (area) => query(`
+  SELECT DISTINCT u.id, u.nome FROM dbo.usuarios u
+  JOIN dbo.usuario_grupo ug ON ug.usuario_id = u.id
+  JOIN dbo.grupos g ON g.id = ug.grupo_id AND g.sistema = 0
+  JOIN dbo.grupo_permissao gp ON gp.grupo_id = g.id AND gp.permissao = @perm
+  WHERE u.cd_status = 1 ORDER BY u.nome`, { perm: `${area}.editar` });
+
 function rotasDeAcompanhamento(area) {
   const ver = `${area}.ver`, editar = `${area}.editar`;
+  rota('GET', `/${area}/equipe`, async () => equipeDaArea(area), ver);
   rota('GET', `/${area}`, async () => {
-    const [alertas, casos] = await Promise.all([area === 'pastoral' ? calcularAlertas() : visitantesSemContato(), query(`
-      SELECT TOP 600 c.id, c.pessoa_id, c.responsavel_nome, c.motivo, c.status, c.dt_abertura, c.dt_conclusao,
+    const [alertas, casos, equipe] = await Promise.all([area === 'pastoral' ? calcularAlertas() : visitantesSemContato(), query(`
+      SELECT TOP 600 c.id, c.pessoa_id, c.responsavel_nome, c.responsavel_id, c.motivo, c.status, c.dt_abertura, c.dt_conclusao,
              p.nome AS pessoa_nome, p.referencia AS pessoa_referencia, p.tipo AS pessoa_tipo, p.telefone AS pessoa_telefone,
              CONVERT(VARCHAR(30), f.dt_atualizacao, 126) AS foto_v, (SELECT MAX(e.data) FROM dbo.presencas pr2 JOIN dbo.encontros e ON e.id = pr2.encontro_id WHERE pr2.pessoa_id = p.id AND pr2.presente = 1) AS ultima_presenca,
              (SELECT MAX(r.dt_criacao) FROM dbo.pastoral_registros r WHERE r.caso_id = c.id) AS ultimo_registro,
              (SELECT COUNT(*) FROM dbo.pastoral_registros r WHERE r.caso_id = c.id) AS contatos
       FROM dbo.pastoral_casos c JOIN dbo.pessoas p ON p.id = c.pessoa_id LEFT JOIN dbo.pessoas_foto f ON f.pessoa_id = p.id
       WHERE c.area = @area AND p.cd_status = 1
-      ORDER BY CASE c.status WHEN 'aberto' THEN 0 WHEN 'em_andamento' THEN 1 ELSE 2 END, c.dt_abertura DESC`, { area })]);
-    return { alertas, casos };
+      ORDER BY CASE c.status WHEN 'aberto' THEN 0 WHEN 'em_andamento' THEN 1 ELSE 2 END, c.dt_abertura DESC`, { area }), equipeDaArea(area)]);
+    return { alertas, casos, equipe };
   }, ver);
 
   rota('GET', `/${area}/casos/:id`, async ({ params }) => {

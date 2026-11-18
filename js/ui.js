@@ -14,6 +14,8 @@ const P = {
   whats: '<path d="M21 11.5a8.4 8.4 0 0 1-12.4 7.4L3 21l2.1-5.4A8.4 8.4 0 1 1 21 11.5z"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
   xis: '<path d="M18 6 6 18M6 6l12 12"/>',
+  setaBaixo: '<path d="M12 5v14M6 13l6 6 6-6"/>',
+  setaCima: '<path d="M12 19V5M6 11l6-6 6 6"/>',
   conta: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
 };
 export const icon = (n) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${P[n] || ''}</svg>`;
@@ -152,16 +154,30 @@ export function estaNoHype(p) {
   const c = diasDesde(p.data_cadastro);
   return c !== null && c <= 30;
 }
-export function textoUltimaVez(iso) {
-  const d = diasDesde(iso);
-  if (d === null) return 'nunca veio';
-  if (d < 7) return 'esta semana';
-  if (d < 14) return 'semana passada';
-  if (d <= DIAS_AFASTADO) return `há ${Math.floor(d / 7)} semanas`;
-  const meses = Math.floor(d / 30);
-  return meses >= 12 ? 'há mais de um ano' : `há ${meses} ${meses === 1 ? 'mês' : 'meses'}`;
+// "Última vez" contada em sextas: quem veio na sexta mais recente que já aconteceu = "Último Hype".
+// Na própria sexta, a referência ainda é a da semana anterior (quem veio hoje também conta como Último Hype).
+function sextaDeReferencia() {
+  const h = new Date(); const d = new Date(h.getFullYear(), h.getMonth(), h.getDate() - 1, 12);
+  while (d.getDay() !== 5) d.setDate(d.getDate() - 1);
+  return d;
 }
-// Bolinha verde = no Hype, escura = afastado
+export function textoUltimaVez(iso) {
+  if (!iso) return 'Nunca veio';
+  const data = new Date(String(iso).slice(0, 10) + 'T12:00:00');
+  const sextas = Math.round((sextaDeReferencia() - data) / (7 * 86400000)) + 1;   // 1 = o último Hype
+  if (sextas <= 1) return 'Último Hype';
+  if (sextas <= 8) return `Há ${sextas} sextas`;
+  const meses = Math.floor(diasDesde(iso) / 30);
+  return meses >= 12 ? 'Há mais de um ano' : `Há ${meses} ${meses === 1 ? 'mês' : 'meses'}`;
+}
+export const minuscula = (t) => (t ? t[0].toLowerCase() + t.slice(1) : t);
+// Busca pelo começo do nome (como LIKE 'ana%'); se ninguém começar assim, tenta o começo do sobrenome
+export function filtrarPorNome(lista, termo, nomeDe = (x) => x.nome) {
+  const b = semAcento(termo).trim();
+  if (!b) return lista;
+  const comeca = lista.filter((x) => semAcento(nomeDe(x)).startsWith(b));
+  return comeca.length ? comeca : lista.filter((x) => semAcento(nomeDe(x)).split(/\s+/).some((w) => w.startsWith(b)));
+}
 // Bolinha: verde = vem vindo (até 3 semanas), amarela = sumindo (até 3 meses), escura = afastado
 export function estadoFreq(p) {
   if (!estaNoHype(p)) return 'nao';
@@ -169,7 +185,7 @@ export function estadoFreq(p) {
   return d !== null && d > 21 ? 'sumindo' : 'sim';
 }
 const TITULO_FREQ = { sim: 'Vem vindo', sumindo: 'Sumindo: faz mais de 3 semanas', nao: 'Afastado: mais de 3 meses sem vir' };
-export const ultimaVez = (p) => { const e = estadoFreq(p); return `<span class="freq ${e}" title="${TITULO_FREQ[e]}"><i></i>${textoUltimaVez(p.ultima_presenca)}</span>`; };
+export const ultimaVez = (p) => { const e = estadoFreq(p); return `<span class="freq ${e}" title="${TITULO_FREQ[e]}${p.ultima_presenca ? ` · veio em ${fmtData(p.ultima_presenca)}` : ''}"><i></i>${textoUltimaVez(p.ultima_presenca)}</span>`; };
 
 export const nomeComRef = (p) => `${esc(p.nome)}${p.referencia ? ` <span class="ref">${esc(p.referencia)}</span>` : ''}`;
 export const linkWhats = (tel, mensagem = '') => {

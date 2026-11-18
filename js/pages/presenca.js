@@ -1,7 +1,7 @@
 // Chamada dos encontros de sexta
 // © Arthur Ramon da Silva — Todos os direitos reservados.
 import { api, urlFoto, pode } from '../api.js';
-import { esc, $, aviso, avisoErro, ocupado, confirmar, janela, foto, TIPOS, isoLocal, parseISO, ultimaSexta, fmtData, hojeISO, semAcento, estaNoHype, icon, formatarAoSair } from '../ui.js';
+import { esc, $, aviso, avisoErro, ocupado, confirmar, janela, foto, TIPOS, isoLocal, parseISO, ultimaSexta, fmtData, hojeISO, semAcento, estaNoHype, icon, formatarAoSair, filtrarPorNome } from '../ui.js';
 import { atualizarContadores, navegar } from '../app.js';
 
 let dataSel = null;
@@ -65,13 +65,8 @@ async function desenhar(conteudo) {
   // Quem está afastado ou é ex-visitante aparece na busca; se for marcado, entra na lista.
   const esperado = (p) => p.tipo !== 'ex_visitante' && p.cd_status === 1 && estaNoHype(p);
   const visiveis = () => {
-    const b = semAcento(busca).trim();
-    if (!b) return lista.filter((p) => esperado(p) || marca.has(p.id));
-    // Busca pelo começo do nome (como LIKE 'ana%'): "a" traz Ana, Arthur, Amanda...
-    const comeca = lista.filter((p) => semAcento(p.nome).startsWith(b));
-    if (comeca.length) return comeca;
-    // Se ninguém começa assim, tenta pelo sobrenome (começo de qualquer palavra do nome)
-    return lista.filter((p) => semAcento(p.nome).split(/\s+/).some((w) => w.startsWith(b)));
+    if (!busca.trim()) return lista.filter((p) => esperado(p) || marca.has(p.id));
+    return filtrarPorNome(lista, busca);   // começo do nome, como LIKE 'ana%'
   };
   const pintar = () => {
     const v = visiveis();

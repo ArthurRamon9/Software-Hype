@@ -1,7 +1,7 @@
 // Acompanhamento de pessoas: Pastoral (quem está faltando) e Integração (visitantes que chegaram)
 // © Arthur Ramon da Silva — Todos os direitos reservados.
 import { api, urlFoto, pode } from '../api.js';
-import { esc, $, icon, aviso, avisoErro, ocupado, janela, confirmar, foto, tagTipo, fmtData, haQuanto, linkWhats, semAcento, estaNoHype, ultimaVez } from '../ui.js';
+import { esc, $, icon, aviso, avisoErro, ocupado, janela, confirmar, foto, tagTipo, fmtData, haQuanto, linkWhats, semAcento, estaNoHype, ultimaVez, filtrarPorNome } from '../ui.js';
 import { atualizarContadores, parametrosHash } from '../app.js';
 
 const STATUS = { aberto: 'Aberto', em_andamento: 'Em andamento', concluido: 'Concluído' };
@@ -35,9 +35,10 @@ const COLUNAS = {
   aberto: (a, b) => String(a.dt_abertura || '').localeCompare(String(b.dt_abertura || '')),
 };
 const th = (col, rotulo, classe = '') => `<th class="${classe}" data-ord="${col}"><button type="button" class="ord">${rotulo}<span class="seta" aria-hidden="true"></span></button></th>`;
+const ROTULO_RESP = { pastoral: 'Responsável', integracao: 'Quem integrou' };
 
 export async function abrirAcompanhamento({ area = 'pastoral', pessoa, motivo = '', depois }) {
-  const responsaveis = await api('GET', '/responsaveis').catch(() => []);
+  const responsaveis = await api('GET', `/${area}/equipe`).catch(() => []);
   janela({
     titulo: `${AREAS[area].titulo}: ${pessoa.nome}`,
     corpo: `<form id="fc" style="display:grid;gap:12px">
@@ -117,11 +118,14 @@ function diasDesde(iso) {
 
 const LIMITE_ALERTAS = 8;
 const alertasAbertos = { pastoral: false, integracao: false };
-const filtroLista = { pastoral: { busca: '', freq: '' }, integracao: { busca: '', freq: '' } };
+const novoFiltro = () => ({ busca: '', freq: '', resp: '', contato: '' });
+const filtroLista = { pastoral: novoFiltro(), integracao: novoFiltro() };
+const QUINZE_DIAS = 14 * 86400000;
+const semResponsavel = (c) => !c.responsavel_nome || semAcento(c.responsavel_nome) === 'a definir';
 
 async function renderArea(conteudo, area) {
   const cfg = AREAS[area];
-  const { alertas, casos } = await api('GET', `/${area}`);
+  const { alertas, casos, equipe = [] } = await api('GET', `/${area}`);
   const recarregar = () => renderArea(conteudo, area);
   const casoUrl = parametrosHash().get('caso');
   const podeEditar = pode(`${area}.editar`), podeExcluir = pode('pastoral.excluir');
@@ -163,35 +167,54 @@ async function renderArea(conteudo, area) {
         <div class="abas"><button data-f="ativos" class="${filtroStatus[area] === 'ativos' ? 'ativo' : ''}">Em aberto (${casos.filter((c) => c.status !== 'concluido').length})</button>
           <button data-f="concluidos" class="${filtroStatus[area] === 'concluidos' ? 'ativo' : ''}">Concluídos (${casos.filter((c) => c.status === 'concluido').length})</button></div>
       </div>
-      <div class="filtros">
-        <input class="input busca" id="busca-caso" type="search" placeholder="Buscar pessoa ou responsável" value="${esc(f.busca)}">
-        <select class="input" id="freq-caso">
-          <option value="" ${f.freq === '' ? 'selected' : ''}>Todos</option>
-          <option value="sim" ${f.freq === 'sim' ? 'selected' : ''}>Ainda vêm (últimos 3 meses)</option>
-          <option value="nao" ${f.freq === 'nao' ? 'selected' : ''}>Afastados (3+ meses sem vir)</option>
+      <div class="filtros" id="linha-filtros">
+        <input class="input busca" id="busca-caso" type="search" placeholder="Buscar nome" value="${esc(f.busca)}">
+        <select class="input" id="f-resp" aria-label="${ROTULO_RESP[area]}">
+          <option value="">${ROTULO_RESP[area]}: todos</option>
+          <option value="sem" ${f.resp === 'sem' ? 'selected' : ''}>Sem responsável</option>
+          ${equipe.map((u) => `<option value="${u.id}" ${f.resp === String(u.id) ? 'selected' : ''}>${esc(u.nome)}</option>`).join('')}
         </select>
+        <select class="input" id="f-contato" aria-label="Contato">
+          <option value="">Contato: todos</option>
+          <option value="nenhum" ${f.contato === 'nenhum' ? 'selected' : ''}>Ainda sem contato</option>
+          <option value="parado" ${f.contato === 'parado' ? 'selected' : ''}>Parado há 2+ semanas</option>
+        </select>
+        <select class="input" id="freq-caso" aria-label="Frequência">
+          <option value="">Frequência: todos</option>
+          <option value="sim" ${f.freq === 'sim' ? 'selected' : ''}>Ainda vêm</option>
+          <option value="nao" ${f.freq === 'nao' ? 'selected' : ''}>Afastados (3+ meses)</option>
+        </select>
+        <button class="link-btn small hidden" id="limpar-filtros">Limpar filtros</button>
       </div>
       <div class="barra-massa hidden" id="massa">
         <b id="massa-n"></b>
-        ${podeEditar && filtroStatus[area] === 'ativos' ? '<button class="btn sm" id="massa-concluir">Concluir</button>' : ''}
+        ${podeEditar && filtroStatus[area] === 'ativos' ? `<button class="btn sm" id="massa-concluir">${icon('check')} Concluir</button>` : ''}
         ${podeExcluir ? `<button class="btn sm danger" id="massa-excluir">${icon('lixeira')} Excluir</button>` : ''}
-        <button class="link-btn small" id="massa-limpar">Limpar seleção</button>
+        <button class="link-btn small" id="massa-limpar">Cancelar seleção</button>
       </div>
       <div class="tabela-wrap rolagem"><table class="tabela tabela-larga${podeExcluir || podeEditar ? ' com-sel' : ''}">
         <thead><tr>
           ${podeExcluir || podeEditar ? '<th class="sel"><input type="checkbox" id="sel-todos" aria-label="Selecionar todos"></th>' : ''}
-          ${th('pessoa', 'Pessoa', 'fixa')}${th('situacao', 'Situação')}${th('ultima', 'Última vez que veio')}${th('responsavel', 'Responsável')}${th('motivo', 'Motivo')}
+          ${th('pessoa', 'Pessoa', 'fixa')}${th('situacao', 'Situação')}${th('ultima', 'Última vez que veio')}${th('responsavel', ROTULO_RESP[area])}${th('motivo', 'Motivo')}
           ${th('contatos', 'Contatos', 'dir')}${th('ultimo_contato', 'Último contato')}${th('aberto', 'Aberto em')}<th class="dir">Ações</th></tr></thead>
         <tbody id="casos"></tbody>
       </table></div>
       <div class="filtros" style="border-top:1px solid var(--line);border-bottom:0"><span class="muted small" id="total-casos"></span></div>
     </section>`;
 
+  let membro = equipe.find((u) => String(u.id) === f.resp);
+  const recarregarFiltros = () => { membro = equipe.find((u) => String(u.id) === f.resp); pintar(); };
+  if (f.resp && f.resp !== 'sem' && !membro) f.resp = '';   // a pessoa saiu do grupo
+  const doResponsavel = (c) => !f.resp || (f.resp === 'sem' ? semResponsavel(c)
+    : c.responsavel_id === membro.id || semAcento(c.responsavel_nome) === semAcento(membro.nome));
+  const doContato = (c) => !f.contato || (f.contato === 'nenhum' ? !c.contatos
+    : c.contatos > 0 && Date.now() - new Date(c.ultimo_registro).getTime() > QUINZE_DIAS);
+  const filtrosAtivos = () => !!(f.busca || f.resp || f.contato || f.freq);
   const visiveis = () => {
-    const b = semAcento(f.busca);
-    return casos.filter((c) => (filtroStatus[area] === 'ativos' ? c.status !== 'concluido' : c.status === 'concluido')
-      && (!b || semAcento(`${c.pessoa_nome} ${c.pessoa_referencia || ''} ${c.responsavel_nome}`).includes(b))
-      && (!f.freq || (estaNoHype({ ultima_presenca: c.ultima_presenca }) ? 'sim' : 'nao') === f.freq))
+    const l = casos.filter((c) => (filtroStatus[area] === 'ativos' ? c.status !== 'concluido' : c.status === 'concluido')
+      && doResponsavel(c) && doContato(c)
+      && (!f.freq || (estaNoHype({ ultima_presenca: c.ultima_presenca }) ? 'sim' : 'nao') === f.freq));
+    return filtrarPorNome(l, f.busca, (c) => c.pessoa_nome)
       .sort((a, b) => (o.col ? o.dir * COLUNAS[o.col](a, b) || comparaTexto(a.pessoa_nome, b.pessoa_nome) : 0));
   };
   const o = ordem[area];
@@ -202,7 +225,7 @@ async function renderArea(conteudo, area) {
       const ativa = h.dataset.ord === o.col;
       h.classList.toggle('ordenada', ativa);
       h.setAttribute('aria-sort', ativa ? (o.dir === 1 ? 'ascending' : 'descending') : 'none');
-      h.querySelector('.seta').textContent = ativa ? (o.dir === 1 ? '↓' : '↑') : '';
+      h.querySelector('.seta').innerHTML = ativa ? icon(o.dir === 1 ? 'setaBaixo' : 'setaCima') : '';
       h.querySelector('.ord').title = ativa ? (o.dir === 1 ? 'Ordem crescente. Clique para decrescente' : 'Ordem decrescente. Clique para tirar a ordenação') : 'Clique para ordenar';
     });
     for (const id of [...selecionados]) if (!l.some((c) => c.id === id)) selecionados.delete(id);
@@ -223,7 +246,12 @@ async function renderArea(conteudo, area) {
       </tr>`;
     }).join('') : `<tr><td colspan="10" class="vazio">Nada por aqui.</td></tr>`;
     const n = selecionados.size;
+    // Com algo selecionado, a barra de ações ocupa o lugar dos filtros (mesma altura, nada pula na tela)
+    const linha = $('#linha-filtros');
+    if (n > 0 && !linha.classList.contains('hidden')) $('#massa').style.minHeight = `${Math.min(linha.offsetHeight, 72)}px`;
     $('#massa').classList.toggle('hidden', n === 0);
+    linha.classList.toggle('hidden', n > 0);
+    $('#limpar-filtros').classList.toggle('hidden', !filtrosAtivos());
     $('#massa-n').textContent = `${n} selecionado${n === 1 ? '' : 's'}`;
     const todos = $('#sel-todos'); if (todos) { todos.checked = n > 0 && n === l.length; todos.indeterminate = n > 0 && n < l.length; }
   };
@@ -260,6 +288,9 @@ async function renderArea(conteudo, area) {
   }));
   $('#busca-caso').addEventListener('input', (e) => { f.busca = e.target.value; pintar(); });
   $('#freq-caso').addEventListener('change', (e) => { f.freq = e.target.value; pintar(); });
+  $('#f-resp').addEventListener('change', (e) => { f.resp = e.target.value; recarregarFiltros(); });
+  $('#f-contato').addEventListener('change', (e) => { f.contato = e.target.value; pintar(); });
+  $('#limpar-filtros').addEventListener('click', () => { Object.assign(f, novoFiltro()); recarregar(); });
 
   conteudo.querySelectorAll('[data-pessoa]').forEach((b) => b.addEventListener('click', () => {
     const a = alertas.find((x) => String(x.pessoa.id) === b.dataset.pessoa);

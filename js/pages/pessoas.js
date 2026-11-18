@@ -3,7 +3,7 @@
 import { api, urlFoto, pode } from '../api.js';
 import {
   esc, $, $$, aviso, avisoErro, ocupado, confirmar, foto, tagTipo, TIPOS, SITUACOES, corSituacao, idade, fmtData,
-  hojeISO, prepararFoto, pct, semAcento, linkWhats, janela, estaNoHype, ultimaVez, textoUltimaVez, fmtTel, formatarAoSair,
+  hojeISO, prepararFoto, pct, semAcento, linkWhats, janela, estaNoHype, ultimaVez, textoUltimaVez, minuscula, fmtTel, formatarAoSair,
 } from '../ui.js';
 import { navegar, atualizarContadores } from '../app.js';
 import { abrirAcompanhamento } from './pastoral.js';
@@ -227,7 +227,7 @@ export async function perfil(conteudo, { id }) {
         <div style="flex:1;min-width:0">
           <h1>${esc(p.nome)}</h1>
           ${p.referencia ? `<p class="muted" style="margin-top:2px">${esc(p.referencia)}</p>` : ''}
-          <div class="tags">${tagTipo(p.tipo)}${p.cd_status ? '' : '<span class="tag bad">Inativo</span>'}${afastado ? `<span class="tag">Afastado: não vem ${textoUltimaVez(ultimaVezData)}</span>` : seguidas >= 2 ? `<span class="tag warn">${seguidas} faltas seguidas</span>` : ''}${sequencia >= 3 ? `<span class="tag ok">${sequencia} sextas seguidas</span>` : ''}</div>
+          <div class="tags">${tagTipo(p.tipo)}${p.cd_status ? '' : '<span class="tag bad">Inativo</span>'}${afastado ? `<span class="tag">Afastado: ${minuscula(textoUltimaVez(ultimaVezData))} sem vir</span>` : seguidas >= 2 ? `<span class="tag warn">${seguidas} faltas seguidas</span>` : ''}${sequencia >= 3 ? `<span class="tag ok">${sequencia} sextas seguidas</span>` : ''}</div>
         </div>
         <div class="acoes-ficha">
           ${whats ? `<a class="btn" href="${whats}" target="_blank" rel="noopener">WhatsApp</a>` : ''}
@@ -265,7 +265,7 @@ export async function perfil(conteudo, { id }) {
         ${historico.length ? `
           <p><span class="grande num">${pct(presencas, historico.length)}%</span>
           <span class="muted"> · veio ${presencas} de ${historico.length} sexta${historico.length === 1 ? '' : 's'}</span></p>
-          <p class="small muted" style="margin:2px 0 14px">${ultimaVezData ? `Última vez: ${fmtData(ultimaVezData)} (${textoUltimaVez(ultimaVezData)})` : 'Ainda não veio a nenhum encontro marcado'}</p>
+          <p class="small muted" style="margin:2px 0 14px">${ultimaVezData ? `Última vez: ${fmtData(ultimaVezData)} (${minuscula(textoUltimaVez(ultimaVezData))})` : 'Ainda não veio a nenhum encontro marcado'}</p>
           <div class="historico">${historico.slice(0, 24).reverse().map((h) => `<i class="${h.presente ? 'p' : 'f'}" title="${fmtData(h.data)}: ${h.presente ? 'veio' : 'faltou'}${h.justificativa ? ' (' + esc(h.justificativa) + ')' : ''}"></i>`).join('')}</div>
           <p class="hint" style="margin-top:8px">${historico.length === 1 ? 'Primeira sexta registrada.' : `Últimas ${Math.min(24, historico.length)} sextas, da mais antiga para a mais recente.`}</p>`
         : '<p class="muted">Sem chamadas registradas ainda.</p>'}
