@@ -813,17 +813,19 @@ a.marca, a.marca:hover { text-decoration: none; color: inherit; }
 .senha-wrap button:hover { color: var(--accent); background: var(--sunken); }
 .senha-wrap button svg.i { width: 18px; height: 18px; }
 
-/* Carregando: o "H" oficial do Hype correndo (só CSS + um SVG pequeno). Nos botões continua a bolinha, em roxo. */
+/* Carregando: o "H" oficial do Hype, inclinado, com as sombras ciano e vermelha abrindo e fechando
+   (3 camadas do mesmo desenho; só CSS). 20px de altura. Nos botões continua a bolinha, em roxo. */
 .boot .spin { width: auto; height: auto; border: 0; border-radius: 0; animation: none; display: inline-block; }
-.boot .spin::before { content: ''; display: block; width: 18px; height: 24px; background: url("../img/h-hype-preto.svg") center / contain no-repeat;
-  animation: hype-corre 1.15s cubic-bezier(.45, 0, .55, 1) infinite; }
-[data-tema="escuro"] .boot .spin::before { background-image: url("../img/h-hype.svg"); }
-@keyframes hype-corre {
-  0%   { transform: translateX(-14px) skewX(4deg); opacity: 0; }
-  25%  { opacity: 1; }
-  50%  { transform: translateX(0) skewX(-4deg); }
-  75%  { opacity: 1; }
-  100% { transform: translateX(14px) skewX(4deg); opacity: 0; }
+.boot .spin::before { content: ''; display: block; width: 26px; height: 20px; transform: skewX(-8deg);
+  background-image: url("../img/h-camada-preto.svg"), url("../img/h-camada-ciano.svg"), url("../img/h-camada-vermelho.svg");
+  background-size: 15px 20px; background-repeat: no-repeat;
+  background-position: 50% 50%, calc(50% - 1px) 50%, calc(50% + 1px) 50%;
+  animation: hype-glitch 1.1s ease-in-out infinite; }
+[data-tema="escuro"] .boot .spin::before { background-image: url("../img/h-camada-branco.svg"), url("../img/h-camada-ciano.svg"), url("../img/h-camada-vermelho.svg"); }
+@keyframes hype-glitch {
+  0%, 100% { background-position: 50% 50%, calc(50% - 1px) 50%, calc(50% + 1px) 50%; transform: skewX(-8deg); }
+  45%      { background-position: 50% 50%, calc(50% - 3px) 50%, calc(50% + 3px) 50%; transform: skewX(-12deg); }
+  60%      { background-position: 50% 50%, calc(50% - 2.5px) 50%, calc(50% + 2.5px) 50%; }
 }
 @media (prefers-reduced-motion: reduce) { .boot .spin::before { animation: none; } }
 

@@ -27,6 +27,6 @@
 - Textos visíveis sempre começam com letra maiúscula (o Arthur faz questão).
 - Pastoral/Integração: equipe = pessoas do ministério de mesmo nome (cadastro, não login). Ver todos = `<area>.ver_todos` ou líder do ministério; designar = `<area>.designar` ou líder. Regra aplicada na API.
 - Agenda/Escalas: rotas 'aprovado' com checagem interna: só o líder do ministério (pessoa_ministerio.lider) ou administrador altera. Escalas: todos veem as de todos; a lista da equipe só vai para quem monta.
-- Campos: `js/campos.js` enfeita select/date/time/month em todo o site (não usar o visual nativo do navegador). Carregando = `.boot .spin` (o H correndo).
+- Campos: `js/campos.js` enfeita select/date/time/month em todo o site (não usar o visual nativo do navegador). Carregando = `.boot .spin` (o H oficial, 20px, com as sombras abrindo e fechando).
 - Mudanças no `01_estrutura.sql` precisam ser só aditivas: o Arthur roda o 01 antes de publicar, e o site antigo tem que continuar funcionando com o banco novo (testar a versão do `main` contra o banco atualizado).
 - **Economia de créditos do Netlify (plano grátis, 300/mês; cada publicação no `main` = 15 créditos; se acabar, o site fica pausado até o ciclo seguinte):** trabalhar no ramo `desenvolvimento` e só levar para o `main` (que publica) quando o Arthur pedir ou ao fechar um conjunto de mudanças. Nunca publicar a cada ajuste pequeno.
