@@ -28,8 +28,10 @@ function resumir({ encontros, presencas }) {
   const vieram = presencas.filter((p) => p.presente);
   const unicosM = new Set(vieram.filter((p) => ehMembro(p.tipo)).map((p) => p.pessoa_id)).size;
   const unicos = new Set(vieram.map((p) => p.pessoa_id)).size;
+  const vezes = new Map(); vieram.forEach((p) => vezes.set(p.pessoa_id, (vezes.get(p.pessoa_id) || 0) + 1));
+  const frequentes = (min) => [...vezes.values()].filter((n) => n >= min).length;
   return {
-    porEnc, unicos, unicosMembros: unicosM, unicosVisitantes: unicos - unicosM,
+    porEnc, unicos, unicosMembros: unicosM, unicosVisitantes: unicos - unicosM, frequentes,
     media: media(porEnc, 'presentes') ?? 0, mediaMembros: media(porEnc, 'membros') ?? 0, mediaVisitantes: media(porEnc, 'visitantes') ?? 0,
   };
 }
@@ -132,7 +134,7 @@ async function mes(rel) {
       ${numero('Média de presentes', virgula(A.media), `${A.porEnc.length} sexta${A.porEnc.length === 1 ? '' : 's'}${B ? ` · ${comparar(A.media, B.media)}` : ''}`)}
       ${numero('Membros por sexta', virgula(A.mediaMembros), B ? comparar(A.mediaMembros, B.mediaMembros) : 'média do mês')}
       ${numero('Visitantes por sexta', virgula(A.mediaVisitantes), B ? comparar(A.mediaVisitantes, B.mediaVisitantes) : 'média do mês')}
-      ${numero('Pessoas diferentes', A.unicos, `${A.unicosMembros} membros · ${A.unicosVisitantes} visitantes${novos ? ` · ${novos} novos` : ''}`)}
+      ${numero('Vieram no mês', A.unicos, `${A.frequentes(Math.max(2, Math.ceil(A.porEnc.length / 2)))} vieram em metade das sextas ou mais${novos ? ` · ${novos} novos` : ''}`)}
     </div>
     <section class="painel mt"><div class="painel-topo"><h2>Membros e visitantes por sexta</h2><span class="sub">${nomeMes(estado.mes)}</span></div><div class="painel-corpo">
       <div class="grafico" style="height:240px"><canvas id="g-mes" role="img" aria-label="Membros e visitantes por sexta no mês"></canvas></div>
@@ -169,7 +171,7 @@ async function ano(rel) {
       ${numero('Média de presentes', virgula(A.media), `${A.porEnc.length} sextas · maior: ${maior.presentes} em ${fmtDiaMes(maior.data)}`)}
       ${numero('Membros por sexta', virgula(A.mediaMembros), B ? comparar(A.mediaMembros, B.mediaMembros) : 'média do ano')}
       ${numero('Visitantes por sexta', virgula(A.mediaVisitantes), B ? comparar(A.mediaVisitantes, B.mediaVisitantes) : 'média do ano')}
-      ${numero('Pessoas diferentes', A.unicos, `${A.unicosMembros} membros · ${A.unicosVisitantes} visitantes`)}
+      ${numero('Frequentes no ano', A.frequentes(Math.ceil(A.porEnc.length / 4)), `vieram em 1/4 das sextas ou mais · ${A.unicos} passaram pelo Hype ao menos 1 vez`)}
     </div>
     <section class="painel mt"><div class="painel-topo"><h2>Membros e visitantes por mês</h2><span class="sub">média por sexta em ${y}</span></div><div class="painel-corpo">
       <div class="grafico"><canvas id="g-ano-tipo" role="img" aria-label="Média de membros e visitantes por mês"></canvas></div>

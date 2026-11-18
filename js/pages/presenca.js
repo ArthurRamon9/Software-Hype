@@ -1,7 +1,7 @@
 // Chamada dos encontros de sexta
 // © Arthur Ramon da Silva — Todos os direitos reservados.
 import { api, urlFoto, pode } from '../api.js';
-import { esc, $, aviso, avisoErro, ocupado, confirmar, janela, foto, TIPOS, isoLocal, parseISO, ultimaSexta, fmtData, hojeISO, semAcento } from '../ui.js';
+import { esc, $, aviso, avisoErro, ocupado, confirmar, janela, foto, TIPOS, isoLocal, parseISO, ultimaSexta, fmtData, hojeISO, semAcento, estaNoHype } from '../ui.js';
 import { atualizarContadores, navegar } from '../app.js';
 
 let dataSel = null;
@@ -38,7 +38,7 @@ async function desenhar(conteudo) {
         <span class="contagem" id="contagem"></span>
       </div>
       <div class="filtros">
-        <input class="input busca" id="busca" type="search" placeholder="Procurar nome (ex-visitantes aparecem na busca)">
+        <input class="input busca" id="busca" type="search" placeholder="Procurar nome (a busca acha também quem está afastado)">
         <input class="input" id="tema" placeholder="Tema da noite (opcional)" value="${esc(encontro?.tema || '')}" style="flex:1;min-width:200px">
       </div>
       <div class="chamada" id="chamada"></div>
@@ -52,7 +52,7 @@ async function desenhar(conteudo) {
   const contar = () => {
     let p = 0, f = 0;
     lista.forEach((x) => { const v = marca.get(x.id); if (v === true) p++; else if (v === false) f++; });
-    const resto = lista.filter((x) => x.tipo !== 'ex_visitante' && !marca.has(x.id)).length;
+    const resto = lista.filter((x) => esperado(x) && !marca.has(x.id)).length;
     $('#contagem').innerHTML = `<span class="p">${p} presente${p === 1 ? '' : 's'}</span><span class="f">${f} ausente${f === 1 ? '' : 's'}</span>${resto ? `<span>${resto} sem marcar</span>` : ''}`;
   };
   const linha = (p) => {
@@ -61,10 +61,12 @@ async function desenhar(conteudo) {
       <div class="nome"><b>${esc(p.nome)}${p.referencia ? ` <span class="ref">${esc(p.referencia)}</span>` : ''}</b><span>${TIPOS[p.tipo]}${v === false ? ` · <button class="link-btn small" data-just>${j ? esc(j) : 'justificar'}</button>` : ''}</span></div>
       <div class="pf"><button data-v="1" class="${v === true ? 'p' : ''}" aria-label="Presente">P</button><button data-v="0" class="${v === false ? 'f' : ''}" aria-label="Ausente">F</button></div></div>`;
   };
-  // Ex-visitantes ficam fora da lista padrão (aparecem na busca ou se já foram marcados)
+  // A chamada mostra quem está "no Hype" (veio nos últimos 3 meses ou acabou de ser cadastrado).
+  // Quem está afastado ou é ex-visitante aparece na busca; se for marcado, entra na lista.
+  const esperado = (p) => p.tipo !== 'ex_visitante' && p.cd_status === 1 && estaNoHype(p);
   const visiveis = () => {
     const b = semAcento(busca);
-    return lista.filter((p) => (b ? semAcento(`${p.nome} ${p.referencia || ''}`).includes(b) : (p.tipo !== 'ex_visitante' || marca.has(p.id))));
+    return lista.filter((p) => (b ? semAcento(`${p.nome} ${p.referencia || ''}`).includes(b) : (esperado(p) || marca.has(p.id))));
   };
   const pintar = () => {
     const v = visiveis();
@@ -98,8 +100,8 @@ async function desenhar(conteudo) {
 
   $('#busca').addEventListener('input', (e) => { busca = e.target.value; pintar(); });
   $('#tema').addEventListener('input', alterou);
-  // "Restantes como falta" não marca ex-visitantes (eles não são esperados na sexta)
-  $('#resto').onclick = () => { lista.forEach((p) => { if (!marca.has(p.id) && p.tipo !== 'ex_visitante') marca.set(p.id, false); }); alterou(); pintar(); };
+  // "Restantes como falta" só marca quem era esperado na sexta (no Hype), não os afastados
+  $('#resto').onclick = () => { lista.forEach((p) => { if (!marca.has(p.id) && esperado(p)) marca.set(p.id, false); }); alterou(); pintar(); };
 
   const irPara = async (nova) => {
     if (conteudo.dataset.alterado === '1' && !(await confirmar('Você tem marcações não salvas nesta data. Trocar mesmo assim?', { botao: 'Trocar' }))) { $('#data').value = dataSel; return; }
@@ -130,7 +132,7 @@ async function desenhar(conteudo) {
         await ocupado(ev.submitter, async () => {
           try {
             const r = await api('POST', '/pessoas', { nome, tipo: 'novo_visitante', telefone: j.querySelector('#vt').value, data_nascimento: j.querySelector('#vd').value || null, como_conheceu: j.querySelector('#vc').value, data_cadastro: dataSel });
-            lista = [...lista, { id: r.id, nome, tipo: 'novo_visitante', cd_status: 1 }].sort((a, b) => a.nome.localeCompare(b.nome));
+            lista = [...lista, { id: r.id, nome, tipo: 'novo_visitante', cd_status: 1, data_cadastro: dataSel }].sort((a, b) => a.nome.localeCompare(b.nome));
             marca.set(r.id, true); alterou(); fechar(); pintar();
             aviso(`${nome.split(' ')[0]} cadastrado(a). Não esqueça de salvar a chamada.`);
           } catch (err) { avisoErro(err); }

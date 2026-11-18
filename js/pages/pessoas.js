@@ -3,36 +3,27 @@
 import { api, urlFoto, pode } from '../api.js';
 import {
   esc, $, $$, aviso, avisoErro, ocupado, confirmar, foto, tagTipo, TIPOS, SITUACOES, corSituacao, idade, fmtData,
-  hojeISO, prepararFoto, pct, semAcento, linkWhats, janela,
+  hojeISO, prepararFoto, pct, semAcento, linkWhats, janela, estaNoHype, ultimaVez, textoUltimaVez,
 } from '../ui.js';
 import { navegar, atualizarContadores } from '../app.js';
 import { abrirAcompanhamento } from './pastoral.js';
 import { lerPlanilha, CAMPOS, mapearAutomatico, montarPessoa } from '../importar.js';
 import { baixarXLSX } from '../xlsx.js';
 
-const filtro = { busca: '', tipo: '', status: '1', ministerio: '' };
+const filtro = { busca: '', tipo: '', status: 'nohype', ministerio: '' };
 const simNao = (v) => (v === true || v === 1 ? 'Sim' : v === false || v === 0 ? 'Não' : '');
-
-function quandoVeio(d) {
-  if (!d) return '<span class="muted">nunca veio</span>';
-  const dias = Math.floor((Date.now() - new Date(d + 'T12:00:00').getTime()) / 86400000);
-  if (dias < 7) return 'esta semana';
-  if (dias < 14) return 'semana passada';
-  if (dias < 60) return `há ${Math.floor(dias / 7)} semanas`;
-  return `<span class="muted">em ${fmtData(d)}</span>`;
-}
 
 // ======================= LISTA =======================
 export async function lista(conteudo) {
   const [pessoas, ministerios] = await Promise.all([api('GET', '/pessoas'), api('GET', '/ministerios')]);
   const nomeMin = Object.fromEntries(ministerios.map((m) => [m.id, m.nome]));
   const vindoDeMinisterio = sessionStorage.getItem('hype_filtro_min');
-  if (vindoDeMinisterio) { Object.assign(filtro, { ministerio: vindoDeMinisterio, busca: '', tipo: '', status: '1' }); sessionStorage.removeItem('hype_filtro_min'); }
+  if (vindoDeMinisterio) { Object.assign(filtro, { ministerio: vindoDeMinisterio, busca: '', tipo: '', status: 'nohype' }); sessionStorage.removeItem('hype_filtro_min'); }
   const vindoDeSituacao = sessionStorage.getItem('hype_filtro_tipo');
-  if (vindoDeSituacao) { Object.assign(filtro, { tipo: vindoDeSituacao, busca: '', ministerio: '', status: '1' }); sessionStorage.removeItem('hype_filtro_tipo'); }
+  if (vindoDeSituacao) { Object.assign(filtro, { tipo: vindoDeSituacao, busca: '', ministerio: '', status: 'nohype' }); sessionStorage.removeItem('hype_filtro_tipo'); }
 
   conteudo.innerHTML = `
-    <div class="cabecalho"><div><h1>Pessoas</h1><p class="sub">${pessoas.filter((p) => p.cd_status).length} pessoas ativas no Hype</p></div>
+    <div class="cabecalho"><div><h1>Pessoas</h1><p class="sub">${pessoas.filter((p) => p.cd_status && estaNoHype(p)).length} no Hype agora (vieram nos últimos 3 meses) · ${pessoas.length} no cadastro</p></div>
       <div class="acoes">
         <button class="btn" id="exportar">Baixar planilha</button>
         ${pode('pessoas.editar') ? '<button class="btn" id="importar">Importar planilha</button><a class="btn primary" href="#/pessoas/nova">Cadastrar pessoa</a>' : ''}
@@ -43,9 +34,10 @@ export async function lista(conteudo) {
         <input class="input busca" id="busca" type="search" placeholder="Buscar por nome, referência ou telefone" value="${esc(filtro.busca)}">
         <select class="input" id="min"><option value="">Todos os ministérios</option>${ministerios.map((m) => `<option value="${m.id}" ${String(filtro.ministerio) === String(m.id) ? 'selected' : ''}>${esc(m.nome)}</option>`).join('')}</select>
         <select class="input" id="status">
-          <option value="1" ${filtro.status === '1' ? 'selected' : ''}>Ativos</option>
-          <option value="0" ${filtro.status === '0' ? 'selected' : ''}>Inativos</option>
-          <option value="" ${filtro.status === '' ? 'selected' : ''}>Ativos e inativos</option>
+          <option value="nohype" ${filtro.status === 'nohype' ? 'selected' : ''}>No Hype (últimos 3 meses)</option>
+          <option value="afastados" ${filtro.status === 'afastados' ? 'selected' : ''}>Afastados (3+ meses sem vir)</option>
+          <option value="todos" ${filtro.status === 'todos' ? 'selected' : ''}>Todo o cadastro</option>
+          <option value="inativos" ${filtro.status === 'inativos' ? 'selected' : ''}>Cadastro desativado</option>
         </select>
       </div>
       <div class="tabela-wrap"><table class="tabela">
@@ -55,8 +47,11 @@ export async function lista(conteudo) {
       <div class="filtros" style="border-top:1px solid var(--line);border-bottom:0"><span class="muted small" id="total"></span></div>
     </div>`;
 
-  const base = () => pessoas.filter((p) => (filtro.status === '' || String(p.cd_status) === filtro.status)
-    && (!filtro.ministerio || p.ministerios.includes(Number(filtro.ministerio))));
+  const porStatus = (p) => ({
+    nohype: p.cd_status && estaNoHype(p), afastados: p.cd_status && !estaNoHype(p), todos: p.cd_status, inativos: !p.cd_status,
+  })[filtro.status];
+  // A busca procura em todo o cadastro (para achar quem está afastado também)
+  const base = () => pessoas.filter((p) => (filtro.busca ? true : porStatus(p)) && (!filtro.ministerio || p.ministerios.includes(Number(filtro.ministerio))));
   const filtradas = () => {
     const b = semAcento(filtro.busca), bNum = filtro.busca.replace(/\D/g, '');
     return base().filter((p) => (!filtro.tipo || p.tipo === filtro.tipo)
@@ -77,7 +72,7 @@ export async function lista(conteudo) {
       <tr class="clicavel ${p.cd_status ? '' : 'inativo'}" data-id="${p.id}">
         <td><div class="pessoa-cel">${foto(p.nome, urlFoto(p.id, p.foto_v))}<div class="nome-ref"><b>${esc(p.nome)}</b>${p.referencia ? `<span>${esc(p.referencia)}</span>` : ''}</div></div></td>
         <td>${tagTipo(p.tipo)}</td>
-        <td class="small">${quandoVeio(p.ultima_presenca)}</td>
+        <td class="small">${ultimaVez(p)}</td>
         <td class="some-mobile num small">${esc(p.telefone || '')}</td>
         <td class="some-mobile muted small">${p.ministerios.map((m) => esc(nomeMin[m])).join(', ')}</td>
       </tr>`).join('') : `<tr><td colspan="5" class="vazio">${pessoas.length ? 'Ninguém encontrado com esses filtros.' : '<b>Nenhuma pessoa cadastrada ainda</b>Comece cadastrando uma pessoa ou importando a planilha que vocês já usam.'}</td></tr>`;
@@ -93,10 +88,10 @@ export async function lista(conteudo) {
   $('#exportar').addEventListener('click', () => baixarXLSX(`pessoas-hype-${hojeISO()}`, [{
     nome: 'Pessoas',
     linhas: [['Nome', 'Referência', 'Situação', 'WhatsApp', 'Instagram', 'E-mail', 'Nascimento', 'Idade', 'Bairro / endereço', 'Ministérios',
-      'Grupo cultivo', 'Batizado', 'Quem integrou', 'Como conheceu', 'Presenças', 'Última presença', 'Cadastro', 'Ativo'],
+      'Grupo cultivo', 'Batizado', 'Quem integrou', 'Como conheceu', 'Presenças', 'Última presença', 'Frequência', 'Cadastro', 'Cadastro ativo'],
     ...filtradas().map((p) => [p.nome, p.referencia, TIPOS[p.tipo], p.telefone, p.instagram, p.email, p.data_nascimento, idade(p.data_nascimento),
       p.endereco, p.ministerios.map((m) => nomeMin[m]).join(', '), p.grupo_cultivo, simNao(p.batizado), p.integrado_por, p.como_conheceu,
-      p.presencas, p.ultima_presenca, p.data_cadastro, p.cd_status ? 'Sim' : 'Não'])],
+      p.presencas, p.ultima_presenca, estaNoHype(p) ? 'No Hype' : 'Afastado', p.data_cadastro, p.cd_status ? 'Sim' : 'Não'])],
   }]));
 }
 
@@ -211,7 +206,8 @@ export async function perfil(conteudo, { id }) {
   const presencas = historico.filter((h) => h.presente).length;
   let seguidas = 0; for (const h of historico) { if (h.presente) break; seguidas++; }
   let sequencia = 0; for (const h of historico) { if (!h.presente) break; sequencia++; }
-  const ultimaVez = historico.find((h) => h.presente)?.data;
+  const ultimaVezData = historico.find((h) => h.presente)?.data;
+  const afastado = !estaNoHype({ ultima_presenca: ultimaVezData, data_cadastro: p.data_cadastro });
   const primeiro = p.nome.split(' ')[0];
   const msg = seguidas >= 2 ? `Oi, ${primeiro}! Tudo bem? Aqui é do Hype. Sentimos sua falta nas últimas sextas, está tudo certo por aí?`
     : `Oi, ${primeiro}! Tudo bem? Aqui é do Hype.`;
@@ -230,7 +226,7 @@ export async function perfil(conteudo, { id }) {
         <div style="flex:1;min-width:0">
           <h1>${esc(p.nome)}</h1>
           ${p.referencia ? `<p class="muted" style="margin-top:2px">${esc(p.referencia)}</p>` : ''}
-          <div class="tags">${tagTipo(p.tipo)}${p.cd_status ? '' : '<span class="tag bad">Inativo</span>'}${seguidas >= 2 ? `<span class="tag warn">${seguidas} faltas seguidas</span>` : ''}${sequencia >= 3 ? `<span class="tag ok">${sequencia} sextas seguidas</span>` : ''}</div>
+          <div class="tags">${tagTipo(p.tipo)}${p.cd_status ? '' : '<span class="tag bad">Inativo</span>'}${afastado ? `<span class="tag">Afastado: não vem ${textoUltimaVez(ultimaVezData)}</span>` : seguidas >= 2 ? `<span class="tag warn">${seguidas} faltas seguidas</span>` : ''}${sequencia >= 3 ? `<span class="tag ok">${sequencia} sextas seguidas</span>` : ''}</div>
         </div>
         <div class="acoes-ficha">
           ${whats ? `<a class="btn" href="${whats}" target="_blank" rel="noopener">WhatsApp</a>` : ''}
@@ -268,7 +264,7 @@ export async function perfil(conteudo, { id }) {
         ${historico.length ? `
           <p><span class="grande num">${pct(presencas, historico.length)}%</span>
           <span class="muted"> · veio ${presencas} de ${historico.length} sextas</span></p>
-          <p class="small muted" style="margin:2px 0 14px">${ultimaVez ? `Última vez: ${fmtData(ultimaVez)}` : 'Ainda não veio a nenhum encontro marcado'}</p>
+          <p class="small muted" style="margin:2px 0 14px">${ultimaVezData ? `Última vez: ${fmtData(ultimaVezData)} (${textoUltimaVez(ultimaVezData)})` : 'Ainda não veio a nenhum encontro marcado'}</p>
           <div class="historico">${historico.slice(0, 24).reverse().map((h) => `<i class="${h.presente ? 'p' : 'f'}" title="${fmtData(h.data)}: ${h.presente ? 'veio' : 'faltou'}${h.justificativa ? ' (' + esc(h.justificativa) + ')' : ''}"></i>`).join('')}</div>
           <p class="hint" style="margin-top:8px">Últimas ${Math.min(24, historico.length)} sextas, da mais antiga para a mais recente.</p>`
         : '<p class="muted">Sem chamadas registradas ainda.</p>'}

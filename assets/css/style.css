@@ -313,9 +313,9 @@ table.tabela { width: 100%; border-collapse: collapse; }
 
 /* ---------- Pastoral ---------- */
 .status-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 7px; vertical-align: 1px; }
-.st-aberto { background: var(--bad); }
-.st-em_andamento { background: #e0a020; }
-.st-concluido { background: var(--ok); }
+.st-aberto { background: var(--ok); }
+.st-em_andamento { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+.st-concluido { background: var(--ink); }
 .registros { display: grid; gap: 14px; }
 .registros > div { border-left: 3px solid var(--accent-soft); padding-left: 12px; }
 .registros small { display: block; color: var(--muted); font-size: 12px; margin-bottom: 2px; }
@@ -481,8 +481,40 @@ a.linha:hover { background: var(--sunken); }
   .acoes-ficha .btn { flex: 1; }
   .chips { flex-wrap: nowrap; overflow-x: auto; margin: 0 -14px 12px; padding: 0 14px 2px; }
   .chips button { flex: none; }
-  .lista > div { flex-wrap: wrap; }
-  .lista > div > .btn { margin-left: 45px; }
+  .lista > div { flex-wrap: wrap; row-gap: 8px; }
+  .lista > div > .cresce:not(:last-child) { flex-basis: calc(100% - 56px); }
+  .lista > div > .cresce + .btn { margin-left: 45px; }
+  .painel-topo { flex-wrap: wrap; }
 }
 .lista .cresce > a { color: var(--ink); font-weight: 600; }
 .lista .cresce > a:hover { color: var(--accent-ink); }
+
+/* Frequência: bolinha verde = no Hype (veio nos últimos 3 meses), escura = afastado */
+.freq { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.freq i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.freq.sim i { background: var(--ok); }
+.freq.sumindo i { background: #e0a100; }
+.freq.nao { color: var(--muted); }
+.freq.nao i { background: var(--ink); }
+
+/* Tabelas largas com rolagem lateral (Pastoral e Integração) */
+.tabela-larga { min-width: 1080px; }
+/* Ao rolar para o lado, a seleção e o nome ficam parados */
+.tabela-larga .sel, .tabela-larga .fixa { position: sticky; left: 0; z-index: 1; background: var(--surface); }
+.tabela.tabela-larga th.sel, .tabela.tabela-larga td.sel { width: 44px; min-width: 44px; max-width: 44px; }
+.tabela-larga.com-sel .fixa { left: 44px; box-shadow: 1px 0 0 var(--line); }
+.tabela-larga:not(.com-sel) .fixa { box-shadow: 1px 0 0 var(--line); }
+@media (max-width: 720px) { .tabela-larga .fixa { max-width: 170px; } }
+.tabela th.sel, .tabela td.sel { width: 38px; padding-right: 0; }
+.tabela td.sel input, .tabela th.sel input { width: 17px; height: 17px; accent-color: var(--accent); cursor: pointer; margin: 0; }
+.tabela tr.selecionada td { background: var(--accent-soft) !important; }
+.tabela td.motivo { max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.acoes-linha { white-space: nowrap; }
+.acoes-linha .btn + .btn { margin-left: 6px; }
+.btn.icone { width: 32px; padding: 0; }
+.btn.icone svg.i { width: 16px; height: 16px; }
+.barra-massa { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 16px; background: var(--night); color: #fff; }
+.barra-massa .btn { border-color: #3a3940; background: #2a292f; color: #fff; }
+.barra-massa .btn:hover { background: #34333a; }
+.barra-massa .btn.danger { color: #ffb4a8; }
+.barra-massa .link-btn { color: #b9b5aa; margin-left: auto; }

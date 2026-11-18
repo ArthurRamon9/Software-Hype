@@ -478,7 +478,8 @@ rota('GET', '/presenca', async ({ query: q }) => {
   const [enc, pessoas, registros] = await query(`
     DECLARE @eid INT = (SELECT id FROM dbo.encontros WHERE data = @data);
     SELECT id, data, tema FROM dbo.encontros WHERE id = @eid;
-    SELECT p.id, p.nome, p.referencia, p.tipo, p.cd_status, CONVERT(VARCHAR(30), f.dt_atualizacao, 126) AS foto_v
+    SELECT p.id, p.nome, p.referencia, p.tipo, p.cd_status, p.data_cadastro, CONVERT(VARCHAR(30), f.dt_atualizacao, 126) AS foto_v,
+           (SELECT MAX(e.data) FROM dbo.presencas pr2 JOIN dbo.encontros e ON e.id = pr2.encontro_id WHERE pr2.pessoa_id = p.id AND pr2.presente = 1) AS ultima_presenca
       FROM dbo.pessoas p LEFT JOIN dbo.pessoas_foto f ON f.pessoa_id = p.id
      WHERE p.cd_status = 1 OR EXISTS (SELECT 1 FROM dbo.presencas x WHERE x.encontro_id = @eid AND x.pessoa_id = p.id)
      ORDER BY p.nome;
@@ -574,12 +575,13 @@ function rotasDeAcompanhamento(area) {
   const ver = `${area}.ver`, editar = `${area}.editar`;
   rota('GET', `/${area}`, async () => {
     const [alertas, casos] = await Promise.all([area === 'pastoral' ? calcularAlertas() : visitantesSemContato(), query(`
-      SELECT TOP 400 c.id, c.pessoa_id, c.responsavel_nome, c.motivo, c.status, c.dt_abertura, c.dt_conclusao,
-             p.nome AS pessoa_nome, p.referencia AS pessoa_referencia, p.tipo AS pessoa_tipo, CONVERT(VARCHAR(30), f.dt_atualizacao, 126) AS foto_v,
+      SELECT TOP 600 c.id, c.pessoa_id, c.responsavel_nome, c.motivo, c.status, c.dt_abertura, c.dt_conclusao,
+             p.nome AS pessoa_nome, p.referencia AS pessoa_referencia, p.tipo AS pessoa_tipo, p.telefone AS pessoa_telefone,
+             CONVERT(VARCHAR(30), f.dt_atualizacao, 126) AS foto_v, (SELECT MAX(e.data) FROM dbo.presencas pr2 JOIN dbo.encontros e ON e.id = pr2.encontro_id WHERE pr2.pessoa_id = p.id AND pr2.presente = 1) AS ultima_presenca,
              (SELECT MAX(r.dt_criacao) FROM dbo.pastoral_registros r WHERE r.caso_id = c.id) AS ultimo_registro,
              (SELECT COUNT(*) FROM dbo.pastoral_registros r WHERE r.caso_id = c.id) AS contatos
       FROM dbo.pastoral_casos c JOIN dbo.pessoas p ON p.id = c.pessoa_id LEFT JOIN dbo.pessoas_foto f ON f.pessoa_id = p.id
-      WHERE c.area = @area
+      WHERE c.area = @area AND p.cd_status = 1
       ORDER BY CASE c.status WHEN 'aberto' THEN 0 WHEN 'em_andamento' THEN 1 ELSE 2 END, c.dt_abertura DESC`, { area })]);
     return { alertas, casos };
   }, ver);
@@ -627,6 +629,25 @@ function rotasDeAcompanhamento(area) {
     return { ok: true };
   }, editar);
 
+  // Ações em massa: concluir ou excluir vários acompanhamentos de uma vez
+  const listaIds = (b) => {
+    const v = (Array.isArray(b.ids) ? b.ids : []).map(Number).filter((n) => Number.isInteger(n) && n > 0);
+    if (!v.length) throw new HttpError(400, 'Selecione pelo menos um acompanhamento.');
+    if (v.length > 500) throw new HttpError(400, 'Selecione no máximo 500 de uma vez.');
+    return JSON.stringify([...new Set(v)]);
+  };
+  rota('POST', `/${area}/casos/concluir`, async ({ body, usuario, ip }) => {
+    const r = await umaLinha(`UPDATE dbo.pastoral_casos SET status = 'concluido', dt_conclusao = SYSUTCDATETIME()
+      WHERE area = @area AND status <> 'concluido' AND id IN (SELECT value FROM OPENJSON(@ids)); SELECT @@ROWCOUNT AS n;`, { area, ids: listaIds(body) });
+    await seg.registrar('casos_concluidos', { usuario, ip, detalhe: `${area}: ${r.n} concluídos em massa` });
+    return { concluidos: r.n };
+  }, editar);
+  rota('POST', `/${area}/casos/excluir`, async ({ body, usuario, ip }) => {
+    const r = await umaLinha(`DELETE FROM dbo.pastoral_casos WHERE area = @area AND id IN (SELECT value FROM OPENJSON(@ids)); SELECT @@ROWCOUNT AS n;`, { area, ids: listaIds(body) });
+    await seg.registrar('caso_excluido', { usuario, ip, detalhe: `${area}: ${r.n} excluídos em massa` });
+    return { excluidos: r.n };
+  }, 'pastoral.excluir');
+
   rota('DELETE', `/${area}/casos/:id`, async ({ params, usuario, ip }) => {
     const c = await umaLinha(`DELETE c OUTPUT deleted.pessoa_id FROM dbo.pastoral_casos c WHERE c.id = @id AND c.area = @area`, { id: int(params.id), area });
     if (c) await seg.registrar('caso_excluido', { usuario, ip, detalhe: `${area}: acompanhamento ${params.id} (pessoa ${c.pessoa_id})` });
@@ -643,8 +664,12 @@ rota('GET', '/painel', async ({ usuario }) => {
   const verPresenca = pode(usuario, 'relatorios.ver') || pode(usuario, 'presenca.marcar');
   const verPastoral = pode(usuario, 'pastoral.ver');
   const [[pessoas, encontros, casos], alertas] = await Promise.all([query(`
+    WITH ult8 AS (SELECT TOP 8 e.id FROM dbo.encontros e
+                   WHERE EXISTS (SELECT 1 FROM dbo.presencas x WHERE x.encontro_id = e.id AND x.presente = 1) ORDER BY e.data DESC)
     SELECT p.id, p.nome, p.referencia, p.tipo, p.data_nascimento, p.data_cadastro, p.telefone, CONVERT(VARCHAR(30), f.dt_atualizacao, 126) AS foto_v,
-           (SELECT MIN(e.data) FROM dbo.presencas pr JOIN dbo.encontros e ON e.id = pr.encontro_id WHERE pr.pessoa_id = p.id AND pr.presente = 1) AS primeira_presenca
+           (SELECT MAX(e.data) FROM dbo.presencas pr2 JOIN dbo.encontros e ON e.id = pr2.encontro_id WHERE pr2.pessoa_id = p.id AND pr2.presente = 1) AS ultima_presenca,
+           (SELECT MIN(e.data) FROM dbo.presencas pr JOIN dbo.encontros e ON e.id = pr.encontro_id WHERE pr.pessoa_id = p.id AND pr.presente = 1) AS primeira_presenca,
+           (SELECT COUNT(*) FROM dbo.presencas pr3 JOIN ult8 ON ult8.id = pr3.encontro_id WHERE pr3.pessoa_id = p.id AND pr3.presente = 1) AS vezes_ult8
       FROM dbo.pessoas p LEFT JOIN dbo.pessoas_foto f ON f.pessoa_id = p.id WHERE p.cd_status = 1 AND @vp = 1;
     SELECT TOP 12 encontro_id AS id, data, tema, presentes AS total, membros_presentes AS membros, visitantes_presentes AS visitantes
       FROM dbo.vw_resumo_encontros WHERE @ve = 1 AND presentes > 0 ORDER BY data DESC;

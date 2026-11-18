@@ -91,9 +91,17 @@ Quando sair uma versão nova, rode de novo o **`sql/01_estrutura.sql`** no SSMS.
 ## Situações (a jornada de cada pessoa)
 `novo_visitante` → `visitante_regular` → `novo_membro` → `membro` → `membro_ativo`, e `ex_visitante` para quem parou de vir. Cada presença guarda também a situação da pessoa **naquele dia** (`presencas.tipo_na_data`), para os números históricos de membros × visitantes não mudarem quando alguém muda de situação.
 
+## Quem está "no Hype"
+O cadastro guarda todo mundo que já passou pelo Hype, mas o dia a dia só mostra quem está vindo:
+- **No Hype**: veio nos últimos 3 meses (ou foi cadastrado nos últimos 30 dias). É quem aparece em Pessoas e na chamada.
+- **Afastado**: não vem há mais de 3 meses. Sai das listas, mas nada é apagado: está no filtro "Afastados" de Pessoas, a busca encontra e a ficha guarda todo o histórico.
+- **Frequentes** (número do Início): vieram em 2 ou mais das últimas 8 sextas.
+- Bolinha da "Última vez": verde = veio nas últimas 3 semanas; amarela = sumindo (3 semanas a 3 meses); escura = afastado.
+
 ## Pastoral e Integração
 As duas áreas usam a mesma estrutura (`pastoral_casos` + `pastoral_registros`), separadas pela coluna `area`.
 - **Pastoral** alerta quem já faz parte (visitante regular e membros), veio em alguma das últimas 6 sextas e está com 2 ou mais faltas seguidas.
+- A lista de acompanhamentos mostra só pessoas ativas, tem lixeira em cada linha e permite marcar várias para concluir ou excluir de uma vez.
 - **Integração** lista os visitantes que chegaram nos últimos 60 dias e ainda não tiveram contato, destacando quem chegou há menos de 48 horas.
 
 ## Consultas no banco
@@ -118,7 +126,7 @@ npm run dev
 Abra <http://localhost:4280>.
 
 ## Cuidados
-- **Backup:** o plano grátis não garante backup. De vez em quando, faça um backup pelo painel do MonsterASP ou exporte as pessoas em CSV pela tela Pessoas.
+- **Backup:** o plano grátis não garante backup. De vez em quando, faça um backup pelo painel do MonsterASP ou baixe a planilha (.xlsx) pela tela Pessoas.
 - **Limites grátis:** 1 GB de banco (as fotos são reduzidas para ~60 KB, então cabem milhares) e a cota mensal do Netlify, muito acima do uso de um grupo de jovens.
 - **LGPD:** são dados pessoais de jovens, alguns menores. Cadastre só o necessário e libere acesso só a quem serve.
 

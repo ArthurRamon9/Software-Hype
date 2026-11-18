@@ -10,6 +10,9 @@ const P = {
   integracao: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/>',
   ministerios: '<path d="m12 2 10 5-10 5L2 7z"/><path d="m2 17 10 5 10-5M2 12l10 5 10-5"/>',
   acessos: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+  lixeira: '<path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/>',
+  whats: '<path d="M21 11.5a8.4 8.4 0 0 1-12.4 7.4L3 21l2.1-5.4A8.4 8.4 0 1 1 21 11.5z"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
   conta: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
 };
 export const icon = (n) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${P[n] || ''}</svg>`;
@@ -124,6 +127,36 @@ export const TIPOS = Object.fromEntries(SITUACOES.map((x) => [x.id, x.nome]));
 export const corSituacao = (t) => SITUACOES.find((x) => x.id === t)?.cor || '#8a8679';
 export const ehMembro = (t) => ['novo_membro', 'membro', 'membro_ativo'].includes(t);
 export const tagTipo = (t) => `<span class="tag situ" style="--c:${corSituacao(t)}">${esc(TIPOS[t] || t)}</span>`;
+// ---------- Quem está "no Hype" ----------
+// No Hype = veio em alguma sexta dos últimos 3 meses (ou foi cadastrado há menos de 30 dias).
+// Afastado = não vem há mais de 3 meses: continua cadastrado com todo o histórico, só sai das listas do dia a dia.
+export const DIAS_AFASTADO = 84;
+const diasDesde = (iso) => (iso ? Math.floor((Date.now() - new Date(String(iso).slice(0, 10) + 'T12:00:00').getTime()) / 86400000) : null);
+export function estaNoHype(p) {
+  const d = diasDesde(p.ultima_presenca);
+  if (d !== null) return d <= DIAS_AFASTADO;
+  const c = diasDesde(p.data_cadastro);
+  return c !== null && c <= 30;
+}
+export function textoUltimaVez(iso) {
+  const d = diasDesde(iso);
+  if (d === null) return 'nunca veio';
+  if (d < 7) return 'esta semana';
+  if (d < 14) return 'semana passada';
+  if (d <= DIAS_AFASTADO) return `há ${Math.floor(d / 7)} semanas`;
+  const meses = Math.floor(d / 30);
+  return meses >= 12 ? 'há mais de um ano' : `há ${meses} ${meses === 1 ? 'mês' : 'meses'}`;
+}
+// Bolinha verde = no Hype, escura = afastado
+// Bolinha: verde = vem vindo (até 3 semanas), amarela = sumindo (até 3 meses), escura = afastado
+export function estadoFreq(p) {
+  if (!estaNoHype(p)) return 'nao';
+  const d = diasDesde(p.ultima_presenca);
+  return d !== null && d > 21 ? 'sumindo' : 'sim';
+}
+const TITULO_FREQ = { sim: 'Vem vindo', sumindo: 'Sumindo: faz mais de 3 semanas', nao: 'Afastado: mais de 3 meses sem vir' };
+export const ultimaVez = (p) => { const e = estadoFreq(p); return `<span class="freq ${e}" title="${TITULO_FREQ[e]}"><i></i>${textoUltimaVez(p.ultima_presenca)}</span>`; };
+
 export const nomeComRef = (p) => `${esc(p.nome)}${p.referencia ? ` <span class="ref">${esc(p.referencia)}</span>` : ''}`;
 export const linkWhats = (tel, mensagem = '') => {
   const n = String(tel || '').replace(/\D/g, '');

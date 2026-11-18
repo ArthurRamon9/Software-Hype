@@ -1,7 +1,7 @@
 // Início — cada bloco só aparece para quem tem permissão
 // © Arthur Ramon da Silva — Todos os direitos reservados.
 import { api, urlFoto, sessao, pode } from '../api.js';
-import { esc, foto, fmtData, fmtDiaMes, parseISO, isoLocal, pct, SITUACOES, ehMembro, idade, saudacao } from '../ui.js';
+import { esc, foto, fmtData, fmtDiaMes, parseISO, isoLocal, pct, SITUACOES, ehMembro, idade, saudacao, estaNoHype } from '../ui.js';
 import { barras, tabelaDados, COR } from '../charts.js';
 
 const DIA = 86400000;
@@ -24,7 +24,10 @@ export async function render(conteudo) {
     return;
   }
 
-  const { pessoas, encontros: recentes, casosAbertos, alertas, integracao } = await api('GET', '/painel');
+  const { pessoas: cadastro, encontros: recentes, casosAbertos, alertas, integracao } = await api('GET', '/painel');
+  // Só conta quem está "no Hype": veio nos últimos 3 meses (quem sumiu continua no cadastro, fora destes números)
+  const pessoas = cadastro ? cadastro.filter(estaNoHype) : null;
+  const afastados = cadastro ? cadastro.length - pessoas.length : 0;
   const enc = (recentes || []).slice().reverse().map((e) => ({ ...e, outros: e.total - e.membros }));
   const ult = enc[enc.length - 1], ant = enc[enc.length - 2];
   const ult4 = enc.slice(-4);
@@ -56,8 +59,10 @@ export async function render(conteudo) {
   // ---- Números
   const numeros = [];
   if (pessoas) {
-    const novosMes = pessoas.filter((p) => { const d = parseISO(p.data_cadastro); return d.getMonth() === mes && d.getFullYear() === hoje.getFullYear(); }).length;
-    numeros.push(['Pessoas ativas', pessoas.length, novosMes ? `+${novosMes} em ${nomeMes}` : `${pessoas.filter((p) => ehMembro(p.tipo)).length} membros`]);
+    // Frequente = veio em pelo menos 2 das últimas 8 sextas. Quem veio uma vez só não entra na conta.
+    const frequentes = pessoas.filter((p) => (p.vezes_ult8 || 0) >= 2);
+    const mem = frequentes.filter((p) => ehMembro(p.tipo)).length;
+    numeros.push(['Frequentes', frequentes.length, `${mem} membros · ${frequentes.length - mem} visitantes<br>vieram 2+ das últimas 8 sextas`]);
   }
   if (recentes) {
     let comp = 'presentes';
@@ -115,11 +120,13 @@ export async function render(conteudo) {
       </section>
     </div>
     <section class="painel mt">
-      <div class="painel-topo"><h2>A jornada do Hype</h2><span class="sub">${pessoas.length} pessoas ativas${idades.length ? ` · idade média ${Math.round(idades.reduce((a, b) => a + b, 0) / idades.length)} anos` : ''}</span></div>
+      <div class="painel-topo"><h2>A jornada do Hype</h2><span class="sub">${pessoas.length} pessoas vieram nos últimos 3 meses${idades.length ? ` · idade média ${Math.round(idades.reduce((a, b) => a + b, 0) / idades.length)} anos` : ''}</span></div>
       <div class="painel-corpo"><div class="barras-tipo">
         ${SITUACOES.map((s) => { const n = pessoas.filter((p) => p.tipo === s.id).length; return `<${pode('pessoas.ver') ? 'a href="#/pessoas"' : 'div'} class="linha" data-situacao="${s.id}"><span>${s.nome}</span>
           <div class="trilho"><i style="width:${pct(n, pessoas.length)}%;background:${s.cor}"></i></div><span class="dir num"><b>${n}</b> <span class="muted">${pct(n, pessoas.length)}%</span></span></${pode('pessoas.ver') ? 'a' : 'div'}>`; }).join('')}
-      </div></div>
+      </div>
+      ${afastados ? `<p class="hint" style="margin-top:12px">Fora da conta: ${afastados} pessoas do cadastro que não vêm há mais de 3 meses (afastadas). Elas continuam em Pessoas, no filtro "Afastados".</p>` : ''}
+      </div>
     </section>`;
   }
 
