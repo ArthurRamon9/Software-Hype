@@ -10,7 +10,7 @@
 
    Depois, nesta ordem, com o banco hype_teste selecionado:
      1) sql/01_estrutura.sql
-     2) dados-teste/02_migracao_planilha_hype.sql  (dados da planilha, vem no zip)
+     2) o script com os dados da planilha (peça ao Claude; não fica no repositório)
    ===================================================================== */
 USE master;
 GO

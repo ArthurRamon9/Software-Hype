@@ -1,16 +1,49 @@
 # Testar o Gestão do Hype no seu computador
 
-Roda o site inteiro no seu PC, ligado a um banco **de teste**. Não usa o Netlify, não gasta crédito
-e não mexe nos dados reais. Pode testar e estragar à vontade.
+Roda o site inteiro no seu PC pelo VS Code. Não usa o Netlify e não gasta crédito.
 
-## Uma vez só: preparar
+## Jeito combinado: apontando para o banco oficial (MonsterASP)
+O site de teste usa **o mesmo banco do site oficial**: tudo o que for feito no teste vale de verdade.
 
-### 1. Programas
+### Preparar (uma vez)
+1. Instale o **Node.js 20 ou mais novo** (LTS) em https://nodejs.org (no terminal, `node -v` mostra a versão).
+2. Abra a pasta **Software-Hype** no VS Code.
+3. Abra `api/local.settings.json` e troque `COLE_AQUI_A_SENHA` pela senha do usuário `db80753_hypesite`
+   (a mesma que está no Netlify em `SQL_CONNECTION_STRING`). É a única coisa a preencher.
+4. Terminal do VS Code (**Ctrl + '**):
+   ```
+   npm install
+   npm run dev
+   ```
+5. Abra **http://localhost:4280** e entre com a sua conta de sempre.
+
+### Cuidados (o teste mexe nos dados reais)
+- **Antes de cada rodada de teste, faça backup:** no SSMS, botão direito no banco → Tarefas →
+  Gerar Scripts → Avançado → "Tipos de dados para script": **Esquema e dados**.
+- Pessoas de teste com nome começando com **Zz Teste** (ex.: "Zz Teste Visitante").
+- Chamada de teste sempre na data **03/01/2020**, nunca numa sexta de verdade.
+- Contas de teste com e-mail terminando em **@teste.com** (ex.: `bia@teste.com`). Libere em Acessos.
+- Não exclua em massa nem conclua acompanhamentos reais só para testar.
+- **Terminou?** Rode `sql/99_limpar_testes.sql` no SSMS: primeiro como está (só mostra o que vai
+  apagar); conferiu, troque `@apagar` para 1 e rode de novo.
+- Versão nova do site: rode o `sql/01_estrutura.sql` que vier com ela (só acrescenta, não quebra o site no ar).
+
+**E-mails:** no teste o Gmail não está ligado. O "Esqueci minha senha" mostra o link no **terminal do
+VS Code** (linha `[email] Link do e-mail: ...`).
+
+---
+
+## Outro jeito: banco de teste no seu PC (SQL Server Express)
+Use se um dia quiser testar sem tocar nos dados reais. Precisa do SQL Server 2022 Express instalado.
+
+### Preparar (banco no seu PC)
+
+#### 1. Programas
 - **Node.js 20 ou mais novo** (LTS): https://nodejs.org (no terminal, `node -v` mostra a versão).
 - **VS Code** e **SSMS**, que você já usa.
 - **SQL Server no seu PC** (o que você já tiver: Express, Developer...).
 
-### 2. Liberar o SQL Server para o site conectar (só se ainda não estiver assim)
+#### 2. Liberar o SQL Server para o site conectar (só se ainda não estiver assim)
 O site entra com usuário e senha do SQL Server (não com o login do Windows) e pela rede (TCP).
 1. No SSMS: clique com o botão direito no servidor → **Properties → Security** →
    marque **SQL Server and Windows Authentication mode** → OK.
@@ -20,17 +53,17 @@ O site entra com usuário e senha do SQL Server (não com o login do Windows) e 
    **TCP Port = 1433**.
 3. Em *SQL Server Services*, reinicie o **SQL Server**.
 
-### 3. Criar o banco de teste
+#### 3. Criar o banco de teste
 No SSMS, conectado ao SQL Server **do seu PC**:
 1. Rode `sql/00_banco_de_teste.sql` (cria o banco `hype_teste` e o login `hype_teste`).
 2. Selecione o banco **hype_teste** e rode `sql/01_estrutura.sql`.
-3. Ainda no hype_teste, rode `dados-teste/02_migracao_planilha_hype.sql` (os dados da planilha).
-   Ele termina mostrando 332 pessoas, 41 encontros, 5881 presenças.
+3. Para ter dados, peça ao Claude o script com os dados da planilha (não vem no zip).
 
-### 4. Abrir no VS Code
+#### 4. Abrir no VS Code
 1. Abra a pasta **Software-Hype** no VS Code.
-2. Confira `api/local.settings.json`: a senha em `SQL_CONNECTION_STRING` tem que ser a mesma do
-   arquivo 00 (`Teste#Hype2026`, se você não trocou).
+2. Em `api/local.settings.json`, troque a `SQL_CONNECTION_STRING` por
+   `Server=localhost,1433;Initial Catalog=hype_teste;User ID=hype_teste;Password=Teste#Hype2026;Encrypt=True;TrustServerCertificate=True;`
+   (a senha tem que ser a mesma do arquivo 00).
 3. Abra o terminal (**Ctrl + '**) e rode:
    ```
    npm install
@@ -38,7 +71,7 @@ No SSMS, conectado ao SQL Server **do seu PC**:
    ```
 4. Abra **http://localhost:4280** no navegador.
 
-### 5. Primeiro acesso
+#### 5. Primeiro acesso
 Clique em **Criar conta** com o seu e-mail (o mesmo do `ADMIN_EMAIL`): entra como administrador.
 Para testar outros grupos, crie contas com e-mails inventados (ex.: `bia@teste.com`) e libere em
 Acessos. Use uma janela anônima para cada usuário ao mesmo tempo.
