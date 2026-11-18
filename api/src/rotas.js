@@ -822,7 +822,7 @@ function rotasDeAcompanhamento(area) {
     }
     return umaLinha(`
       SET XACT_ABORT ON; BEGIN TRAN;
-      IF EXISTS (SELECT 1 FROM dbo.pastoral_casos WHERE pessoa_id = @pid AND area = @area AND status <> 'concluido') BEGIN ROLLBACK; SELECT 0 AS id; RETURN; END
+      IF EXISTS (SELECT 1 FROM dbo.pastoral_casos WITH (UPDLOCK, HOLDLOCK) WHERE pessoa_id = @pid AND area = @area AND status <> 'concluido') BEGIN ROLLBACK; SELECT 0 AS id; RETURN; END
       INSERT INTO dbo.pastoral_casos (pessoa_id, area, responsavel_nome, responsavel_pessoa_id, responsavel_id, motivo, criado_por)
       VALUES (@pid, @area, @resp, @rp, (SELECT TOP 1 id FROM dbo.usuarios WHERE pessoa_id = @rp AND cd_status = 1), @motivo, @uid);
       DECLARE @cid INT = SCOPE_IDENTITY();
@@ -1084,6 +1084,9 @@ rota('PUT', '/escalas/:ministerio/:data', async ({ params, body, usuario, ip }) 
   const funcao = body.funcao === undefined ? undefined : txt(body.funcao, 60);
   await query(`
     SET XACT_ABORT ON; BEGIN TRAN;
+    -- Dois líderes salvando a mesma sexta do mesmo ministério ao mesmo tempo: um espera o outro (nada duplica)
+    DECLARE @trava NVARCHAR(100) = CONCAT(N'escala:', @mid, N':', CONVERT(CHAR(10), @data, 126));
+    EXEC sp_getapplock @Resource = @trava, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 15000;
     DELETE FROM dbo.escala_itens WHERE ministerio_id = @mid AND data = @data AND (@todas = 1 OR ISNULL(funcao, N'') = ISNULL(@funcao, N''));
     INSERT INTO dbo.escala_itens (ministerio_id, data, funcao, pessoa_id, criado_por)
       SELECT DISTINCT @mid, @data, j.funcao, p.id, @uid FROM OPENJSON(@itens) WITH (pessoa_id INT, funcao NVARCHAR(60)) j JOIN dbo.pessoas p ON p.id = j.pessoa_id AND p.cd_status = 1;

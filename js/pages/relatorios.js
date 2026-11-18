@@ -162,7 +162,18 @@ async function ano(rel) {
   const A = resumir(atual), B = anterior.encontros.length ? resumir(anterior) : null;
   const mediaMes = (R, campo = 'presentes') => MESES.map((_, m) => media(R.porEnc.filter((x) => parseISO(x.data).getMonth() === m), campo));
   const mA = mediaMes(A), mB = B ? mediaMes(B) : null;
-  const memA = mediaMes(A, 'membros'), visA = mediaMes(A, 'visitantes');
+  // Pessoas diferentes que vieram em cada mês (quem veio 4 sextas conta 1 vez). Se a situação mudou no mês, vale a da última vinda.
+  const dataEnc = new Map(atual.encontros.map((e) => [e.id, e.data]));
+  const unicosMes = MESES.map((_, m) => {
+    const ultima = new Map();
+    atual.presencas.filter((p) => p.presente && dataEnc.has(p.encontro_id) && parseISO(dataEnc.get(p.encontro_id)).getMonth() === m)
+      .sort((a, b) => dataEnc.get(a.encontro_id).localeCompare(dataEnc.get(b.encontro_id)))
+      .forEach((p) => ultima.set(p.pessoa_id, p.tipo));
+    if (!ultima.size) return { membros: null, visitantes: null, total: null };
+    const membros = [...ultima.values()].filter(ehMembro).length;
+    return { membros, visitantes: ultima.size - membros, total: ultima.size };
+  });
+  const memA = unicosMes.map((u) => u.membros), visA = unicosMes.map((u) => u.visitantes), totA = unicosMes.map((u) => u.total);
   const maior = A.porEnc.reduce((m, e) => (!m || e.presentes > m.presentes ? e : m), null);
 
   rel.innerHTML = `
@@ -173,9 +184,9 @@ async function ano(rel) {
       ${numero('Visitantes por sexta', virgula(A.mediaVisitantes), B ? comparar(A.mediaVisitantes, B.mediaVisitantes) : 'Média do ano')}
       ${numero('Frequentes no ano', A.frequentes(Math.ceil(A.porEnc.length / 4)), `Vieram em 1/4 das sextas ou mais · ${A.unicos} passaram pelo Hype ao menos 1 vez`)}
     </div>
-    <section class="painel mt"><div class="painel-topo"><h2>Membros e visitantes por mês</h2><span class="sub">Média por sexta em ${y}</span></div><div class="painel-corpo">
-      <div class="grafico"><canvas id="g-ano-tipo" role="img" aria-label="Média de membros e visitantes por mês"></canvas></div>
-      ${tabelaDados(MESES, [{ rotulo: 'Membros', dados: memA }, { rotulo: 'Visitantes', dados: visA }, { rotulo: 'Total', dados: mA }])}
+    <section class="painel mt"><div class="painel-topo"><h2>Quem veio em cada mês</h2><span class="sub">Pessoas diferentes em ${y}: quem veio várias sextas conta uma vez</span></div><div class="painel-corpo">
+      <div class="grafico"><canvas id="g-ano-tipo" role="img" aria-label="Pessoas diferentes que vieram em cada mês"></canvas></div>
+      ${tabelaDados(MESES, [{ rotulo: 'Membros', dados: memA }, { rotulo: 'Visitantes', dados: visA }, { rotulo: 'Total', dados: totA }])}
     </div></section>
     <section class="painel mt"><div class="painel-topo"><h2>Média de presentes por mês</h2><span class="sub">${B ? `${y} comparado com ${y - 1}` : y}</span></div><div class="painel-corpo">
       <div class="grafico"><canvas id="g-ano" role="img" aria-label="Média de presentes por mês"></canvas></div>
@@ -187,8 +198,8 @@ async function ano(rel) {
   }));
   graficos.push(linhas($('#g-ano'), { rotulos: MESES, series: [{ rotulo: String(y), dados: mA, cor: COR.s1 }, ...(B ? [{ rotulo: String(y - 1), dados: mB, cor: COR.s2, tracejado: true }] : [])] }));
   return { nome: `ano-${y}`, abas: [
-    { nome: `Por mês ${y}`, linhas: [['Mês', 'Média de membros', 'Média de visitantes', `Média total ${y}`, ...(B ? [`Média total ${y - 1}`] : [])],
-      ...MESES.map((m, i) => [m, memA[i] ?? '', visA[i] ?? '', mA[i] ?? '', ...(B ? [mB[i] ?? ''] : [])])] },
+    { nome: `Por mês ${y}`, linhas: [['Mês', 'Membros que vieram', 'Visitantes que vieram', 'Total de pessoas', `Média por sexta ${y}`, ...(B ? [`Média por sexta ${y - 1}`] : [])],
+      ...MESES.map((m, i) => [m, memA[i] ?? '', visA[i] ?? '', totA[i] ?? '', mA[i] ?? '', ...(B ? [mB[i] ?? ''] : [])])] },
     { nome: 'Por sexta', linhas: [['Data', 'Tema', 'Membros', 'Visitantes', 'Total de presentes', 'Ausentes'], ...A.porEnc.map((e) => [e.data, e.tema, e.membros, e.visitantes, e.presentes, e.ausentes])] },
   ] };
 }
