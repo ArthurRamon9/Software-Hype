@@ -184,7 +184,10 @@ Causa: `POST /presenca` faz `DELETE` de todas as presenças da data e grava só 
 - Aba **Escalas**. Hoje quem precisa: **Mídias** e **Diaconato** (fazem por planilha/WhatsApp).
 - O líder do ministério monta a escala do mês: sextas nas colunas × **funções** do ministério nas linhas
   (ex.: Mídias: projeção, som, câmera, fotos; Diaconato: porta, recepção…), escolhendo membros do ministério.
-  Funções de cada ministério cadastráveis pelo líder.
+  **Funções não vêm prontas (decidido):** cada ministério começa sem funções; a escala pode ser só uma
+  lista de pessoas por sexta (ex.: Diaconato). Se o líder quiser, ele mesmo cria, renomeia, ordena e apaga
+  as funções do seu ministério pela tela (ex.: Mídias cria "Projeção", "Som"), sem precisar de nova
+  publicação. Função apagada não some das escalas antigas (fica guardada como texto).
 - Cada membro vê "Minhas escalas" (próximas sextas em que serve). Opcional depois: marcar "não posso nesta
   sexta" para o líder ver antes de montar; pedido de troca.
 - Avisos: texto pronto da escala para colar no grupo do WhatsApp do ministério + exportar .xlsx/imprimir.
