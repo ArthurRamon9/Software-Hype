@@ -44,6 +44,25 @@ Causa: `POST /presenca` faz `DELETE` de todas as presenças da data e grava só 
   - No celular, acompanhamentos em **cartões** (nome, há quanto tempo não vem, botões WhatsApp e
     "Registrar contato"), em vez da tabela larga com rolagem lateral; filtros recolhidos num botão.
 
+### Padrão de escrita: toda frase começa com letra maiúscula
+- O Arthur não quer textos começando com minúscula (ex.: "inclui contas bloqueadas", "últimos 12
+  encontros", "nenhum", "visitantes dos últimos 30 dias", "2+ faltas seguidas", "opcional · é salvo junto
+  com a chamada", "nunca", "hoje", "definir/trocar"). Passar o site inteiro (subtítulos de painéis, dicas,
+  etiquetas, mensagens, e-mails) e padronizar: primeira letra maiúscula, o resto normal.
+- "Aguardando liberação · inclui contas bloqueadas": trocar por algo claro, ex.: subtítulo "Contas novas e
+  contas bloqueadas" (a lista mostra as duas: quem acabou de criar conta e quem foi bloqueado).
+
+### Teste por grupo (feito em 18/11) — ajustes
+- Servidor: os 7 grupos conseguem exatamente o que as permissões dizem (matriz de 15 ações, sem divergência).
+- Telas: nenhum erro e nenhum botão aparecendo para quem não pode usar.
+- Ajustar:
+  - Descrição do grupo **Líderes de equipe** diz "vê chamada", mas eles não abrem a tela de Presença (veem
+    a presença pelos Relatórios). Ou corrigir a descrição, ou dar uma visão só de leitura da chamada.
+  - Quem abre um endereço de tela sem permissão (ex.: link da Pastoral enviado para alguém da Presença)
+    volta para o Início sem explicação: mostrar "Você não tem acesso a esta tela".
+  - Ministérios aparece no menu de todos (só leitura para quem não edita). Ok manter, mas sem a palavra
+    "Editar" no subtítulo para quem não pode editar.
+
 ### "Ver como" outro usuário (no lugar da senha padrão — aguardando OK do Arthur)
 - O Arthur pediu uma senha padrão (salva no banco, alterável) para entrar na conta dos outros.
   Proposto em vez disso: em Acessos → Usuários, botão **"Ver o sistema como Fulano"** só para
@@ -116,6 +135,8 @@ Causa: `POST /presenca` faz `DELETE` de todas as presenças da data e grava só 
    - Quando "Administradores" estiver marcado, os outros grupos não mudam nada (admin já pode tudo):
      deixar os outros apagados/desabilitados com a nota "Administradores já pode tudo", para não
      marcar 5 caixinhas à toa.
+   - **Mesma coisa na janela "Analisar" de quem está aguardando liberação** (é a mesma lista de grupos:
+     a caixinha encolhe em Administração e Líderes de equipe). Conferir as duas janelas depois de arrumar.
    - Na tabela de Usuários, quem é Administrador mostra só a etiqueta "Administradores" (os outros grupos
      em cinza/recolhidos, ex.: "+6"), para a linha não virar uma fila de etiquetas.
 7. **Grupos iniciais: não recriar o que o Arthur apagou.** Ele vai excluir Cadastro e Presença pela tela
