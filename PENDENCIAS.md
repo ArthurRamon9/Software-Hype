@@ -4,6 +4,13 @@ Combinado com o Arthur: **nada vai para o `main` (que publica no Netlify) até e
 Aí fazemos a repaginação do visual + tudo desta lista e publicamos **uma vez só** (15 créditos).
 Enquanto isso, o trabalho fica no ramo `desenvolvimento`.
 
+## Como vai ser a publicação (combinado)
+- É a **última publicação deste ciclo** (até 16/12): tem que sair bonita e funcionando de primeira.
+- Antes de publicar: mandar ao Arthur **prints de como vai ficar** (computador e celular, claro e escuro,
+  telas principais) e esperar a aprovação. Só publicar depois do "pode".
+- Testar tudo antes (fluxos, permissões, ataques, celular) e mandar junto o `01_estrutura.sql`, se mudou.
+- Upgrades maiores ficam para os próximos meses, um pacote por vez.
+
 ## A fazer
 1. **Responsável escolhido numa lista, não digitado.** No lugar do campo de texto, uma lista para
    selecionar só quem está no **ministério Pastoral do cadastro** (na Integração, quem está no
