@@ -71,7 +71,13 @@ Enquanto isso, o trabalho fica no ramo `desenvolvimento`.
      marcar 5 caixinhas à toa.
    - Na tabela de Usuários, quem é Administrador mostra só a etiqueta "Administradores" (os outros grupos
      em cinza/recolhidos, ex.: "+6"), para a linha não virar uma fila de etiquetas.
-7. **Repaginação do visual com a arte do Hype** (logo e cores) — quando o Arthur mandar.
+7. **Grupos iniciais: não recriar o que o Arthur apagou.** Ele vai excluir Cadastro e Presença pela tela
+   (a Administração já cobre os dois). Hoje o `01_estrutura.sql` recria grupo inicial que estiver faltando
+   (`WHERE NOT EXISTS` pelo nome). Tirar Cadastro e Presença da lista de grupos iniciais e fazer a criação
+   dos grupos iniciais acontecer **uma vez só** por grupo (ex.: tabela de marcação do que já foi semeado),
+   para nenhum grupo apagado voltar ao rodar o 01 de novo. Grupos finais: Administradores, Administração,
+   Pastoral, Integração, Líderes de equipe.
+8. **Repaginação do visual com a arte do Hype** (logo e cores) — quando o Arthur mandar.
 
 ## Já feito no `desenvolvimento`, esperando publicar
 - (nada ainda)
