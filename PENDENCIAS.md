@@ -189,5 +189,9 @@ Causa: `POST /presenca` faz `DELETE` de todas as presenças da data e grava só 
   sexta" para o líder ver antes de montar; pedido de troca.
 - Avisos: texto pronto da escala para colar no grupo do WhatsApp do ministério + exportar .xlsx/imprimir.
   Convite no Google Agenda para cada escalado (mesmo esquema .ics da Agenda).
+- **Visibilidade (decidido):** todos os líderes veem as escalas de **todos** os ministérios (visão geral da
+  sexta: quem está em qual função em cada ministério). Ao montar a escala, a pessoa já escalada em outro
+  ministério naquela sexta aparece marcada ("já está no Diaconato") e o sistema avisa antes de salvar.
+  Membros veem pelo menos as suas; avaliar deixar todos verem a escala geral (só leitura).
 - Alerta se a mesma pessoa estiver escalada em dois ministérios na mesma sexta.
 - Base em comum com a Agenda: líder por ministério, membros do ministério, vínculo login ↔ cadastro.
