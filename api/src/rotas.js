@@ -8,7 +8,7 @@
 //   'x.y' ou ['x.y','z.w'] -> precisa ter ao menos uma dessas permissões (vindas dos grupos)
 const crypto = require('crypto');
 const { query, umaLinha, HttpError } = require('./db');
-const { emailRedefinirSenha, emailNovoCadastro } = require('./email');
+const { emailRedefinirSenha, emailNovoCadastro, emailConvites } = require('./email');
 const seg = require('./seguranca');
 
 const FALTAS_ALERTA = Number(process.env.FALTAS_ALERTA || 2);
@@ -30,7 +30,7 @@ const PERMISSAO_DA_ROTA = {
   'DELETE /pessoas/:id':              'pessoas.excluir',
   'PUT /pessoas/:id/foto':            'pessoas.editar',
   'DELETE /pessoas/:id/foto':         'pessoas.editar',
-  'GET /fotos/:id':                   ['pessoas.ver', 'presenca.marcar', 'pastoral.ver'],
+  'GET /fotos/:id':                   'aprovado',   // confere dentro: permissões abaixo ou a própria foto
   'GET /presenca':                    'presenca.marcar',
   'POST /presenca':                   'presenca.marcar',
   'GET /encontros':                   'relatorios.ver',
@@ -38,6 +38,18 @@ const PERMISSAO_DA_ROTA = {
   'GET /painel':                      'aprovado',
   'GET /contadores':                  'aprovado',
   'GET /relatorios':                  'relatorios.ver',
+  // Agenda e Escalas: qualquer conta liberada entra; dentro, cada um vê os seus ministérios e só o líder (ou administrador) altera
+  'GET /agenda':                      'aprovado',
+  'GET /agenda/membros/:id':          'aprovado',
+  'POST /agenda':                     'aprovado',
+  'PUT /agenda/:id':                  'aprovado',
+  'POST /agenda/:id/cancelar':        'aprovado',
+  'GET /escalas':                     'aprovado',
+  'GET /escalas/minhas':              'aprovado',
+  'PUT /escalas/:ministerio/:data':   'aprovado',
+  'POST /escalas/:ministerio/funcoes': 'aprovado',
+  'PUT /escalas/funcoes/:id':         'aprovado',
+  'DELETE /escalas/funcoes/:id':      'aprovado',
 };
 
 // ------------------------------------------------------------------ util
@@ -62,6 +74,8 @@ function telefoneBR(v) {
   if (d.length === 8) return `${d.slice(0, 4)}-${d.slice(4)}`;
   return s;
 }
+// Data de hoje no horário de Brasília (o servidor roda em UTC)
+const hojeBrasil = () => new Date(Date.now() - 3 * 3600000).toISOString().slice(0, 10);
 const int = (v) => { const n = Number(v); if (!Number.isInteger(n) || n <= 0) throw new HttpError(400, 'Identificador inválido.'); return n; };
 const dataISO = (v) => {
   if (!v) return null;
@@ -193,7 +207,14 @@ const SQL_ADMINS_ATIVOS = `SELECT COUNT(DISTINCT u.id) FROM dbo.usuarios u JOIN 
 
 rota('GET', '/acessos', async () => {
   const [usuarios, vinculos, grupos, gperms, permissoes] = await query(`
-    SELECT id, nome, email, cd_status, dt_criacao, dt_ultimo_login FROM dbo.usuarios ORDER BY nome;
+    SELECT u.id, u.nome, u.email, u.cd_status, u.dt_criacao, u.dt_ultimo_login, u.pessoa_id, p.nome AS pessoa_nome,
+           CONVERT(VARCHAR(30), f.dt_atualizacao, 126) AS foto_v,
+           sug.id AS sugestao_id, sug.nome AS sugestao_nome
+      FROM dbo.usuarios u LEFT JOIN dbo.pessoas p ON p.id = u.pessoa_id LEFT JOIN dbo.pessoas_foto f ON f.pessoa_id = u.pessoa_id
+      OUTER APPLY (SELECT TOP 1 x.id, x.nome FROM dbo.pessoas x
+                    WHERE u.pessoa_id IS NULL AND x.cd_status = 1 AND LOWER(x.email) = LOWER(u.email)
+                      AND NOT EXISTS (SELECT 1 FROM dbo.usuarios o WHERE o.pessoa_id = x.id)) sug
+     ORDER BY u.nome;
     SELECT usuario_id, grupo_id FROM dbo.usuario_grupo;
     SELECT id, nome, descricao, sistema FROM dbo.grupos ORDER BY sistema DESC, nome;
     SELECT grupo_id, permissao FROM dbo.grupo_permissao;
@@ -210,6 +231,16 @@ rota('PUT', '/acessos/usuarios/:id', async ({ params, body, usuario, ip }) => {
   const grupos = (Array.isArray(body.grupos) ? body.grupos : []).map(Number).filter(Number.isInteger);
   const alvo = await umaLinha('SELECT id, nome, cd_status FROM dbo.usuarios WHERE id = @id', { id });
   if (!alvo) throw new HttpError(404, 'Usuário não encontrado.');
+  // Vínculo com o cadastro (opcional): número = ligar, null = desligar, ausente = não mexe
+  if (body.pessoa_id !== undefined) {
+    const pid = body.pessoa_id === null ? null : int(body.pessoa_id);
+    if (pid) {
+      const dono = await umaLinha('SELECT TOP 1 u.nome FROM dbo.usuarios u WHERE u.pessoa_id = @pid AND u.id <> @id', { pid, id });
+      if (dono) throw new HttpError(409, `Essa pessoa do cadastro já está ligada à conta de ${dono.nome}.`);
+      if (!(await umaLinha('SELECT id FROM dbo.pessoas WHERE id = @pid', { pid }))) throw new HttpError(400, 'Pessoa não encontrada.');
+    }
+    await query('UPDATE dbo.usuarios SET pessoa_id = @pid WHERE id = @id', { pid, id });
+  }
   const r = await umaLinha(`
     SET XACT_ABORT ON; BEGIN TRAN;
     DELETE FROM dbo.usuario_grupo WHERE usuario_id = @id;
@@ -227,6 +258,30 @@ rota('PUT', '/acessos/usuarios/:id', async ({ params, body, usuario, ip }) => {
   await seg.registrar(status ? (alvo.cd_status ? 'grupos_alterados' : 'usuario_liberado') : 'usuario_bloqueado', { usuario, ip, detalhe: `${alvo.nome}: ${status ? nomes : 'bloqueado'}` });
   return { ok: true };
 }, 'acessos.gerenciar');
+
+// Lista do cadastro para ligar uma conta a uma pessoa
+rota('GET', '/acessos/pessoas', async () => query(`
+  SELECT p.id, p.nome, p.referencia, p.email, (SELECT TOP 1 u.nome FROM dbo.usuarios u WHERE u.pessoa_id = p.id) AS ligada_a
+    FROM dbo.pessoas p WHERE p.cd_status = 1 ORDER BY p.nome`), 'acessos.gerenciar');
+
+// Ver o sistema como outra pessoa (para testar e ajudar). Não usa senha de ninguém e fica no registro de atividades.
+rota('POST', '/acessos/ver-como/:id', async ({ params, usuario, ip, definirCookie }) => {
+  const id = int(params.id);
+  if (id === usuario.id) throw new HttpError(400, 'Essa já é a sua conta.');
+  const alvo = await seg.carregarUsuario(id);
+  if (!alvo || alvo.cd_status !== 1) throw new HttpError(400, 'Só dá para ver como uma conta liberada.');
+  if (alvo.permissoes.includes('acessos.gerenciar')) throw new HttpError(400, 'Não dá para ver como outro administrador.');
+  definirCookie(seg.cookieSessao(usuario, alvo.id));
+  await seg.registrar('ver_como', { usuario, ip, detalhe: `começou a ver como ${alvo.nome}` });
+  return { ok: true };
+}, 'acessos.gerenciar');
+
+rota('POST', '/auth/voltar', async ({ usuario, ip, definirCookie }) => {
+  if (!usuario.verComoPor) return { ok: true };
+  definirCookie(seg.cookieSessao({ id: usuario.verComoPor.id, versao_sessao: usuario.verComoPor.versao_sessao }));
+  await seg.registrar('ver_como', { usuario, ip, detalhe: 'voltou para a própria conta' });
+  return { ok: true };
+}, 'logado');
 
 rota('DELETE', '/acessos/usuarios/:id', async ({ params, usuario, ip }) => {
   const id = int(params.id);
@@ -308,11 +363,14 @@ rota('GET', '/acessos/atividades', async () => query(`
 
 
 rota('GET', '/contadores', async ({ usuario }) => {
+  // Pastoral: casos em aberto (de todos, ou só os seus). Integração: quem distribui vê os visitantes esperando contato; a equipe, os seus casos.
   const r = await umaLinha(`
-    SELECT CASE WHEN @past = 1 THEN (SELECT COUNT(*) FROM dbo.pastoral_casos WHERE area = 'pastoral' AND status <> 'concluido') ELSE 0 END AS pastoral,
+    SELECT CASE WHEN @past = 1 THEN (SELECT COUNT(*) FROM dbo.pastoral_casos WHERE area = 'pastoral' AND status <> 'concluido' AND (@ptodos = 1 OR responsavel_pessoa_id = @eu)) ELSE 0 END AS pastoral,
+           CASE WHEN @integ = 1 THEN (SELECT COUNT(*) FROM dbo.pastoral_casos WHERE area = 'integracao' AND status <> 'concluido' AND responsavel_pessoa_id = @eu) ELSE 0 END AS integracao,
            CASE WHEN @adm = 1 THEN (SELECT COUNT(*) FROM dbo.usuarios WHERE cd_status = 0) ELSE 0 END AS pendentes`,
-  { past: pode(usuario, 'pastoral.ver') ? 1 : 0, adm: pode(usuario, 'acessos.gerenciar') ? 1 : 0 });
-  r.integracao = pode(usuario, 'integracao.ver') ? (await visitantesSemContato()).length : 0;
+  { past: pode(usuario, 'pastoral.ver') ? 1 : 0, ptodos: veTodos(usuario, 'pastoral') ? 1 : 0, integ: pode(usuario, 'integracao.ver') ? 1 : 0,
+    adm: pode(usuario, 'acessos.gerenciar') ? 1 : 0, eu: euPessoa(usuario) });
+  if (pode(usuario, 'integracao.ver') && designa(usuario, 'integracao')) r.integracao = (await visitantesSemContato()).length;
   return r;
 });
 
@@ -320,7 +378,9 @@ rota('GET', '/contadores', async ({ usuario }) => {
 rota('GET', '/ministerios', async () => query(`
   SELECT m.id, m.nome, m.descricao, m.cor, m.cd_status,
          (SELECT COUNT(*) FROM dbo.pessoa_ministerio pm JOIN dbo.pessoas p ON p.id = pm.pessoa_id
-           WHERE pm.ministerio_id = m.id AND p.cd_status = 1) AS pessoas
+           WHERE pm.ministerio_id = m.id AND p.cd_status = 1) AS pessoas,
+         (SELECT STRING_AGG(p.nome, ', ') FROM dbo.pessoa_ministerio pm JOIN dbo.pessoas p ON p.id = pm.pessoa_id
+           WHERE pm.ministerio_id = m.id AND p.cd_status = 1 AND pm.lider = 1) AS lideres
   FROM dbo.ministerios m ORDER BY m.nome`));
 
 function dadosMinisterio(b) {
@@ -350,7 +410,7 @@ rota('DELETE', '/ministerios/:id', async ({ params, usuario, ip }) => {
 });
 // Pessoas do ministério: lista de pessoas ativas (para escolher) marcando quem já participa
 rota('GET', '/ministerios/:id/pessoas', async ({ params }) => query(`
-  SELECT p.id, p.nome, p.referencia, CASE WHEN pm.pessoa_id IS NULL THEN 0 ELSE 1 END AS membro
+  SELECT p.id, p.nome, p.referencia, CASE WHEN pm.pessoa_id IS NULL THEN 0 ELSE 1 END AS membro, ISNULL(pm.lider, 0) AS lider
   FROM dbo.pessoas p LEFT JOIN dbo.pessoa_ministerio pm ON pm.pessoa_id = p.id AND pm.ministerio_id = @id
   WHERE p.cd_status = 1 ORDER BY p.nome`, { id: params.id === '0' ? 0 : int(params.id) }));   // 0 = ministério novo
 rota('PUT', '/ministerios/:id/pessoas', async ({ params, body, usuario, ip }) => {
@@ -358,12 +418,14 @@ rota('PUT', '/ministerios/:id/pessoas', async ({ params, body, usuario, ip }) =>
   const m = await umaLinha('SELECT nome FROM dbo.ministerios WHERE id = @id', { id });
   if (!m) throw new HttpError(404, 'Ministério não encontrado.');
   const pessoas = (Array.isArray(body.pessoas) ? body.pessoas : []).map(Number).filter(Number.isInteger).slice(0, 2000);
+  const lideres = (Array.isArray(body.lideres) ? body.lideres : []).map(Number).filter((x) => pessoas.includes(x));
   await query(`
     SET XACT_ABORT ON; BEGIN TRAN;
     DELETE pm FROM dbo.pessoa_ministerio pm JOIN dbo.pessoas p ON p.id = pm.pessoa_id WHERE pm.ministerio_id = @id AND p.cd_status = 1;
-    INSERT INTO dbo.pessoa_ministerio (pessoa_id, ministerio_id)
-      SELECT DISTINCT p.id, @id FROM OPENJSON(@p) j JOIN dbo.pessoas p ON p.id = j.value AND p.cd_status = 1;
-    COMMIT;`, { id, p: JSON.stringify(pessoas) });
+    INSERT INTO dbo.pessoa_ministerio (pessoa_id, ministerio_id, lider)
+      SELECT DISTINCT p.id, @id, CASE WHEN p.id IN (SELECT value FROM OPENJSON(@l)) THEN 1 ELSE 0 END
+        FROM OPENJSON(@p) j JOIN dbo.pessoas p ON p.id = j.value AND p.cd_status = 1;
+    COMMIT;`, { id, p: JSON.stringify(pessoas), l: JSON.stringify(lideres) });
   await seg.registrar('ministerio_salvo', { usuario, ip, detalhe: `${m.nome}: ${pessoas.length} pessoa(s)` });
   return { ok: true };
 });
@@ -393,14 +455,15 @@ rota('GET', '/pessoas/:id', async ({ params, usuario }) => {
     FROM dbo.pessoas p LEFT JOIN dbo.pessoas_foto f ON f.pessoa_id = p.id WHERE p.id = @id;
     SELECT e.data, pr.presente, pr.justificativa FROM dbo.presencas pr JOIN dbo.encontros e ON e.id = pr.encontro_id
      WHERE pr.pessoa_id = @id ORDER BY e.data DESC;
-    SELECT id, area, responsavel_nome, motivo, status, dt_abertura, dt_conclusao,
-           (SELECT COUNT(*) FROM dbo.pastoral_registros r WHERE r.caso_id = c.id) AS contatos
+    SELECT id, area, responsavel_nome, responsavel_pessoa_id, motivo, status, dt_abertura, dt_conclusao,
+           (SELECT COUNT(*) FROM dbo.pastoral_registros r WHERE r.caso_id = c.id AND ISNULL(r.autor_nome, '') <> N'Sistema') AS contatos
       FROM dbo.pastoral_casos c WHERE pessoa_id = @id ORDER BY dt_abertura DESC;`,
   { id }, { todos: true });
   if (!pessoa[0]) throw new HttpError(404, 'Pessoa não encontrada.');
   pessoa[0].ministerios = ids(pessoa[0].ministerios);
   const areas = ['pastoral', 'integracao'].filter((a) => pode(usuario, `${a}.ver`));
-  return { pessoa: pessoa[0], historico, casos: areas.length ? casos.filter((c) => areas.includes(c.area)) : null, areas };
+  const visivel = (c) => areas.includes(c.area) && (veTodos(usuario, c.area) || (usuario.pessoa_id && c.responsavel_pessoa_id === usuario.pessoa_id));
+  return { pessoa: pessoa[0], historico, casos: areas.length ? casos.filter(visivel) : null, areas };
 });
 
 const SITUACOES = ['novo_visitante', 'visitante_regular', 'ex_visitante', 'novo_membro', 'membro', 'membro_ativo'];
@@ -530,8 +593,11 @@ rota('PUT', '/pessoas/:id/foto', async ({ params, body }) => {
 });
 rota('DELETE', '/pessoas/:id/foto', async ({ params }) => { await query('DELETE FROM dbo.pessoas_foto WHERE pessoa_id = @id', { id: int(params.id) }); return { ok: true }; });
 
-rota('GET', '/fotos/:id', async ({ params }) => {
-  const f = await umaLinha('SELECT foto, content_type FROM dbo.pessoas_foto WHERE pessoa_id = @id', { id: int(params.id) });
+rota('GET', '/fotos/:id', async ({ params, usuario }) => {
+  const id = int(params.id);
+  const podeVer = ['pessoas.ver', 'presenca.marcar', 'pastoral.ver', 'integracao.ver'].some((p) => pode(usuario, p)) || id === usuario.pessoa_id;
+  if (!podeVer) throw new HttpError(403, 'Você não tem permissão para isso.');
+  const f = await umaLinha('SELECT foto, content_type FROM dbo.pessoas_foto WHERE pessoa_id = @id', { id });
   if (!f) throw new HttpError(404, 'Sem foto.');
   return { $binario: f.foto, $tipo: f.content_type };
 });
@@ -552,29 +618,50 @@ rota('GET', '/presenca', async ({ query: q }) => {
   return { encontro: enc[0] || null, pessoas, registros };
 });
 
+// Salvar a chamada MESCLANDO: cada celular manda só o que ele marcou ou mudou.
+// Várias pessoas podem fazer a chamada ao mesmo tempo sem apagar o que a outra marcou.
+//  - marcacoes: [{ pessoa_id, presente, justificativa, auto }]  (auto = "restantes como falta":
+//    só grava se ninguém tiver marcado essa pessoa ainda)
+//  - remover:   [pessoa_id]  (quem foi desmarcado neste celular)
+//  - tema:      só muda se vier no pedido (o tema que outra pessoa escreveu não some)
+// Também aceita o formato antigo { registros: [...] } (mesclando, sem apagar os outros).
 rota('POST', '/presenca', async ({ body, usuario, ip }) => {
   const data = dataISO(body.data);
   if (!data) throw new HttpError(400, 'Informe a data.');
-  const regs = (Array.isArray(body.registros) ? body.registros : []).map((r) => ({
-    pessoa_id: int(r.pessoa_id), presente: !!r.presente, justificativa: r.presente ? null : txt(r.justificativa, 200),
+  if (data > hojeBrasil()) throw new HttpError(400, 'Não dá para salvar a chamada de uma data que ainda não chegou.');
+  const brutas = Array.isArray(body.marcacoes) ? body.marcacoes : (Array.isArray(body.registros) ? body.registros : []);
+  if (brutas.length > 2000) throw new HttpError(400, 'Marcações demais de uma vez.');
+  const regs = brutas.map((r) => ({
+    pessoa_id: int(r.pessoa_id), presente: r.presente ? 1 : 0, auto: r.auto && !r.presente ? 1 : 0,
+    justificativa: r.presente ? null : txt(r.justificativa, 200),
   }));
-  if (!regs.length) throw new HttpError(400, 'Marque pelo menos uma pessoa.');
+  const remover = (Array.isArray(body.remover) ? body.remover : []).slice(0, 2000).map(int);
+  if (!regs.length && !remover.length && body.tema === undefined) throw new HttpError(400, 'Marque pelo menos uma pessoa.');
   const r = await umaLinha(`
     SET XACT_ABORT ON; BEGIN TRAN;
     DECLARE @eid INT = (SELECT id FROM dbo.encontros WITH (UPDLOCK, HOLDLOCK) WHERE data = @data);
     IF @eid IS NULL BEGIN
       INSERT INTO dbo.encontros (data, tema, criado_por) VALUES (@data, @tema, @uid);
       SET @eid = SCOPE_IDENTITY();
-    END ELSE UPDATE dbo.encontros SET tema = @tema WHERE id = @eid;
-    DELETE FROM dbo.presencas WHERE encontro_id = @eid;
-    INSERT INTO dbo.presencas (encontro_id, pessoa_id, presente, justificativa, marcado_por, tipo_na_data)
-    SELECT @eid, j.pessoa_id, j.presente, j.justificativa, @uid, p.tipo
-      FROM OPENJSON(@json) WITH (pessoa_id INT, presente BIT, justificativa NVARCHAR(200)) j
-      JOIN dbo.pessoas p ON p.id = j.pessoa_id;
+    END ELSE IF @mudaTema = 1 UPDATE dbo.encontros SET tema = @tema WHERE id = @eid;
+    MERGE dbo.presencas AS t
+    USING (SELECT j.pessoa_id, j.presente, j.justificativa, j.auto, p.tipo
+             FROM OPENJSON(@json) WITH (pessoa_id INT, presente BIT, justificativa NVARCHAR(200), auto BIT) j
+             JOIN dbo.pessoas p ON p.id = j.pessoa_id) AS s
+       ON t.encontro_id = @eid AND t.pessoa_id = s.pessoa_id
+    WHEN MATCHED AND s.auto = 0 THEN
+      UPDATE SET presente = s.presente, justificativa = s.justificativa, marcado_por = @uid, dt_marcacao = SYSUTCDATETIME()
+    WHEN NOT MATCHED THEN
+      INSERT (encontro_id, pessoa_id, presente, justificativa, marcado_por, tipo_na_data)
+      VALUES (@eid, s.pessoa_id, s.presente, s.justificativa, @uid, s.tipo);
+    DELETE FROM dbo.presencas WHERE encontro_id = @eid AND pessoa_id IN (SELECT value FROM OPENJSON(@remover));
     COMMIT;
-    SELECT @eid AS id;`, { data, tema: txt(body.tema, 200), uid: usuario.id, json: JSON.stringify(regs) });
-  await seg.registrar('chamada_salva', { usuario, ip, detalhe: `${data}: ${regs.filter((x) => x.presente).length} presentes, ${regs.filter((x) => !x.presente).length} ausentes` });
-  return { encontro_id: r.id, alertas: pode(usuario, 'pastoral.ver') ? await calcularAlertas() : [] };
+    SELECT @eid AS id,
+      (SELECT COUNT(*) FROM dbo.presencas WHERE encontro_id = @eid AND presente = 1) AS presentes,
+      (SELECT COUNT(*) FROM dbo.presencas WHERE encontro_id = @eid AND presente = 0) AS ausentes;`,
+  { data, tema: txt(body.tema, 200), mudaTema: body.tema === undefined ? 0 : 1, uid: usuario.id, json: JSON.stringify(regs), remover: JSON.stringify(remover) });
+  await seg.registrar('chamada_salva', { usuario, ip, detalhe: `${data}: agora ${r.presentes} presentes, ${r.ausentes} ausentes (${regs.length} marcações neste envio)` });
+  return { encontro_id: r.id, presentes: r.presentes, ausentes: r.ausentes, alertas: pode(usuario, 'pastoral.ver') ? await calcularAlertas() : [] };
 });
 
 rota('GET', '/encontros', async () => query(`
@@ -648,105 +735,190 @@ async function visitantesSemContato() {
   }));
 }
 
-// Equipe da área: usuários ativos que estão em algum grupo (fora o de Administradores) com permissão de editar a área.
-// Ex.: quem está no grupo Pastoral. Serve para o filtro "Responsável" e para sugerir nomes ao designar.
+// ---------- Quem vê e quem distribui ----------
+// Equipe da área = pessoas do CADASTRO no ministério com o mesmo nome da área (Pastoral / Integração).
+// Não depende de login: o responsável é avisado pelo WhatsApp.
+// Ver todos os casos: permissão "<area>.ver_todos" ou ser líder do ministério da área.
+// Designar/trocar responsável: permissão "<area>.designar" ou ser líder do ministério da área.
+// Sem isso, a pessoa (ligada ao cadastro) vê só os casos em que ela é a responsável.
+const chaveNome = (t) => String(t || '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+const NOMES_MINISTERIO = { pastoral: ['Pastoral'], integracao: ['Integração', 'Integracao'] };
+const lideraArea = (u, area) => (u.ministerios || []).some((m) => m.lider && chaveNome(m.nome) === area);
+const veTodos = (u, area) => pode(u, `${area}.ver_todos`) || lideraArea(u, area);
+const designa = (u, area) => pode(u, `${area}.designar`) || lideraArea(u, area);
+const euPessoa = (u) => u.pessoa_id || -1;
+
 const equipeDaArea = (area) => query(`
-  SELECT DISTINCT u.id, u.nome FROM dbo.usuarios u
-  JOIN dbo.usuario_grupo ug ON ug.usuario_id = u.id
-  JOIN dbo.grupos g ON g.id = ug.grupo_id AND g.sistema = 0
-  JOIN dbo.grupo_permissao gp ON gp.grupo_id = g.id AND gp.permissao = @perm
-  WHERE u.cd_status = 1 ORDER BY u.nome`, { perm: `${area}.editar` });
+  SELECT p.id AS pessoa_id, p.nome, p.telefone, CAST(MAX(CAST(pm.lider AS INT)) AS BIT) AS lider,
+         (SELECT TOP 1 u.id FROM dbo.usuarios u WHERE u.pessoa_id = p.id AND u.cd_status = 1) AS usuario_id
+    FROM dbo.pessoa_ministerio pm JOIN dbo.ministerios m ON m.id = pm.ministerio_id JOIN dbo.pessoas p ON p.id = pm.pessoa_id
+   WHERE p.cd_status = 1 AND m.nome IN (@n1, @n2)
+   GROUP BY p.id, p.nome, p.telefone ORDER BY p.nome`, { n1: NOMES_MINISTERIO[area][0], n2: NOMES_MINISTERIO[area][1] || NOMES_MINISTERIO[area][0] });
+
+async function responsavelDaEquipe(area, pessoaId) {
+  const id = int(pessoaId);
+  const r = (await equipeDaArea(area)).find((x) => x.pessoa_id === id);
+  if (!r) throw new HttpError(400, `Escolha alguém do ministério ${area === 'pastoral' ? 'Pastoral' : 'Integração'}.`);
+  return r;
+}
+
+// Colunas comuns dos casos. "Sistema" = registro automático (ex.: "Enviado para Mayck"), não conta como contato.
+const SQL_CASO = `
+  c.id, c.pessoa_id, c.area, c.responsavel_nome, c.responsavel_id, c.responsavel_pessoa_id, c.motivo, c.status,
+  c.dt_abertura, c.dt_conclusao, c.dt_enviado,
+  p.nome AS pessoa_nome, p.referencia AS pessoa_referencia, p.tipo AS pessoa_tipo, p.telefone AS pessoa_telefone, p.instagram AS pessoa_instagram,
+  rp.telefone AS responsavel_telefone,
+  CONVERT(VARCHAR(30), f.dt_atualizacao, 126) AS foto_v,
+  (SELECT MAX(e.data) FROM dbo.presencas pr2 JOIN dbo.encontros e ON e.id = pr2.encontro_id WHERE pr2.pessoa_id = p.id AND pr2.presente = 1) AS ultima_presenca,
+  (SELECT MAX(r.dt_criacao) FROM dbo.pastoral_registros r WHERE r.caso_id = c.id AND ISNULL(r.autor_nome, '') <> N'Sistema') AS ultimo_registro,
+  (SELECT COUNT(*) FROM dbo.pastoral_registros r WHERE r.caso_id = c.id AND ISNULL(r.autor_nome, '') <> N'Sistema') AS contatos,
+  CAST(CASE WHEN c.status <> 'concluido' AND c.dt_enviado < DATEADD(DAY, -7, SYSUTCDATETIME())
+             AND NOT EXISTS (SELECT 1 FROM dbo.pastoral_registros r WHERE r.caso_id = c.id AND r.dt_criacao > c.dt_enviado AND ISNULL(r.autor_nome, '') <> N'Sistema')
+            THEN 1 ELSE 0 END AS BIT) AS sem_retorno`;
+const SQL_CASO_FROM = `FROM dbo.pastoral_casos c JOIN dbo.pessoas p ON p.id = c.pessoa_id
+  LEFT JOIN dbo.pessoas rp ON rp.id = c.responsavel_pessoa_id LEFT JOIN dbo.pessoas_foto f ON f.pessoa_id = p.id`;
 
 function rotasDeAcompanhamento(area) {
   const ver = `${area}.ver`, editar = `${area}.editar`;
+  const precisaDesignar = (u) => { if (!designa(u, area)) throw new HttpError(403, 'Só quem distribui os acompanhamentos pode fazer isso.'); };
+  // Caso existe, é desta área e a pessoa pode vê-lo
+  const casoVisivel = async (u, id) => {
+    const c = await umaLinha(`SELECT id, status, responsavel_pessoa_id, responsavel_nome FROM dbo.pastoral_casos WHERE id = @id AND area = @area
+      AND (@todos = 1 OR responsavel_pessoa_id = @eu)`, { id: int(id), area, todos: veTodos(u, area) ? 1 : 0, eu: euPessoa(u) });
+    if (!c) throw new HttpError(404, 'Acompanhamento não encontrado.');
+    return c;
+  };
+
   rota('GET', `/${area}/equipe`, async () => equipeDaArea(area), ver);
-  rota('GET', `/${area}`, async () => {
-    const [alertas, casos, equipe] = await Promise.all([area === 'pastoral' ? calcularAlertas() : visitantesSemContato(), query(`
-      SELECT TOP 600 c.id, c.pessoa_id, c.responsavel_nome, c.responsavel_id, c.motivo, c.status, c.dt_abertura, c.dt_conclusao,
-             p.nome AS pessoa_nome, p.referencia AS pessoa_referencia, p.tipo AS pessoa_tipo, p.telefone AS pessoa_telefone,
-             CONVERT(VARCHAR(30), f.dt_atualizacao, 126) AS foto_v, (SELECT MAX(e.data) FROM dbo.presencas pr2 JOIN dbo.encontros e ON e.id = pr2.encontro_id WHERE pr2.pessoa_id = p.id AND pr2.presente = 1) AS ultima_presenca,
-             (SELECT MAX(r.dt_criacao) FROM dbo.pastoral_registros r WHERE r.caso_id = c.id) AS ultimo_registro,
-             (SELECT COUNT(*) FROM dbo.pastoral_registros r WHERE r.caso_id = c.id) AS contatos
-      FROM dbo.pastoral_casos c JOIN dbo.pessoas p ON p.id = c.pessoa_id LEFT JOIN dbo.pessoas_foto f ON f.pessoa_id = p.id
-      WHERE c.area = @area AND p.cd_status = 1
-      ORDER BY CASE c.status WHEN 'aberto' THEN 0 WHEN 'em_andamento' THEN 1 ELSE 2 END, c.dt_abertura DESC`, { area }), equipeDaArea(area)]);
-    return { alertas, casos, equipe };
+
+  rota('GET', `/${area}`, async ({ usuario }) => {
+    const todos = veTodos(usuario, area), distribui = designa(usuario, area);
+    const [alertas, casos, equipe] = await Promise.all([
+      distribui ? (area === 'pastoral' ? calcularAlertas() : visitantesSemContato()) : [],
+      query(`SELECT TOP 800 ${SQL_CASO} ${SQL_CASO_FROM}
+        WHERE c.area = @area AND p.cd_status = 1 AND (@todos = 1 OR c.responsavel_pessoa_id = @eu)
+        ORDER BY CASE c.status WHEN 'aberto' THEN 0 WHEN 'em_andamento' THEN 1 ELSE 2 END, c.dt_abertura DESC`,
+      { area, todos: todos ? 1 : 0, eu: euPessoa(usuario) }),
+      equipeDaArea(area)]);
+    return { alertas, casos, equipe, poder: { verTodos: todos, designar: distribui, vinculado: !!usuario.pessoa_id } };
   }, ver);
 
-  rota('GET', `/${area}/casos/:id`, async ({ params }) => {
+  rota('GET', `/${area}/casos/:id`, async ({ params, usuario }) => {
+    await casoVisivel(usuario, params.id);
     const [caso, registros] = await query(`
-      SELECT c.*, p.nome AS pessoa_nome, p.referencia AS pessoa_referencia, p.tipo AS pessoa_tipo, p.telefone AS pessoa_telefone, CONVERT(VARCHAR(30), f.dt_atualizacao, 126) AS foto_v
-        FROM dbo.pastoral_casos c JOIN dbo.pessoas p ON p.id = c.pessoa_id LEFT JOIN dbo.pessoas_foto f ON f.pessoa_id = p.id WHERE c.id = @id AND c.area = @area;
+      SELECT ${SQL_CASO} ${SQL_CASO_FROM} WHERE c.id = @id AND c.area = @area;
       SELECT r.id, r.texto, r.autor_nome, r.dt_criacao FROM dbo.pastoral_registros r JOIN dbo.pastoral_casos c ON c.id = r.caso_id
        WHERE r.caso_id = @id AND c.area = @area ORDER BY r.dt_criacao DESC;`, { id: int(params.id), area }, { todos: true });
-    if (!caso[0]) throw new HttpError(404, 'Acompanhamento não encontrado.');
-    return { caso: caso[0], registros };
+    return { caso: caso[0], registros, poder: { designar: designa(usuario, area) } };
   }, ver);
 
-  rota('POST', `/${area}/casos`, async ({ body, usuario }) => {
-    const responsavel = txt(body.responsavel_nome, 120);
-    if (!responsavel) throw new HttpError(400, 'Informe o responsável.');
-    await query(`
+  // Abrir acompanhamento. Quem distribui escolhe o responsável da equipe; os demais abrem para si mesmos.
+  const abrirCaso = async (usuario, pessoaId, motivo, nota, respPessoaId) => {
+    let resp;
+    if (designa(usuario, area)) resp = await responsavelDaEquipe(area, respPessoaId);
+    else {
+      if (!usuario.pessoa_id) throw new HttpError(400, 'Sua conta ainda não está ligada ao seu cadastro. Peça a um administrador.');
+      resp = await umaLinha('SELECT id AS pessoa_id, nome FROM dbo.pessoas WHERE id = @id', { id: usuario.pessoa_id });
+    }
+    return umaLinha(`
       SET XACT_ABORT ON; BEGIN TRAN;
-      INSERT INTO dbo.pastoral_casos (pessoa_id, area, responsavel_nome, responsavel_id, motivo, criado_por)
-      VALUES (@pid, @area, @resp, (SELECT TOP 1 id FROM dbo.usuarios WHERE nome = @resp AND cd_status = 1), @motivo, @uid);
+      IF EXISTS (SELECT 1 FROM dbo.pastoral_casos WHERE pessoa_id = @pid AND area = @area AND status <> 'concluido') BEGIN ROLLBACK; SELECT 0 AS id; RETURN; END
+      INSERT INTO dbo.pastoral_casos (pessoa_id, area, responsavel_nome, responsavel_pessoa_id, responsavel_id, motivo, criado_por)
+      VALUES (@pid, @area, @resp, @rp, (SELECT TOP 1 id FROM dbo.usuarios WHERE pessoa_id = @rp AND cd_status = 1), @motivo, @uid);
       DECLARE @cid INT = SCOPE_IDENTITY();
       IF @nota IS NOT NULL INSERT INTO dbo.pastoral_registros (caso_id, texto, autor_nome, autor_id) VALUES (@cid, @nota, @autor, @uid);
       IF @nota IS NOT NULL UPDATE dbo.pastoral_casos SET status = 'em_andamento' WHERE id = @cid;
-      COMMIT;`, { pid: int(body.pessoa_id), area, resp: responsavel, motivo: txt(body.motivo, 200), nota: txt(body.nota, 4000), uid: usuario.id, autor: usuario.nome });
-    return { ok: true };
+      COMMIT; SELECT @cid AS id;`,
+    { pid: int(pessoaId), area, resp: resp.nome, rp: resp.pessoa_id, motivo: txt(motivo, 200), nota: txt(nota, 4000), uid: usuario.id, autor: usuario.nome });
+  };
+  rota('POST', `/${area}/casos`, async ({ body, usuario }) => {
+    const r = await abrirCaso(usuario, body.pessoa_id, body.motivo, body.nota, body.responsavel_pessoa_id);
+    if (!r.id) throw new HttpError(409, 'Essa pessoa já tem um acompanhamento em aberto.');
+    return { id: r.id };
+  }, editar);
+  // Designar vários de uma vez (lista "Sem acompanhamento")
+  rota('POST', `/${area}/casos/varios`, async ({ body, usuario, ip }) => {
+    precisaDesignar(usuario);
+    const pessoas = (Array.isArray(body.pessoas) ? body.pessoas : []).slice(0, 300);
+    if (!pessoas.length) throw new HttpError(400, 'Selecione pelo menos uma pessoa.');
+    const resp = await responsavelDaEquipe(area, body.responsavel_pessoa_id);
+    let n = 0;
+    for (const x of pessoas) { const r = await abrirCaso(usuario, x.pessoa_id, x.motivo, null, resp.pessoa_id); if (r.id) n++; }
+    await seg.registrar('casos_designados', { usuario, ip, detalhe: `${area}: ${n} novos para ${resp.nome}` });
+    return { abertos: n };
   }, editar);
 
-  // Muda só o que vier: situação, responsável e/ou motivo
-  rota('PUT', `/${area}/casos/:id`, async ({ params, body }) => {
+  // Muda só o que vier: situação (quem cuida do caso), responsável e motivo (quem distribui)
+  rota('PUT', `/${area}/casos/:id`, async ({ params, body, usuario }) => {
+    await casoVisivel(usuario, params.id);
     const st = body.status === undefined ? null : body.status;
     if (st !== null && !['aberto', 'em_andamento', 'concluido'].includes(st)) throw new HttpError(400, 'Situação inválida.');
-    const resp = body.responsavel_nome === undefined ? null : txt(body.responsavel_nome, 120);
-    if (body.responsavel_nome !== undefined && !resp) throw new HttpError(400, 'Informe o responsável.');
+    let resp = null;
+    if (body.responsavel_pessoa_id !== undefined || body.motivo !== undefined) precisaDesignar(usuario);
+    if (body.responsavel_pessoa_id !== undefined) resp = await responsavelDaEquipe(area, body.responsavel_pessoa_id);
     await query(`UPDATE dbo.pastoral_casos SET
         status = COALESCE(@st, status),
         dt_conclusao = CASE WHEN @st IS NULL THEN dt_conclusao WHEN @st = 'concluido' THEN SYSUTCDATETIME() ELSE NULL END,
         responsavel_nome = COALESCE(@resp, responsavel_nome),
-        responsavel_id = CASE WHEN @resp IS NULL THEN responsavel_id ELSE (SELECT TOP 1 id FROM dbo.usuarios WHERE nome = @resp AND cd_status = 1) END,
+        responsavel_pessoa_id = CASE WHEN @rp IS NULL THEN responsavel_pessoa_id ELSE @rp END,
+        responsavel_id = CASE WHEN @rp IS NULL THEN responsavel_id ELSE (SELECT TOP 1 id FROM dbo.usuarios WHERE pessoa_id = @rp AND cd_status = 1) END,
+        dt_enviado = CASE WHEN @rp IS NULL OR @rp = ISNULL(responsavel_pessoa_id, -1) THEN dt_enviado ELSE NULL END,
         motivo = CASE WHEN @mudaMotivo = 1 THEN @motivo ELSE motivo END
       WHERE id = @id AND area = @area`,
-    { st, resp, mudaMotivo: body.motivo === undefined ? 0 : 1, motivo: txt(body.motivo, 200), id: int(params.id), area });
+    { st, resp: resp?.nome ?? null, rp: resp?.pessoa_id ?? null, mudaMotivo: body.motivo === undefined ? 0 : 1, motivo: txt(body.motivo, 200), id: int(params.id), area });
     return { ok: true };
   }, editar);
 
-  // Define o mesmo responsável para vários acompanhamentos de uma vez
-  rota('POST', `/${area}/casos/responsavel`, async ({ body, usuario, ip }) => {
-    const resp = txt(body.responsavel_nome, 120);
-    if (!resp) throw new HttpError(400, 'Informe o responsável.');
-    const r = await umaLinha(`UPDATE dbo.pastoral_casos SET responsavel_nome = @resp,
-        responsavel_id = (SELECT TOP 1 id FROM dbo.usuarios WHERE nome = @resp AND cd_status = 1)
-      WHERE area = @area AND id IN (SELECT value FROM OPENJSON(@ids)); SELECT @@ROWCOUNT AS n;`, { area, resp, ids: listaIds(body) });
-    await seg.registrar('casos_designados', { usuario, ip, detalhe: `${area}: ${r.n} para ${resp}` });
-    return { ok: true, n: r.n };
-  }, editar);
-
-  rota('POST', `/${area}/casos/:id/registros`, async ({ params, body, usuario }) => {
-    const texto = txt(body.texto, 4000);
-    if (!texto) throw new HttpError(400, 'Escreva o registro.');
-    const r = await umaLinha(`
-      IF NOT EXISTS (SELECT 1 FROM dbo.pastoral_casos WHERE id = @id AND area = @area) BEGIN SELECT 0 AS ok; RETURN; END
-      INSERT INTO dbo.pastoral_registros (caso_id, texto, autor_nome, autor_id) VALUES (@id, @texto, @autor, @uid);
-      UPDATE dbo.pastoral_casos SET status = 'em_andamento' WHERE id = @id AND status = 'aberto';
-      SELECT 1 AS ok;`, { id: int(params.id), area, texto, autor: usuario.nome, uid: usuario.id });
-    if (!r.ok) throw new HttpError(404, 'Acompanhamento não encontrado.');
-    return { ok: true };
-  }, editar);
-
-  // Ações em massa: concluir ou excluir vários acompanhamentos de uma vez
+  // Ações em massa
   const listaIds = (b) => {
     const v = (Array.isArray(b.ids) ? b.ids : []).map(Number).filter((n) => Number.isInteger(n) && n > 0);
     if (!v.length) throw new HttpError(400, 'Selecione pelo menos um acompanhamento.');
     if (v.length > 500) throw new HttpError(400, 'Selecione no máximo 500 de uma vez.');
     return JSON.stringify([...new Set(v)]);
   };
+  // Mesmo responsável para vários
+  rota('POST', `/${area}/casos/responsavel`, async ({ body, usuario, ip }) => {
+    precisaDesignar(usuario);
+    const resp = await responsavelDaEquipe(area, body.responsavel_pessoa_id);
+    const r = await umaLinha(`UPDATE dbo.pastoral_casos SET responsavel_nome = @resp, responsavel_pessoa_id = @rp,
+        responsavel_id = (SELECT TOP 1 id FROM dbo.usuarios WHERE pessoa_id = @rp AND cd_status = 1),
+        dt_enviado = CASE WHEN ISNULL(responsavel_pessoa_id, -1) = @rp THEN dt_enviado ELSE NULL END
+      WHERE area = @area AND id IN (SELECT value FROM OPENJSON(@ids)); SELECT @@ROWCOUNT AS n;`, { area, resp: resp.nome, rp: resp.pessoa_id, ids: listaIds(body) });
+    await seg.registrar('casos_designados', { usuario, ip, detalhe: `${area}: ${r.n} para ${resp.nome}` });
+    return { ok: true, n: r.n };
+  }, editar);
+  // Enviado ao responsável pelo WhatsApp: fica no histórico e o caso passa para "em andamento"
+  rota('POST', `/${area}/casos/enviados`, async ({ body, usuario, ip }) => {
+    precisaDesignar(usuario);
+    const r = await umaLinha(`
+      SET XACT_ABORT ON; BEGIN TRAN;
+      DECLARE @c TABLE (id INT, resp NVARCHAR(120));
+      UPDATE dbo.pastoral_casos SET dt_enviado = SYSUTCDATETIME(), status = CASE WHEN status = 'aberto' THEN 'em_andamento' ELSE status END
+      OUTPUT inserted.id, inserted.responsavel_nome INTO @c
+      WHERE area = @area AND status <> 'concluido' AND responsavel_pessoa_id IS NOT NULL AND id IN (SELECT value FROM OPENJSON(@ids));
+      INSERT INTO dbo.pastoral_registros (caso_id, texto, autor_nome, autor_id)
+      SELECT id, N'Enviado para ' + resp + N' pelo WhatsApp por ' + @quem + N'.', N'Sistema', @uid FROM @c;
+      COMMIT; SELECT COUNT(*) AS n FROM @c;`, { area, ids: listaIds(body), quem: usuario.verComoPor?.nome || usuario.nome, uid: usuario.id });
+    await seg.registrar('casos_enviados', { usuario, ip, detalhe: `${area}: ${r.n} enviados ao responsável` });
+    return { enviados: r.n };
+  }, editar);
+
+  rota('POST', `/${area}/casos/:id/registros`, async ({ params, body, usuario }) => {
+    await casoVisivel(usuario, params.id);
+    const texto = txt(body.texto, 4000);
+    if (!texto) throw new HttpError(400, 'Escreva o registro.');
+    await query(`
+      INSERT INTO dbo.pastoral_registros (caso_id, texto, autor_nome, autor_id) VALUES (@id, @texto, @autor, @uid);
+      UPDATE dbo.pastoral_casos SET status = 'em_andamento' WHERE id = @id AND status = 'aberto';`,
+    { id: int(params.id), texto, autor: usuario.verComoPor ? `${usuario.verComoPor.nome} (como ${usuario.nome})` : usuario.nome, uid: usuario.id });
+    return { ok: true };
+  }, editar);
+
   rota('POST', `/${area}/casos/concluir`, async ({ body, usuario, ip }) => {
     const r = await umaLinha(`UPDATE dbo.pastoral_casos SET status = 'concluido', dt_conclusao = SYSUTCDATETIME()
-      WHERE area = @area AND status <> 'concluido' AND id IN (SELECT value FROM OPENJSON(@ids)); SELECT @@ROWCOUNT AS n;`, { area, ids: listaIds(body) });
+      WHERE area = @area AND status <> 'concluido' AND id IN (SELECT value FROM OPENJSON(@ids))
+        AND (@todos = 1 OR responsavel_pessoa_id = @eu); SELECT @@ROWCOUNT AS n;`,
+    { area, ids: listaIds(body), todos: veTodos(usuario, area) ? 1 : 0, eu: euPessoa(usuario) });
     await seg.registrar('casos_concluidos', { usuario, ip, detalhe: `${area}: ${r.n} concluídos em massa` });
     return { concluidos: r.n };
   }, editar);
@@ -765,13 +937,196 @@ function rotasDeAcompanhamento(area) {
 rotasDeAcompanhamento('pastoral');
 rotasDeAcompanhamento('integracao');
 
+// ------------------------------------------------------------------ AGENDA E ESCALAS
+// Administrador (acessos.gerenciar) vê e altera tudo. Líder do ministério altera o seu.
+// Todos os líderes (de qualquer ministério) e o ministério "Líderes de equipe" veem as escalas de todos.
+const ehGestor = (u) => pode(u, 'acessos.gerenciar');
+const meusMinisterios = (u) => (u.ministerios || []).map((m) => m.id);
+const lideraMinisterio = (u, id) => ehGestor(u) || (u.ministerios || []).some((m) => m.id === id && m.lider);
+const veTodasEscalas = (u) => ehGestor(u) || (u.ministerios || []).some((m) => m.lider || chaveNome(m.nome) === chaveNome(MINISTERIO_LIDERES));
+const precisaLiderar = (u, id) => { if (!lideraMinisterio(u, id)) throw new HttpError(403, 'Só o líder deste ministério (ou um administrador) pode fazer isso.'); };
+const horaValida = (h) => (/^([01]\d|2[0-3]):[0-5]\d$/.test(h || '') ? h : null);
+
+// ---------- Agenda ----------
+rota('GET', '/agenda', async ({ query: q, usuario }) => {
+  const anteriores = q.periodo === 'anteriores';
+  const [reunioes, pessoas] = await query(`
+    SELECT r.id, r.ministerio_id, m.nome AS ministerio, m.cor, r.titulo, CONVERT(VARCHAR(19), r.inicio, 126) AS inicio, CONVERT(VARCHAR(19), r.fim, 126) AS fim,
+           r.local, r.descricao, r.cancelada, r.sequencia
+      FROM dbo.reunioes r JOIN dbo.ministerios m ON m.id = r.ministerio_id
+     WHERE (@todos = 1 OR r.ministerio_id IN (SELECT value FROM OPENJSON(@mins))
+            OR EXISTS (SELECT 1 FROM dbo.reuniao_pessoa rp WHERE rp.reuniao_id = r.id AND rp.pessoa_id = @eu))
+       AND ((@ant = 0 AND r.fim >= DATEADD(HOUR, -3, SYSUTCDATETIME())) OR (@ant = 1 AND r.fim < DATEADD(HOUR, -3, SYSUTCDATETIME())))
+     ORDER BY CASE WHEN @ant = 1 THEN NULL ELSE r.inicio END, r.inicio DESC;
+    SELECT rp.reuniao_id, p.id, p.nome, CASE WHEN p.email LIKE '%_@_%._%' THEN 1 ELSE 0 END AS tem_email, CONVERT(VARCHAR(19), rp.dt_convite, 126) AS dt_convite
+      FROM dbo.reuniao_pessoa rp JOIN dbo.pessoas p ON p.id = rp.pessoa_id;`,
+  { todos: ehGestor(usuario) ? 1 : 0, mins: JSON.stringify(meusMinisterios(usuario)), eu: euPessoa(usuario), ant: anteriores ? 1 : 0 }, { todos: true });
+  reunioes.forEach((r) => {
+    r.pessoas = pessoas.filter((p) => p.reuniao_id === r.id).map(({ reuniao_id, ...p }) => p);
+    r.pode_editar = lideraMinisterio(usuario, r.ministerio_id);
+    r.eu_participo = r.pessoas.some((p) => p.id === usuario.pessoa_id);
+  });
+  const ministerios = ehGestor(usuario) ? await query('SELECT id, nome, cor FROM dbo.ministerios WHERE cd_status = 1 ORDER BY nome')
+    : (usuario.ministerios || []).filter((m) => m.lider);
+  return { reunioes, posso_criar: ministerios.map((m) => ({ id: m.id, nome: m.nome })) };
+});
+
+rota('GET', '/agenda/membros/:id', async ({ params, usuario }) => {
+  const id = int(params.id);
+  precisaLiderar(usuario, id);
+  return query(`SELECT p.id, p.nome, CASE WHEN p.email LIKE '%_@_%._%' THEN 1 ELSE 0 END AS tem_email, pm.lider
+    FROM dbo.pessoa_ministerio pm JOIN dbo.pessoas p ON p.id = pm.pessoa_id WHERE pm.ministerio_id = @id AND p.cd_status = 1 ORDER BY p.nome`, { id });
+});
+
+function dadosReuniao(b) {
+  const titulo = txt(b.titulo, 150);
+  if (!titulo) throw new HttpError(400, 'Informe o título da reunião.');
+  const data = dataISO(b.data), ini = horaValida(b.hora_inicio), fim = horaValida(b.hora_fim) || ini;
+  if (!data || !ini) throw new HttpError(400, 'Informe a data e o horário.');
+  if (fim < ini) throw new HttpError(400, 'O horário de término é antes do início.');
+  return { titulo, inicio: `${data}T${ini}:00`, fim: `${data}T${fim === ini ? `${String(Math.min(23, Number(ini.slice(0, 2)) + 1)).padStart(2, '0')}${ini.slice(2)}` : fim}:00`,
+    local: txt(b.local, 250), descricao: txt(b.descricao, 1000) };
+}
+async function enviarConvites(reuniaoId, { cancelar = false, soNovos = false } = {}) {
+  const [r] = await query(`SELECT r.id, r.titulo, CONVERT(VARCHAR(19), r.inicio, 126) AS inicio, CONVERT(VARCHAR(19), r.fim, 126) AS fim, r.local, r.descricao, r.sequencia, m.nome AS ministerio
+    FROM dbo.reunioes r JOIN dbo.ministerios m ON m.id = r.ministerio_id WHERE r.id = @id`, { id: reuniaoId });
+  const convidados = await query(`SELECT p.id, p.nome, p.email FROM dbo.reuniao_pessoa rp JOIN dbo.pessoas p ON p.id = rp.pessoa_id
+    WHERE rp.reuniao_id = @id AND p.email LIKE '%_@_%._%' AND (@so = 0 OR rp.dt_convite IS NULL)`, { id: reuniaoId, so: soNovos ? 1 : 0 });
+  const enviados = convidados.length ? await emailConvites({ ...r, uid: `reuniao-${r.id}@gestao-hype` }, convidados.slice(0, 80), { cancelar }) : 0;
+  if (enviados) await query(`UPDATE dbo.reuniao_pessoa SET dt_convite = SYSUTCDATETIME() WHERE reuniao_id = @id AND pessoa_id IN (SELECT value FROM OPENJSON(@ids))`,
+    { id: reuniaoId, ids: JSON.stringify(convidados.map((c) => c.id)) });
+  return enviados;
+}
+const listaPessoas = (b) => [...new Set((Array.isArray(b.pessoas) ? b.pessoas : []).map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 300);
+
+rota('POST', '/agenda', async ({ body, usuario, ip }) => {
+  const mid = int(body.ministerio_id);
+  precisaLiderar(usuario, mid);
+  const d = dadosReuniao(body);
+  const r = await umaLinha(`
+    SET XACT_ABORT ON; BEGIN TRAN;
+    INSERT INTO dbo.reunioes (ministerio_id, titulo, inicio, fim, local, descricao, criado_por) VALUES (@mid, @titulo, @inicio, @fim, @local, @descricao, @uid);
+    DECLARE @id INT = SCOPE_IDENTITY();
+    INSERT INTO dbo.reuniao_pessoa (reuniao_id, pessoa_id) SELECT @id, p.id FROM OPENJSON(@p) j JOIN dbo.pessoas p ON p.id = j.value AND p.cd_status = 1;
+    COMMIT; SELECT @id AS id;`, { mid, ...d, uid: usuario.id, p: JSON.stringify(listaPessoas(body)) });
+  const enviados = body.enviar ? await enviarConvites(r.id) : 0;
+  await seg.registrar('reuniao_salva', { usuario, ip, detalhe: `${d.titulo} (${d.inicio.slice(0, 16).replace('T', ' ')}), ${enviados} convites` });
+  return { id: r.id, enviados };
+});
+
+rota('PUT', '/agenda/:id', async ({ params, body, usuario, ip }) => {
+  const id = int(params.id);
+  const atual = await umaLinha('SELECT ministerio_id FROM dbo.reunioes WHERE id = @id', { id });
+  if (!atual) throw new HttpError(404, 'Reunião não encontrada.');
+  precisaLiderar(usuario, atual.ministerio_id);
+  const d = dadosReuniao(body);
+  await query(`
+    SET XACT_ABORT ON; BEGIN TRAN;
+    UPDATE dbo.reunioes SET titulo = @titulo, inicio = @inicio, fim = @fim, local = @local, descricao = @descricao, cancelada = 0, sequencia = sequencia + 1 WHERE id = @id;
+    DELETE FROM dbo.reuniao_pessoa WHERE reuniao_id = @id AND pessoa_id NOT IN (SELECT value FROM OPENJSON(@p));
+    INSERT INTO dbo.reuniao_pessoa (reuniao_id, pessoa_id) SELECT @id, p.id FROM OPENJSON(@p) j JOIN dbo.pessoas p ON p.id = j.value AND p.cd_status = 1
+      WHERE NOT EXISTS (SELECT 1 FROM dbo.reuniao_pessoa x WHERE x.reuniao_id = @id AND x.pessoa_id = p.id);
+    COMMIT;`, { id, ...d, p: JSON.stringify(listaPessoas(body)) });
+  const enviados = body.enviar ? await enviarConvites(id) : 0;   // reenviar: a agenda de quem já tinha o convite atualiza sozinha
+  await seg.registrar('reuniao_salva', { usuario, ip, detalhe: `${d.titulo} (alterada), ${enviados} convites` });
+  return { ok: true, enviados };
+});
+
+rota('POST', '/agenda/:id/cancelar', async ({ params, usuario, ip }) => {
+  const id = int(params.id);
+  const atual = await umaLinha('SELECT ministerio_id, titulo FROM dbo.reunioes WHERE id = @id', { id });
+  if (!atual) throw new HttpError(404, 'Reunião não encontrada.');
+  precisaLiderar(usuario, atual.ministerio_id);
+  await query('UPDATE dbo.reunioes SET cancelada = 1, sequencia = sequencia + 1 WHERE id = @id', { id });
+  const avisados = await enviarConvites(id, { cancelar: true });
+  await seg.registrar('reuniao_cancelada', { usuario, ip, detalhe: `${atual.titulo}, ${avisados} avisados` });
+  return { avisados };
+});
+
+// ---------- Escalas ----------
+rota('GET', '/escalas', async ({ query: q, usuario }) => {
+  const mes = /^\d{4}-\d{2}$/.test(q.mes || '') ? q.mes : hojeBrasil().slice(0, 7);
+  const todos = veTodasEscalas(usuario);
+  const [ministerios, funcoes, itens, membros] = await query(`
+    SELECT m.id, m.nome, m.cor FROM dbo.ministerios m WHERE m.cd_status = 1 AND (@todos = 1 OR m.id IN (SELECT value FROM OPENJSON(@mins))) ORDER BY m.nome;
+    SELECT f.id, f.ministerio_id, f.nome, f.ordem FROM dbo.escala_funcoes f ORDER BY f.ministerio_id, f.ordem, f.nome;
+    SELECT i.id, i.ministerio_id, CONVERT(CHAR(10), i.data, 126) AS data, i.funcao, i.pessoa_id, p.nome
+      FROM dbo.escala_itens i JOIN dbo.pessoas p ON p.id = i.pessoa_id
+     WHERE i.data >= DATEFROMPARTS(@ano, @mes, 1) AND i.data < DATEADD(MONTH, 1, DATEFROMPARTS(@ano, @mes, 1));
+    SELECT pm.ministerio_id, p.id, p.nome, pm.lider FROM dbo.pessoa_ministerio pm JOIN dbo.pessoas p ON p.id = pm.pessoa_id WHERE p.cd_status = 1 ORDER BY p.nome;`,
+  { todos: todos ? 1 : 0, mins: JSON.stringify(meusMinisterios(usuario)), ano: Number(mes.slice(0, 4)), mes: Number(mes.slice(5, 7)) }, { todos: true });
+  const ids = new Set(ministerios.map((m) => m.id));
+  return {
+    mes, ve_todas: todos,
+    ministerios: ministerios.map((m) => ({ ...m, pode_editar: lideraMinisterio(usuario, m.id),
+      funcoes: funcoes.filter((f) => f.ministerio_id === m.id), membros: membros.filter((x) => x.ministerio_id === m.id).map(({ ministerio_id, ...x }) => x) })),
+    // Para avisar conflitos, quem vê todas recebe os itens de todos; os outros, só dos seus ministérios
+    itens: itens.filter((i) => todos || ids.has(i.ministerio_id)),
+  };
+});
+
+rota('GET', '/escalas/minhas', async ({ usuario }) => {
+  if (!usuario.pessoa_id) return { vinculado: false, itens: [] };
+  const itens = await query(`SELECT CONVERT(CHAR(10), i.data, 126) AS data, i.funcao, m.nome AS ministerio, m.cor
+    FROM dbo.escala_itens i JOIN dbo.ministerios m ON m.id = i.ministerio_id
+    WHERE i.pessoa_id = @eu AND i.data >= DATEADD(DAY, -1, CAST(DATEADD(HOUR, -3, SYSUTCDATETIME()) AS DATE)) ORDER BY i.data, m.nome`, { eu: usuario.pessoa_id });
+  return { vinculado: true, itens };
+});
+
+// Salva a escala de UM ministério em UMA data (troca tudo daquela célula de uma vez)
+rota('PUT', '/escalas/:ministerio/:data', async ({ params, body, usuario, ip }) => {
+  const mid = int(params.ministerio), data = dataISO(params.data);
+  if (!data) throw new HttpError(400, 'Data inválida.');
+  precisaLiderar(usuario, mid);
+  const itens = (Array.isArray(body.itens) ? body.itens : []).slice(0, 200)
+    .map((i) => ({ pessoa_id: int(i.pessoa_id), funcao: txt(i.funcao, 60) }));
+  const funcao = body.funcao === undefined ? undefined : txt(body.funcao, 60);
+  await query(`
+    SET XACT_ABORT ON; BEGIN TRAN;
+    DELETE FROM dbo.escala_itens WHERE ministerio_id = @mid AND data = @data AND (@todas = 1 OR ISNULL(funcao, N'') = ISNULL(@funcao, N''));
+    INSERT INTO dbo.escala_itens (ministerio_id, data, funcao, pessoa_id, criado_por)
+      SELECT DISTINCT @mid, @data, j.funcao, p.id, @uid FROM OPENJSON(@itens) WITH (pessoa_id INT, funcao NVARCHAR(60)) j JOIN dbo.pessoas p ON p.id = j.pessoa_id AND p.cd_status = 1;
+    COMMIT;`, { mid, data, todas: funcao === undefined ? 1 : 0, funcao: funcao ?? null, itens: JSON.stringify(funcao === undefined ? itens : itens.map((i) => ({ ...i, funcao }))), uid: usuario.id });
+  await seg.registrar('escala_salva', { usuario, ip, detalhe: `ministério ${mid}, ${data}: ${itens.length} pessoa(s)${funcao ? ` em ${funcao}` : ''}` });
+  return { ok: true };
+});
+
+rota('POST', '/escalas/:ministerio/funcoes', async ({ params, body, usuario }) => {
+  const mid = int(params.ministerio);
+  precisaLiderar(usuario, mid);
+  const nome = txt(body.nome, 60);
+  if (!nome) throw new HttpError(400, 'Informe o nome da função.');
+  const r = await umaLinha(`INSERT INTO dbo.escala_funcoes (ministerio_id, nome, ordem) OUTPUT inserted.id
+    VALUES (@mid, @nome, (SELECT ISNULL(MAX(ordem), 0) + 1 FROM dbo.escala_funcoes WHERE ministerio_id = @mid))`, { mid, nome });
+  return { id: r.id };
+});
+rota('PUT', '/escalas/funcoes/:id', async ({ params, body, usuario }) => {
+  const f = await umaLinha('SELECT ministerio_id, nome FROM dbo.escala_funcoes WHERE id = @id', { id: int(params.id) });
+  if (!f) throw new HttpError(404, 'Função não encontrada.');
+  precisaLiderar(usuario, f.ministerio_id);
+  const nome = txt(body.nome, 60);
+  if (!nome) throw new HttpError(400, 'Informe o nome da função.');
+  // Renomear também atualiza a escala já montada com o nome antigo
+  await query(`UPDATE dbo.escala_funcoes SET nome = @nome, ordem = COALESCE(@ordem, ordem) WHERE id = @id;
+    UPDATE dbo.escala_itens SET funcao = @nome WHERE ministerio_id = @mid AND funcao = @antigo AND data >= CAST(GETDATE() AS DATE);`,
+  { id: int(params.id), nome, ordem: Number.isInteger(body.ordem) ? body.ordem : null, mid: f.ministerio_id, antigo: f.nome });
+  return { ok: true };
+});
+rota('DELETE', '/escalas/funcoes/:id', async ({ params, usuario }) => {
+  const f = await umaLinha('SELECT ministerio_id FROM dbo.escala_funcoes WHERE id = @id', { id: int(params.id) });
+  if (!f) return { ok: true };
+  precisaLiderar(usuario, f.ministerio_id);
+  await query('DELETE FROM dbo.escala_funcoes WHERE id = @id', { id: int(params.id) });   // a escala antiga continua mostrando o nome
+  return { ok: true };
+});
+
 // ------------------------------------------------------------------ PAINEL E RELATÓRIOS
 rota('GET', '/painel', async ({ usuario }) => {
   // Cada bloco do Início só vem se a pessoa tiver permissão para ele
   const verPessoas = pode(usuario, 'pessoas.ver');
   const verPresenca = pode(usuario, 'relatorios.ver') || pode(usuario, 'presenca.marcar');
   const verPastoral = pode(usuario, 'pastoral.ver');
-  const [[pessoas, encontros, casos], alertas] = await Promise.all([query(`
+  const [[pessoas, encontros, casos, meus], alertas] = await Promise.all([query(`
     WITH ult8 AS (SELECT TOP 8 e.id FROM dbo.encontros e
                    WHERE EXISTS (SELECT 1 FROM dbo.presencas x WHERE x.encontro_id = e.id AND x.presente = 1) ORDER BY e.data DESC)
     SELECT p.id, p.nome, p.referencia, p.tipo, p.data_nascimento, p.data_cadastro, p.telefone, CONVERT(VARCHAR(30), f.dt_atualizacao, 126) AS foto_v,
@@ -781,14 +1136,21 @@ rota('GET', '/painel', async ({ usuario }) => {
       FROM dbo.pessoas p LEFT JOIN dbo.pessoas_foto f ON f.pessoa_id = p.id WHERE p.cd_status = 1 AND @vp = 1;
     SELECT TOP 12 encontro_id AS id, data, tema, presentes AS total, membros_presentes AS membros, visitantes_presentes AS visitantes
       FROM dbo.vw_resumo_encontros WHERE @ve = 1 AND presentes > 0 ORDER BY data DESC;
-    SELECT COUNT(*) AS abertos FROM dbo.pastoral_casos WHERE area = 'pastoral' AND status <> 'concluido' AND @vc = 1;`,
-  { vp: verPessoas ? 1 : 0, ve: verPresenca ? 1 : 0, vc: verPastoral ? 1 : 0 }, { todos: true }), verPastoral ? calcularAlertas() : []]);
+    SELECT COUNT(*) AS abertos FROM dbo.pastoral_casos WHERE area = 'pastoral' AND status <> 'concluido' AND @vc = 1 AND (@ptodos = 1 OR responsavel_pessoa_id = @eu);
+    SELECT ${SQL_CASO} ${SQL_CASO_FROM}
+     WHERE c.responsavel_pessoa_id = @eu AND c.status <> 'concluido' AND p.cd_status = 1
+       AND ((c.area = 'pastoral' AND @vc = 1) OR (c.area = 'integracao' AND @vi = 1))
+     ORDER BY c.dt_abertura DESC;`,
+  { vp: verPessoas ? 1 : 0, ve: verPresenca ? 1 : 0, vc: verPastoral ? 1 : 0, vi: pode(usuario, 'integracao.ver') ? 1 : 0,
+    ptodos: veTodos(usuario, 'pastoral') ? 1 : 0, eu: euPessoa(usuario) }, { todos: true }),
+  verPastoral && designa(usuario, 'pastoral') ? calcularAlertas() : null]);
   return {
-    integracao: pode(usuario, 'integracao.ver') ? (await visitantesSemContato()).length : null,
+    integracao: pode(usuario, 'integracao.ver') && designa(usuario, 'integracao') ? (await visitantesSemContato()).length : null,
     pessoas: verPessoas ? pessoas : null,
     encontros: verPresenca ? encontros : null,
     casosAbertos: verPastoral ? casos[0].abertos : null,
     alertas: verPastoral ? alertas : null,
+    meusCasos: meus,
   };
 });
 
@@ -821,6 +1183,9 @@ async function despachar({ metodo, caminho, query: q = {}, body = {}, cookie, cs
         const exigidas = r.acesso === 'aprovado' ? [] : [].concat(r.acesso);
         if (exigidas.length && !exigidas.some((p) => pode(usuario, p))) throw new HttpError(403, 'Você não tem permissão para isso.');
       }
+    }
+    if (usuario?.verComoPor && ((caminho === '/auth/senha') || (caminho === '/auth/eu' && metodo === 'PUT'))) {
+      throw new HttpError(403, 'Você está vendo como outra pessoa. Volte para a sua conta para fazer isso.');
     }
     let cookieResposta = null;
     const corpo = await r.fn({ params, query: q, body: body || {}, usuario, origem, ip, definirCookie: (c) => { cookieResposta = c; } });

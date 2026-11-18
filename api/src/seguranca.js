@@ -42,8 +42,9 @@ const segredo = () => {
 const modoLocal = () => process.env.MODO_LOCAL === '1';
 const NOME_COOKIE = () => (modoLocal() ? 'hype_sessao' : '__Host-hype_sessao');
 
-function cookieSessao(usuario) {
-  const token = jwt.sign({ sub: usuario.id, v: usuario.versao_sessao }, segredo(), { expiresIn: DURACAO_SESSAO_S, algorithm: 'HS256' });
+// "Ver como": o administrador continua com a própria sessão (sub/v dele) e o token diz quem ele está vendo (como)
+function cookieSessao(usuario, como = null) {
+  const token = jwt.sign({ sub: usuario.id, v: usuario.versao_sessao, ...(como ? { como } : {}) }, segredo(), { expiresIn: DURACAO_SESSAO_S, algorithm: 'HS256' });
   return `${NOME_COOKIE()}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${DURACAO_SESSAO_S}${modoLocal() ? '' : '; Secure'}`;
 }
 const cookieSair = () => `${NOME_COOKIE()}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${modoLocal() ? '' : '; Secure'}`;
@@ -57,22 +58,45 @@ function lerCookie(cabecalho) {
   return null;
 }
 
+const SQL_USUARIO = `
+    SELECT u.id, u.nome, u.email, u.cd_status, u.versao_sessao, u.pessoa_id,
+           CONVERT(VARCHAR(30), f.dt_atualizacao, 126) AS foto_v
+      FROM dbo.usuarios u LEFT JOIN dbo.pessoas_foto f ON f.pessoa_id = u.pessoa_id WHERE u.id = @id;
+    SELECT DISTINCT gp.permissao FROM dbo.usuario_grupo ug JOIN dbo.grupo_permissao gp ON gp.grupo_id = ug.grupo_id WHERE ug.usuario_id = @id;
+    SELECT m.id, m.nome, pm.lider FROM dbo.usuarios u
+      JOIN dbo.pessoa_ministerio pm ON pm.pessoa_id = u.pessoa_id JOIN dbo.ministerios m ON m.id = pm.ministerio_id
+     WHERE u.id = @id AND m.cd_status = 1;`;
+
+async function carregarUsuario(id) {
+  const [linhas, perms, mins] = await query(SQL_USUARIO, { id }, { todos: true });
+  const u = linhas[0];
+  if (!u) return null;
+  u.permissoes = u.cd_status === 1 ? perms.map((p) => p.permissao) : [];
+  u.ministerios = mins.map((m) => ({ id: m.id, nome: m.nome, lider: !!m.lider }));
+  return u;
+}
+
 async function usuarioDaSessao(cabecalhoCookie) {
   const token = lerCookie(cabecalhoCookie);
   if (!token) return null;
   let dados;
   try { dados = jwt.verify(token, segredo(), { algorithms: ['HS256'] }); } catch { return null; }
-  const [linhas, perms] = await query(`
-    SELECT id, nome, email, cd_status, versao_sessao FROM dbo.usuarios WHERE id = @id;
-    SELECT DISTINCT gp.permissao FROM dbo.usuario_grupo ug JOIN dbo.grupo_permissao gp ON gp.grupo_id = ug.grupo_id WHERE ug.usuario_id = @id;`,
-  { id: dados.sub }, { todos: true });
-  const u = linhas[0];
+  const u = await carregarUsuario(dados.sub);
   if (!u || u.versao_sessao !== dados.v) return null;   // senha trocada / bloqueado = sessão inválida
-  u.permissoes = u.cd_status === 1 ? perms.map((p) => p.permissao) : [];
-  return u;
+  if (!dados.como) return u;
+  // Ver como: só vale enquanto quem está vendo continuar administrador ativo, e nunca como outro administrador
+  if (u.cd_status !== 1 || !u.permissoes.includes('acessos.gerenciar')) return u;
+  const alvo = await carregarUsuario(dados.como);
+  if (!alvo || alvo.cd_status !== 1 || alvo.permissoes.includes('acessos.gerenciar')) return u;
+  alvo.verComoPor = { id: u.id, nome: u.nome, versao_sessao: u.versao_sessao };
+  return alvo;
 }
 
-const publico = (u) => u && ({ id: u.id, nome: u.nome, email: u.email, cd_status: u.cd_status, permissoes: u.permissoes || [] });
+const publico = (u) => u && ({
+  id: u.id, nome: u.nome, email: u.email, cd_status: u.cd_status, permissoes: u.permissoes || [],
+  pessoa_id: u.pessoa_id || null, foto_v: u.foto_v || null, ministerios: u.ministerios || [],
+  verComoPor: u.verComoPor ? { nome: u.verComoPor.nome } : null,
+});
 
 // ---------------- Limite de tentativas ----------------
 async function conferirLimite(email, ip) {
@@ -91,7 +115,8 @@ async function conferirLimite(email, ip) {
 async function registrar(acao, { usuario = null, detalhe = null, email = null, ip = null } = {}) {
   try {
     await query(`INSERT INTO dbo.auditoria (usuario_id, usuario_nome, acao, detalhe, email, ip) VALUES (@uid, @nome, @acao, @detalhe, @email, @ip)`,
-      { uid: usuario?.id ?? null, nome: usuario?.nome ?? null, acao, detalhe: detalhe ? String(detalhe).slice(0, 400) : null, email, ip });
+      { uid: usuario?.verComoPor?.id ?? usuario?.id ?? null,
+        nome: usuario?.verComoPor ? `${usuario.verComoPor.nome} (como ${usuario.nome})` : usuario?.nome ?? null, acao, detalhe: detalhe ? String(detalhe).slice(0, 400) : null, email, ip });
   } catch (e) { console.error('auditoria', e); }
 }
 
@@ -108,6 +133,6 @@ function validarJpeg(dataUrl) {
 }
 
 module.exports = {
-  validarSenha, gerarHash, conferirSenha, sha256, cookieSessao, cookieSair, usuarioDaSessao, publico,
+  validarSenha, gerarHash, conferirSenha, sha256, cookieSessao, cookieSair, usuarioDaSessao, carregarUsuario, publico,
   conferirLimite, registrar, validarJpeg,
 };

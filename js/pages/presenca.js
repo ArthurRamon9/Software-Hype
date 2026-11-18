@@ -14,41 +14,50 @@ export async function render(conteudo) {
   return () => window.removeEventListener('beforeunload', sairSemSalvar);
 }
 
-async function desenhar(conteudo) {
+async function desenhar(conteudo, manter = {}) {
   const { encontro, pessoas, registros } = await api('GET', `/presenca?data=${dataSel}`);
   let lista = pessoas;
   const marca = new Map(registros.map((r) => [r.pessoa_id, r.presente]));
   const just = new Map(registros.filter((r) => r.justificativa).map((r) => [r.pessoa_id, r.justificativa]));
+  // O que ESTE celular mudou (só isso vai para o servidor; o que outra pessoa marcou não é apagado)
+  const mudou = new Map();      // pessoa_id -> { presente, auto }
+  const removidos = new Set();  // desmarcados aqui
+  let temaMudou = false;
   let busca = '';
+  let soFaltam = !!manter.soFaltam;
   conteudo.dataset.alterado = '0';
   const alterou = () => { conteudo.dataset.alterado = '1'; };
   const dia = parseISO(dataSel).toLocaleDateString('pt-BR', { weekday: 'long' });
+  const futura = dataSel > hojeISO();
+  const tema = encontro?.tema || '';
 
   conteudo.innerHTML = `
-    <div class="cabecalho"><div><h1>Presença</h1><p class="sub">${encontro ? 'Chamada já salva. Você pode corrigir e salvar de novo.' : 'Chamada ainda não feita nesta data.'}</p></div>
-      <div class="acoes"><button class="btn" id="visitante">Novo visitante</button></div></div>
+    <div class="cabecalho"><div><h1>Presença</h1><p class="sub" id="sub-chamada">${futura ? 'Esta data ainda não chegou. A chamada pode ser feita a partir do dia.' : encontro ? 'Chamada já salva. Você pode corrigir e salvar de novo.' : 'Chamada ainda não feita nesta data.'}</p></div>
+      <div class="acoes"><button class="btn" id="visitante" ${futura ? 'disabled' : ''}>Novo visitante</button></div></div>
     <div class="painel">
       <div class="chamada-topo">
         <div class="data">
-          <button class="btn sm" id="ant" title="Sexta anterior">‹</button>
-          <input type="date" class="input" id="data" value="${dataSel}">
-          <button class="btn sm" id="prox" title="Próxima sexta">›</button>
-          <span class="muted small" style="margin-left:6px">${dia}</span>
+          <button class="btn sm" id="ant" title="Sexta anterior" aria-label="Sexta anterior">‹</button>
+          <input type="date" class="input" id="data" value="${dataSel}" max="${hojeISO()}">
+          <button class="btn sm" id="prox" title="Próxima sexta" aria-label="Próxima sexta">›</button>
+          <span class="muted small dia-semana">${dia.replace(/^./, (c) => c.toUpperCase())}</span>
         </div>
         <span class="contagem" id="contagem"></span>
       </div>
-      <div class="tema-linha">
+      <div class="tema-linha ${tema ? '' : 'recolhida'}" id="tema-linha">
+        <button type="button" class="link-btn" id="abrir-tema">${tema ? `Tema: <b>${esc(tema)}</b> · Editar` : '+ Tema da noite'}</button>
         <label for="tema">Tema da noite</label>
-        <input class="input" id="tema" maxlength="200" placeholder="Ex.: Identidade em Cristo" value="${esc(encontro?.tema || '')}">
-        <span class="hint">opcional · é salvo junto com a chamada</span>
+        <input class="input" id="tema" maxlength="200" placeholder="Ex.: Identidade em Cristo" value="${esc(tema)}">
+        <span class="hint">Opcional · é salvo junto com a chamada</span>
       </div>
       <div class="filtros">
-        <input class="input busca" id="busca" type="search" placeholder="Procurar pelo nome" title="A busca acha também quem está afastado">
+        <input class="input busca" id="busca" type="search" placeholder="Procurar pelo nome" title="A busca acha também quem está afastado" autocomplete="off">
+        <label class="check small"><input type="checkbox" id="so-faltam" ${soFaltam ? 'checked' : ''}>Só quem falta marcar</label>
       </div>
       <div class="chamada" id="chamada"></div>
       <div class="barra-salvar">
-        <button class="link-btn" id="resto">Restantes como falta</button>
-        <button class="btn primary" id="salvar">Salvar chamada</button>
+        <button class="link-btn" id="resto" ${futura ? 'disabled' : ''}>Restantes como falta</button>
+        <button class="btn primary" id="salvar" ${futura ? 'disabled' : ''}>Salvar chamada</button>
       </div>
     </div>
     ${encontro && pode('presenca.excluir') ? '<p style="margin-top:14px"><button class="link-btn danger small" id="apagar">Apagar a chamada desta data</button></p>' : ''}`;
@@ -62,26 +71,36 @@ async function desenhar(conteudo) {
   const linha = (p) => {
     const v = marca.get(p.id), j = just.get(p.id);
     return `<div data-id="${p.id}" class="${v === true ? 'marcado-p' : v === false ? 'marcado-f' : ''}">${foto(p.nome, urlFoto(p.id, p.foto_v))}
-      <div class="nome"><b>${esc(p.nome)}${p.referencia ? ` <span class="ref">${esc(p.referencia)}</span>` : ''}</b><span>${TIPOS[p.tipo]}${v === false ? ` · <button class="link-btn small" data-just>${j ? esc(j) : 'justificar'}</button>` : ''}</span></div>
-      <div class="pf"><button data-v="1" class="${v === true ? 'p' : ''}" aria-label="Presente" title="Veio">${icon('check')}</button><button data-v="0" class="${v === false ? 'f' : ''}" aria-label="Faltou" title="Faltou">${icon('xis')}</button></div></div>`;
+      <div class="nome"><b>${esc(p.nome)}${p.referencia ? ` <span class="ref">${esc(p.referencia)}</span>` : ''}</b><span>${TIPOS[p.tipo]}${v === false ? ` · <button class="link-btn small" data-just>${j ? esc(j) : 'Justificar'}</button>` : ''}</span></div>
+      <div class="pf"><button data-v="1" class="${v === true ? 'p' : ''}" aria-label="Presente" title="Veio" ${futura ? 'disabled' : ''}>${icon('check')}</button><button data-v="0" class="${v === false ? 'f' : ''}" aria-label="Faltou" title="Faltou" ${futura ? 'disabled' : ''}>${icon('xis')}</button></div></div>`;
   };
   // A chamada mostra quem está "no Hype" (veio nos últimos 3 meses ou acabou de ser cadastrado).
   // Quem está afastado ou é ex-visitante aparece na busca; se for marcado, entra na lista.
   const esperado = (p) => p.tipo !== 'ex_visitante' && p.cd_status === 1 && estaNoHype(p);
   const visiveis = () => {
-    if (!busca.trim()) return lista.filter((p) => esperado(p) || marca.has(p.id));
-    return filtrarPorNome(lista, busca);   // começo do nome, como LIKE 'ana%'
+    if (busca.trim()) return filtrarPorNome(lista, busca);   // começo do nome, como LIKE 'ana%'
+    return lista.filter((p) => (soFaltam ? esperado(p) && !marca.has(p.id) : esperado(p) || marca.has(p.id)));
   };
   const pintar = () => {
     const v = visiveis();
-    $('#chamada').innerHTML = v.length ? v.map(linha).join('') : `<div class="vazio">${lista.length ? 'Ninguém com esse nome.' : '<b>Ninguém para chamar ainda</b>Cadastre as pessoas na aba Pessoas (ou importe a planilha) e volte aqui.'}</div>`;
+    $('#chamada').innerHTML = v.length ? v.map(linha).join('') : `<div class="vazio">${!lista.length ? '<b>Ninguém para chamar ainda</b>Cadastre as pessoas na aba Pessoas (ou importe a planilha) e volte aqui.' : busca.trim() ? 'Ninguém com esse nome.' : 'Todo mundo já foi marcado.'}</div>`;
     contar();
   };
-  const repintarLinha = (pid) => { const el = $(`#chamada [data-id="${pid}"]`); if (el) el.outerHTML = linha(lista.find((x) => x.id === pid)); contar(); };
+  const repintarLinha = (pid) => {
+    const el = $(`#chamada [data-id="${pid}"]`);
+    if (el) { if (soFaltam && !busca.trim() && marca.has(pid)) el.remove(); else el.outerHTML = linha(lista.find((x) => x.id === pid)); }
+    contar();
+  };
   pintar();
 
+  const marcar = (pid, presente, auto = false) => {
+    if (presente === null) { marca.delete(pid); mudou.delete(pid); removidos.add(pid); return; }
+    marca.set(pid, presente); removidos.delete(pid);
+    mudou.set(pid, { presente, auto });
+  };
+
   $('#chamada').addEventListener('click', (e) => {
-    const b = e.target.closest('button'); if (!b) return;
+    const b = e.target.closest('button'); if (!b || b.disabled) return;
     const pid = Number(b.closest('[data-id]').dataset.id);
     if (b.hasAttribute('data-just')) {
       return janela({
@@ -90,28 +109,33 @@ async function desenhar(conteudo) {
           <div class="janela-acoes"><button class="btn" data-fechar>Cancelar</button><button class="btn primary" id="jok">Ok</button></div>`,
         aoAbrir: (j, fechar) => {
           const inp = j.querySelector('#jt'); inp.focus();
-          const ok = () => { const t = inp.value.trim(); if (t) just.set(pid, t); else just.delete(pid); alterou(); fechar(); repintarLinha(pid); };
+          const ok = () => { const t = inp.value.trim(); if (t) just.set(pid, t); else just.delete(pid); marcar(pid, false); alterou(); fechar(); repintarLinha(pid); };
           j.querySelector('#jok').onclick = ok;
           inp.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') ok(); });
         },
       });
     }
     const presente = b.dataset.v === '1';
-    if (marca.get(pid) === presente) marca.delete(pid); else marca.set(pid, presente);
+    marcar(pid, marca.get(pid) === presente ? null : presente);
     if (presente) just.delete(pid);
-    alterou(); repintarLinha(pid);
+    alterou();
+    // Na porta: marcou alguém que achou pela busca -> a busca limpa e volta o cursor para o próximo nome
+    if (busca.trim()) { busca = ''; $('#busca').value = ''; pintar(); $('#busca').focus(); } else repintarLinha(pid);
   });
 
   $('#busca').addEventListener('input', (e) => { busca = e.target.value; pintar(); });
-  $('#tema').addEventListener('input', alterou);
-  // "Restantes como falta" só marca quem era esperado na sexta (no Hype), não os afastados
-  $('#resto').onclick = () => { lista.forEach((p) => { if (!marca.has(p.id) && esperado(p)) marca.set(p.id, false); }); alterou(); pintar(); };
+  $('#so-faltam').addEventListener('change', (e) => { soFaltam = e.target.checked; pintar(); });
+  $('#abrir-tema').addEventListener('click', () => { $('#tema-linha').classList.remove('recolhida'); $('#tema').focus(); });
+  $('#tema').addEventListener('input', () => { temaMudou = true; alterou(); });
+  // "Restantes como falta" só marca quem era esperado na sexta (no Hype), não os afastados.
+  // Vão como faltas "automáticas": se outra pessoa marcou alguém como presente em outro celular, vale o dela.
+  $('#resto').onclick = () => { lista.forEach((p) => { if (!marca.has(p.id) && esperado(p)) marcar(p.id, false, true); }); alterou(); pintar(); };
 
   const irPara = async (nova) => {
     if (conteudo.dataset.alterado === '1' && !(await confirmar('Você tem marcações não salvas nesta data. Trocar mesmo assim?', { botao: 'Trocar' }))) { $('#data').value = dataSel; return; }
     dataSel = nova;
     conteudo.innerHTML = '<div class="boot"><span class="spin"></span></div>';
-    try { await desenhar(conteudo); } catch (err) { avisoErro(err); }
+    try { await desenhar(conteudo, { soFaltam }); } catch (err) { avisoErro(err); }
   };
   const somar = (d) => { const x = parseISO(dataSel); x.setDate(x.getDate() + d); return isoLocal(x); };
   $('#data').addEventListener('change', (e) => e.target.value && irPara(e.target.value));
@@ -138,7 +162,7 @@ async function desenhar(conteudo) {
           try {
             const r = await api('POST', '/pessoas', { nome, tipo: 'novo_visitante', telefone: j.querySelector('#vt').value, data_nascimento: j.querySelector('#vd').value || null, como_conheceu: j.querySelector('#vc').value, data_cadastro: dataSel });
             lista = [...lista, { id: r.id, nome, tipo: 'novo_visitante', cd_status: 1, data_cadastro: dataSel }].sort((a, b) => a.nome.localeCompare(b.nome));
-            marca.set(r.id, true); alterou(); fechar(); pintar();
+            marcar(r.id, true); alterou(); fechar(); pintar();
             aviso(`${nome.split(' ')[0]} cadastrado(a). Não esqueça de salvar a chamada.`);
           } catch (err) { avisoErro(err); }
         });
@@ -148,20 +172,22 @@ async function desenhar(conteudo) {
 
   $('#apagar')?.addEventListener('click', async () => {
     if (!(await confirmar(`Apagar toda a chamada de ${fmtData(dataSel)}?`, { botao: 'Apagar', perigo: true }))) return;
-    try { await api('DELETE', `/encontros/${encontro.id}`); aviso('Chamada apagada.'); await desenhar(conteudo); } catch (err) { avisoErro(err); }
+    try { await api('DELETE', `/encontros/${encontro.id}`); aviso('Chamada apagada.'); await desenhar(conteudo, { soFaltam }); } catch (err) { avisoErro(err); }
   });
 
   $('#salvar').onclick = (e) => ocupado(e.currentTarget, async () => {
-    if (!marca.size) return aviso('Marque pelo menos uma pessoa.', 'erro');
+    if (!mudou.size && !removidos.size && !temaMudou) return aviso(marca.size ? 'Nada mudou desde a última vez que foi salva.' : 'Marque pelo menos uma pessoa.', marca.size ? 'ok' : 'erro');
     try {
       const r = await api('POST', '/presenca', {
-        data: dataSel, tema: $('#tema').value,
-        registros: [...marca].map(([pessoa_id, presente]) => ({ pessoa_id, presente, justificativa: just.get(pessoa_id) })),
+        data: dataSel, ...(temaMudou ? { tema: $('#tema').value } : {}),
+        marcacoes: [...mudou].map(([pessoa_id, m]) => ({ pessoa_id, presente: m.presente, auto: m.auto, justificativa: just.get(pessoa_id) })),
+        remover: [...removidos],
       });
       conteudo.dataset.alterado = '0';
-      const p = [...marca.values()].filter(Boolean).length;
-      aviso(`Chamada salva: ${p} presentes, ${marca.size - p} ausentes.`);
+      aviso(`Chamada salva: ${r.presentes} presentes, ${r.ausentes} ausentes.`);
       atualizarContadores();
+      // Recarrega com o que está no servidor: aparecem também as marcações feitas em outros celulares
+      await desenhar(conteudo, { soFaltam });
       if (r.alertas.length) {
         janela({
           titulo: 'Para a Pastoral',

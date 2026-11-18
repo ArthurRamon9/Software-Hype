@@ -100,12 +100,40 @@ O cadastro guarda todo mundo que já passou pelo Hype, mas o dia a dia só mostr
 - **Frequentes** (número do Início): vieram em 2 ou mais das últimas 8 sextas.
 - Bolinha da "Última vez": verde = veio nas últimas 3 semanas; amarela = sumindo (3 semanas a 3 meses); escura = afastado.
 
+## Ministérios, líderes e quem vê o quê
+- **Ministério** = onde o jovem serve (informação do cadastro). **Grupo** = o que cada conta pode fazer no sistema.
+- Em cada ministério marque quem é **Líder**. O líder monta as escalas e marca as reuniões do seu ministério.
+- **Ligue cada conta à pessoa do cadastro** (Acessos → abrir a conta). O sistema sugere pelo mesmo e-mail e o administrador confirma.
+  Com a conta ligada aparecem a foto, as escalas, a agenda e os acompanhamentos da pessoa.
+- **Ver como**: em Acessos, o administrador pode ver o sistema como outra conta (não-administradora) para testar e ajudar.
+  Não usa senha de ninguém e tudo fica no registro como "Fulano (como Beltrano)".
+
 ## Pastoral e Integração
 As duas áreas usam a mesma estrutura (`pastoral_casos` + `pastoral_registros`), separadas pela coluna `area`.
 - **Pastoral** alerta membros (novo membro, membro, membro ativo) e visitantes com **2 faltas seguidas**. Quem está no ministério **Líderes de equipe** só entra com **3 faltas seguidas**. Só entra quem está até **5 semanas** sem vir (quem sumiu há mais tempo não vira pendência). Visitante que veio uma vez só fica com a Integração.
 - O responsável pode ser trocado dentro do acompanhamento ou definido para vários de uma vez (marque e use "Definir responsável"). O filtro de responsável mostra quem está no grupo da área.
+- **Quem cuida** é escolhido numa lista com as pessoas do ministério Pastoral (ou Integração) do cadastro.
+- **Quem vê:** quem distribui (administradores, permissão "designar" ou líder do ministério da área) vê tudo e a lista de pendentes;
+  os Líderes de equipe veem tudo sem alterar; o resto da equipe vê **só os casos que estão com ela** (inclusive no Início, em "Seus acompanhamentos").
+- **Enviar para o responsável:** abre o WhatsApp do responsável com nome, telefone, Instagram e há quanto tempo a pessoa não vem.
+  O envio fica no histórico, o caso vai para "Em andamento" e, se em 7 dias ninguém registrar contato, aparece "Sem retorno".
 - A lista de acompanhamentos mostra só pessoas ativas, tem lixeira em cada linha e permite marcar várias para concluir ou excluir de uma vez.
 - **Integração** lista os visitantes que chegaram nos últimos 60 dias e ainda não tiveram contato, destacando quem chegou há menos de 48 horas.
+
+## Chamada com várias pessoas
+Várias pessoas podem fazer a chamada ao mesmo tempo, cada uma no seu celular: cada uma grava só o que marcou.
+"Restantes como falta" não apaga quem outra pessoa marcou como presente. Não dá para salvar chamada de data futura.
+
+## Agenda e Escalas
+- **Agenda:** o líder marca a reunião do ministério e o convite chega no Google Agenda (ou iPhone/Outlook) de quem tem e-mail no cadastro,
+  um e-mail por pessoa. Mudou o horário ou cancelou, a agenda deles atualiza sozinha. Cada um vê as reuniões dos seus ministérios.
+- **Escalas:** o líder monta a escala das sextas do mês. Funções (Som, Projeção...) são criadas pelo próprio líder; sem funções, a escala é só a lista de quem serve.
+  Todos os líderes veem as escalas de todos e o sistema avisa quando alguém está em dois ministérios na mesma sexta.
+  Cada pessoa vê "Minhas escalas". Dá para copiar o texto para o grupo do WhatsApp e baixar em planilha.
+
+## Aparência
+Cores do Hype (preto, branco e roxo; ciano e vermelho só no "H"), títulos na fonte Anton (OFL, em `assets/fonts`).
+Tema claro, escuro ou automático em **Minha conta** (fica guardado no aparelho).
 
 ## Consultas no banco
 
@@ -117,6 +145,9 @@ Além das tabelas, o banco tem views prontas para relatórios próprios:
 | `vw_presencas` | cada presença/falta com data, nome e tipo |
 | `vw_resumo_encontros` | totais por sexta |
 | `vw_frequencia_pessoa` | presenças, faltas, % e última presença por pessoa |
+
+Tabelas da v4: `reunioes` e `reuniao_pessoa` (Agenda), `escala_funcoes` e `escala_itens` (Escalas), `sementes` (o que o sistema cria uma vez só).
+Colunas novas: `usuarios.pessoa_id`, `pessoa_ministerio.lider`, `pastoral_casos.responsavel_pessoa_id` e `dt_enviado`.
 
 Exemplos em [`sql/02_consultas_exemplo.sql`](sql/02_consultas_exemplo.sql). Convenção: `cd_status` 1 = ativo, 0 = inativo. As fotos ficam em `pessoas_foto` (separadas, para o `SELECT *` em `pessoas` continuar leve).
 

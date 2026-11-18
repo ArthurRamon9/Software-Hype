@@ -17,14 +17,14 @@ export async function render(conteudo) {
   const hoje = new Date(), mes = hoje.getMonth();
   const primeiroNome = esc(sessao.usuario.nome.split(' ')[0]);
   const ola = `<div class="ola"><h1>${saudacao()}, ${primeiroNome}</h1>
-    <p>${hoje.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}</p></div>`;
+    <p>${hoje.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' }).replace(/^./, (c) => c.toUpperCase())}</p></div>`;
 
   if (!sessao.usuario.permissoes.length) {
     conteudo.innerHTML = `${ola}<div class="painel vazio"><b>Quase lá</b>Sua conta está liberada, mas você ainda não faz parte de nenhum grupo.<br>Peça a um administrador para incluir você no grupo certo.</div>`;
     return;
   }
 
-  const { pessoas: cadastro, encontros: recentes, casosAbertos, alertas, integracao } = await api('GET', '/painel');
+  const { pessoas: cadastro, encontros: recentes, casosAbertos, alertas, integracao, meusCasos = [] } = await api('GET', '/painel');
   // Só conta quem está "no Hype": veio nos últimos 3 meses (quem sumiu continua no cadastro, fora destes números)
   const pessoas = cadastro ? cadastro.filter(estaNoHype) : null;
   const afastados = cadastro ? cadastro.length - pessoas.length : 0;
@@ -66,16 +66,16 @@ export async function render(conteudo) {
     numeros.push(['Frequentes', frequentes.length, `${mem} membros · ${frequentes.length - mem} visitantes<br>vieram 2+ das últimas 8 sextas`]);
   }
   if (recentes) {
-    let comp = 'presentes';
-    if (ult && ant) { const d = ult.total - ant.total; comp = d === 0 ? 'igual à semana anterior' : `<span class="${d > 0 ? 'sobe' : 'desce'}">${d > 0 ? '+' : ''}${d}</span> sobre a anterior`; }
-    numeros.push([`Última sexta${ult ? ` · ${fmtDiaMes(ult.data)}` : ''}`, ult ? ult.total : '—', ult ? `${comp}${media4 !== null ? ` · média ${media4}` : ''}` : 'nenhuma chamada ainda']);
+    let comp = 'Presentes';
+    if (ult && ant) { const d = ult.total - ant.total; comp = d === 0 ? 'Igual à semana anterior' : `<span class="${d > 0 ? 'sobe' : 'desce'}">${d > 0 ? '+' : ''}${d}</span> sobre a anterior`; }
+    numeros.push([`Última sexta${ult ? ` · ${fmtDiaMes(ult.data)}` : ''}`, ult ? ult.total : '—', ult ? `${comp}${media4 !== null ? ` · média ${media4}` : ''}` : 'Nenhuma chamada ainda']);
   }
-  if (integracao !== null && integracao !== undefined) numeros.push(['Integração', integracao, integracao ? '<span class="desce">visitantes esperando contato</span>' : 'todos os visitantes contatados']);
-  if (alertas) numeros.push(['Pastoral', casosAbertos, alertas.length ? `<span class="desce">${alertas.length} sem acompanhamento</span>` : 'acompanhamentos em aberto']);
+  if (integracao !== null && integracao !== undefined) numeros.push(['Integração', integracao, integracao ? '<span class="desce">Visitantes esperando contato</span>' : 'Todos os visitantes contatados']);
+  if (casosAbertos !== null && casosAbertos !== undefined) numeros.push(['Pastoral', casosAbertos, alertas?.length ? `<span class="desce">${alertas.length} sem acompanhamento</span>` : 'Acompanhamentos em aberto']);
 
   // ---- Gráfico e faltando
   const blocoGrafico = recentes ? `<section class="painel">
-      <div class="painel-topo"><h2>Presentes por sexta</h2><span class="sub">últimos ${enc.length || 12} encontros</span></div>
+      <div class="painel-topo"><h2>Presentes por sexta</h2><span class="sub">Últimos ${enc.length || 12} encontros</span></div>
       <div class="painel-corpo">
         ${enc.length ? `<div class="grafico"><canvas id="g-presenca" role="img" aria-label="Presentes por encontro"></canvas></div>
           ${tabelaDados(enc.map((e) => fmtData(e.data)), [{ rotulo: 'Membros', dados: enc.map((e) => e.membros) }, { rotulo: 'Visitantes', dados: enc.map((e) => e.outros) }, { rotulo: 'Total', dados: enc.map((e) => e.total) }])}`
@@ -103,16 +103,16 @@ export async function render(conteudo) {
 
     blocosPessoas = `<div class="colunas c2 mt">
       <section class="painel">
-        <div class="painel-topo"><h2>Aniversários de ${nomeMes}</h2><span class="sub">${aniversariantes.length || 'nenhum'}</span></div>
+        <div class="painel-topo"><h2>Aniversários de ${nomeMes}</h2><span class="sub">${aniversariantes.length || 'Nenhum'}</span></div>
         <div class="painel-corpo">
           ${aniversariantes.length ? `<div class="rostos">${aniversariantes.map((p) => {
             const d = parseISO(p.data_nascimento); const eHoje = d.getDate() === hoje.getDate();
-            return link(p.id, `${foto(p.nome, urlFoto(p.id, p.foto_v), 'm')}<b>${esc(p.nome.split(' ')[0])}</b><span>${eHoje ? 'hoje!' : `dia ${d.getDate()}`}</span>`, `rosto${eHoje ? ' hoje' : ''}`);
+            return link(p.id, `${foto(p.nome, urlFoto(p.id, p.foto_v), 'm')}<b>${esc(p.nome.split(' ')[0])}</b><span>${eHoje ? 'Hoje!' : `Dia ${d.getDate()}`}</span>`, `rosto${eHoje ? ' hoje' : ''}`);
           }).join('')}</div>` : '<p class="muted">Ninguém faz aniversário este mês.</p>'}
         </div>
       </section>
       <section class="painel">
-        <div class="painel-topo"><h2>Chegaram há pouco</h2><span class="sub">visitantes dos últimos 30 dias</span></div>
+        <div class="painel-topo"><h2>Chegaram há pouco</h2><span class="sub">Visitantes dos últimos 30 dias</span></div>
         <div class="painel-corpo">
           ${novos.length ? `<div class="rostos">${novos.slice(0, 12).map((p) => link(p.id, `${foto(p.nome, urlFoto(p.id, p.foto_v), 'm')}<b>${esc(p.nome.split(' ')[0])}</b><span>${fmtDiaMes(chegada(p))}</span>`, 'rosto')).join('')}</div>
             ${novos.length > 12 ? `<p class="small muted" style="margin-top:10px">e mais ${novos.length - 12}</p>` : ''}`
@@ -131,9 +131,19 @@ export async function render(conteudo) {
     </section>`;
   }
 
+  // Seus acompanhamentos: os casos da Pastoral/Integração que estão com você
+  const AREA_NOME = { pastoral: 'Pastoral', integracao: 'Integração' };
+  const blocoMeus = meusCasos.length ? `<section class="painel mt">
+      <div class="painel-topo"><h2>Seus acompanhamentos <span class="contador">${meusCasos.length}</span></h2><span class="sub">Quem está com você para cuidar</span></div>
+      <div class="painel-corpo"><div class="lista">${meusCasos.slice(0, 8).map((c) => `<a href="#/${c.area}?caso=${c.id}">${foto(c.pessoa_nome, urlFoto(c.pessoa_id, c.foto_v))}
+          <div class="cresce">${esc(c.pessoa_nome)}<span>${AREA_NOME[c.area]} · ${c.contatos ? `${c.contatos} contato${c.contatos === 1 ? '' : 's'}` : 'Ainda sem contato'}${c.motivo ? ` · ${esc(c.motivo)}` : ''}</span></div>
+          <span class="tag">${c.status === 'aberto' ? 'Aberto' : 'Em andamento'}</span></a>`).join('')}</div>
+        ${meusCasos.length > 8 ? `<p class="small" style="margin-top:10px"><a href="#/${meusCasos[0].area}">Ver todos os ${meusCasos.length}</a></p>` : ''}
+      </div></section>` : '';
   const meio = [blocoGrafico, blocoFaltando].filter(Boolean);
   conteudo.innerHTML = `${ola}${destaque}
     ${numeros.length ? `<div class="numeros n${Math.min(numeros.length, 4)}">${numeros.map(([r, v, d]) => `<div><div class="rot">${r}</div><div class="val">${v}</div><div class="det">${d}</div></div>`).join('')}</div>` : ''}
+    ${blocoMeus}
     ${meio.length ? `<div class="colunas ${meio.length === 2 ? 'c21' : ''} mt">${meio.join('')}</div>` : ''}
     ${blocosPessoas}`;
 

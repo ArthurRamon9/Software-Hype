@@ -12,6 +12,7 @@ function getTransporte() {
       port: porta,
       secure: porta === 465,
       auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+      pool: true, maxConnections: 4,   // vários convites de uma vez sem abrir uma conexão por e-mail
     });
   }
   return transporte;
@@ -26,7 +27,7 @@ function layout({ titulo, paragrafos, botao, link, rodape }) {
     <div style="font-size:15px;font-weight:700;margin-bottom:22px">Gestão do Hype</div>
     <div style="font-size:20px;font-weight:700;margin-bottom:12px">${esc(titulo)}</div>
     ${paragrafos.map((p) => `<p style="font-size:15px;line-height:1.55;color:#4a4842;margin:0 0 14px">${p}</p>`).join('')}
-    ${botao ? `<p style="margin:22px 0"><a href="${esc(link)}" style="background:#1d5c4f;color:#fff;text-decoration:none;font-weight:600;padding:12px 20px;border-radius:6px;display:inline-block">${esc(botao)}</a></p>
+    ${botao ? `<p style="margin:22px 0"><a href="${esc(link)}" style="background:#7b2ff7;color:#fff;text-decoration:none;font-weight:600;padding:12px 20px;border-radius:6px;display:inline-block">${esc(botao)}</a></p>
     <p style="font-size:12px;color:#8a877d;margin:0 0 14px;word-break:break-all">Se o botão não funcionar, copie este endereço no navegador:<br>${esc(link)}</p>` : ''}
     ${rodape ? `<p style="font-size:13px;color:#8a877d;margin:0">${rodape}</p>` : ''}
   </td></tr></table>
@@ -66,4 +67,43 @@ function emailNovoCadastro(para, nomeNovo, emailNovo, link) {
   }));
 }
 
-module.exports = { emailRedefinirSenha, emailNovoCadastro };
+// ---------- Convite de agenda (.ics): aparece no Google Agenda / iPhone / Outlook com Sim, Não, Talvez ----------
+const icsTexto = (t) => String(t || '').replace(/\\/g, '\\\\').replace(/;/g, '\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+const icsData = (d) => d.replace(/[-:]/g, '').slice(0, 15);   // 2026-11-28T09:00:00 -> 20261128T090000 (horário de Brasília)
+const dobrar = (linha) => { const out = []; let l = linha; while (l.length > 74) { out.push(l.slice(0, 74)); l = ' ' + l.slice(74); } out.push(l); return out.join('\r\n'); };
+function montarIcs({ uid, sequencia, inicio, fim, titulo, local, descricao, para, nomePara, cancelar }) {
+  const org = process.env.SMTP_USER || 'gestao@hype.local';
+  const agora = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z';
+  return ['BEGIN:VCALENDAR', 'PRODID:-//Gestao do Hype//PT-BR', 'VERSION:2.0', 'CALSCALE:GREGORIAN', `METHOD:${cancelar ? 'CANCEL' : 'REQUEST'}`,
+    'BEGIN:VTIMEZONE', 'TZID:America/Sao_Paulo', 'BEGIN:STANDARD', 'DTSTART:19700101T000000', 'TZOFFSETFROM:-0300', 'TZOFFSETTO:-0300', 'TZNAME:-03', 'END:STANDARD', 'END:VTIMEZONE',
+    'BEGIN:VEVENT', `UID:${uid}`, `SEQUENCE:${sequencia}`, `DTSTAMP:${agora}`,
+    `DTSTART;TZID=America/Sao_Paulo:${icsData(inicio)}`, `DTEND;TZID=America/Sao_Paulo:${icsData(fim)}`,
+    `SUMMARY:${icsTexto(titulo)}`, local ? `LOCATION:${icsTexto(local)}` : null, descricao ? `DESCRIPTION:${icsTexto(descricao)}` : null,
+    `ORGANIZER;CN=Gestão do Hype:mailto:${org}`,
+    `ATTENDEE;CN=${icsTexto(nomePara)};ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:${para}`,
+    `STATUS:${cancelar ? 'CANCELLED' : 'CONFIRMED'}`, 'END:VEVENT', 'END:VCALENDAR']
+    .filter(Boolean).map(dobrar).join('\r\n');
+}
+// Um e-mail por pessoa (ninguém vê o e-mail dos outros). Devolve quantos foram enviados.
+async function emailConvites(reuniao, convidados, { cancelar = false } = {}) {
+  const t = getTransporte();
+  const quando = new Date(reuniao.inicio + '-03:00').toLocaleString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
+  const assunto = `${cancelar ? 'Cancelada: ' : ''}${reuniao.titulo} — ${reuniao.ministerio}`;
+  if (!t) { console.warn(`[email] SMTP não configurado. Convite "${assunto}" para: ${convidados.map((c) => c.email).join(', ')}`); return 0; }
+  const resultados = await Promise.allSettled(convidados.map((c) => t.sendMail({
+    from: `"Gestão do Hype" <${process.env.SMTP_USER}>`, to: c.email, subject: assunto,
+    html: layout({
+      titulo: cancelar ? 'Reunião cancelada' : `Reunião: ${esc(reuniao.ministerio)}`,
+      paragrafos: [`Olá, ${esc(c.nome.split(' ')[0])}.`,
+        cancelar ? `A reunião <b>${esc(reuniao.titulo)}</b> de ${esc(quando)} foi cancelada.`
+          : `Você foi convidado(a) para <b>${esc(reuniao.titulo)}</b>, ${esc(quando)}${reuniao.local ? `, em ${esc(reuniao.local)}` : ''}.`,
+        reuniao.descricao && !cancelar ? esc(reuniao.descricao) : null].filter(Boolean),
+      rodape: cancelar ? null : 'O convite já vai para a sua agenda. Use Sim, Não ou Talvez para responder.',
+    }),
+    icalEvent: { method: cancelar ? 'CANCEL' : 'REQUEST', content: montarIcs({ ...reuniao, para: c.email, nomePara: c.nome, cancelar }) },
+  })));
+  resultados.filter((r) => r.status === 'rejected').forEach((r) => console.error('[email] convite', r.reason?.message));
+  return resultados.filter((r) => r.status === 'fulfilled').length;
+}
+
+module.exports = { emailRedefinirSenha, emailNovoCadastro, emailConvites };

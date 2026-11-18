@@ -1,6 +1,14 @@
 // Gráficos (Chart.js)
 // © Arthur Ramon da Silva — Todos os direitos reservados.
-export const COR = { s1: '#2a78d6', s2: '#eb6834', grade: '#ebe9e2', texto: '#4a4842' };
+// Cores vêm do CSS (mudam com o tema claro/escuro)
+const cssVar = (n, padrao) => getComputedStyle(document.documentElement).getPropertyValue(n).trim() || padrao;
+export const COR = {
+  get s1() { return cssVar('--s1', '#7b2ff7'); },
+  get s2() { return cssVar('--s2', '#19b8d4'); },
+  get grade() { return cssVar('--line', '#ebe9e2'); },
+  get texto() { return cssVar('--ink-2', '#4a4842'); },
+  get fundo() { return cssVar('--surface', '#ffffff'); },
+};
 
 function preparar(canvas) {
   if (!window.Chart) {
@@ -25,7 +33,7 @@ export function barras(canvas, { rotulos, series, empilhado = false }) {
   const C = preparar(canvas); if (!C) return null;
   return new C(canvas, {
     type: 'bar',
-    data: { labels: rotulos, datasets: series.map((s) => ({ label: s.rotulo, data: s.dados, backgroundColor: s.cor, borderRadius: 3, borderSkipped: 'start', maxBarThickness: 26, borderColor: '#fff', borderWidth: empilhado ? { top: 2 } : 0 })) },
+    data: { labels: rotulos, datasets: series.map((s) => ({ label: s.rotulo, data: s.dados, backgroundColor: s.cor, borderRadius: 3, borderSkipped: 'start', maxBarThickness: 26, borderColor: COR.fundo, borderWidth: empilhado ? { top: 2 } : 0 })) },
     options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: legenda(series.length), tooltip: dica }, scales: eixos(empilhado) },
   });
 }

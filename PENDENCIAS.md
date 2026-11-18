@@ -11,7 +11,13 @@ Enquanto isso, o trabalho fica no ramo `desenvolvimento`.
 - Testar tudo antes (fluxos, permissões, ataques, celular) e mandar junto o `01_estrutura.sql`, se mudou.
 - Upgrades maiores ficam para os próximos meses, um pacote por vez.
 
-## A fazer
+## Situação (18/11)
+Tudo da lista abaixo foi **feito no ramo `desenvolvimento`** e testado (segurança 32/32, Integração/Pastoral 12/12, Agenda/Escalas 12/12,
+chamada com 3 celulares ao mesmo tempo, site antigo funcionando com o banco novo). Mandado ao Arthur em zip para testar no VS Code.
+**Falta:** aprovação do Arthur nos prints e no teste dele → rodar `sql/01_estrutura.sql` no banco oficial → publicar (levar para o `main`).
+Se chegar a arte oficial (logo em arquivo), trocar `assets/img/logo.svg` e ajustar as cores em `:root` do CSS.
+
+## Lista (feita)
 
 ### PRIORIDADE MÁXIMA — chamada com duas pessoas ao mesmo tempo apaga marcações
 Simulado em 18/11: a Bia marcou 20 num celular, outra pessoa marcou 15 em outro; ficaram só 15.

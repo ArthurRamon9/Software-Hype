@@ -246,38 +246,61 @@ USING (VALUES
     ('ministerios.editar', N'Cadastrar e editar ministérios', 50),
     ('integracao.ver',     N'Ver o acompanhamento de visitantes (Integração)', 35),
     ('integracao.editar',  N'Registrar contatos com visitantes (Integração)', 36),
+    ('pastoral.ver_todos', N'Pastoral: ver os acompanhamentos de todos (sem isso, só os atribuídos a você)', 33),
+    ('pastoral.designar',  N'Pastoral: designar e trocar responsáveis', 34),
+    ('integracao.ver_todos', N'Integração: ver os acompanhamentos de todos (sem isso, só os atribuídos a você)', 37),
+    ('integracao.designar',  N'Integração: designar e trocar quem integra', 38),
     ('acessos.gerenciar',  N'Liberar usuários, gerenciar grupos e ver o registro de atividades', 60)
 ) AS s (codigo, descricao, ordem) ON t.codigo = s.codigo
 WHEN MATCHED THEN UPDATE SET descricao = s.descricao, ordem = s.ordem
 WHEN NOT MATCHED THEN INSERT (codigo, descricao, ordem) VALUES (s.codigo, s.descricao, s.ordem);
 
-/* Grupos iniciais (só são criados uma vez; depois altere pelo sistema) */
+/* Sementes: o que o sistema cria uma vez só. Se você apagar um grupo ou ministério inicial, ele não volta. */
+IF OBJECT_ID('dbo.sementes') IS NULL
+CREATE TABLE dbo.sementes (chave NVARCHAR(100) NOT NULL CONSTRAINT pk_sementes PRIMARY KEY, dt DATETIME2(0) NOT NULL CONSTRAINT df_sementes_dt DEFAULT SYSUTCDATETIME());
+
+/* Grupos iniciais */
+DECLARE @grupos TABLE (nome NVARCHAR(60), descricao NVARCHAR(200), sistema BIT);
+INSERT INTO @grupos VALUES
+    (N'Administradores', N'Acesso total ao sistema', 1),
+    (N'Pastoral',        N'Cuida dos jovens faltantes: vê e registra os acompanhamentos atribuídos a cada um', 0),
+    (N'Integração',      N'Acolhe os visitantes: vê e registra os acompanhamentos atribuídos a cada um', 0),
+    (N'Administração',   N'Cadastra pessoas, faz a chamada, cuida dos ministérios e vê relatórios', 0),
+    (N'Líderes de equipe', N'Vê pessoas, relatórios e todos os acompanhamentos da Pastoral e da Integração, sem alterar nem apagar', 0);
+-- Banco que já existia: os grupos que já estão lá contam como "já criados"
+INSERT INTO dbo.sementes (chave) SELECT N'grupo:' + g.nome FROM @grupos g
+WHERE EXISTS (SELECT 1 FROM dbo.grupos x WHERE x.nome = g.nome) AND NOT EXISTS (SELECT 1 FROM dbo.sementes s WHERE s.chave = N'grupo:' + g.nome);
+-- Cria só os que nunca foram criados
 DECLARE @novos TABLE (id INT, nome NVARCHAR(60));
 INSERT INTO dbo.grupos (nome, descricao, sistema)
 OUTPUT inserted.id, inserted.nome INTO @novos
-SELECT v.nome, v.descricao, v.sistema FROM (VALUES
-    (N'Administradores', N'Acesso total ao sistema', 1),
-    (N'Pastoral',        N'Cuida dos jovens faltantes', 0),
-    (N'Presença',        N'Faz a chamada das sextas', 0),
-    (N'Cadastro',        N'Cadastra e atualiza as pessoas', 0),
-    (N'Integração',      N'Acolhe e acompanha os visitantes', 0),
-    (N'Administração',   N'Ministério de administração: cadastra pessoas, faz a chamada, cuida dos ministérios e vê relatórios', 0),
-    (N'Líderes de equipe', N'Vê tudo (pessoas, chamada, Pastoral, Integração e relatórios), sem alterar nem apagar', 0)
-) v(nome, descricao, sistema)
-WHERE NOT EXISTS (SELECT 1 FROM dbo.grupos g WHERE g.nome = v.nome);
+SELECT g.nome, g.descricao, g.sistema FROM @grupos g
+WHERE NOT EXISTS (SELECT 1 FROM dbo.sementes s WHERE s.chave = N'grupo:' + g.nome)
+  AND NOT EXISTS (SELECT 1 FROM dbo.grupos x WHERE x.nome = g.nome);
+INSERT INTO dbo.sementes (chave) SELECT N'grupo:' + nome FROM @novos;
 
 -- Permissões padrão apenas dos grupos que acabaram de ser criados
 INSERT INTO dbo.grupo_permissao (grupo_id, permissao)
 SELECT n.id, v.permissao FROM (VALUES
     (N'Pastoral', 'pessoas.ver'), (N'Pastoral', 'pastoral.ver'), (N'Pastoral', 'pastoral.editar'), (N'Pastoral', 'relatorios.ver'),
-    (N'Presença', 'pessoas.ver'), (N'Presença', 'presenca.marcar'),
-    (N'Cadastro', 'pessoas.ver'), (N'Cadastro', 'pessoas.editar'),
     (N'Integração', 'pessoas.ver'), (N'Integração', 'pessoas.editar'), (N'Integração', 'integracao.ver'), (N'Integração', 'integracao.editar'),
     (N'Administração', 'pessoas.ver'), (N'Administração', 'pessoas.editar'), (N'Administração', 'presenca.marcar'),
     (N'Administração', 'relatorios.ver'), (N'Administração', 'ministerios.editar'),
-    (N'Líderes de equipe', 'pessoas.ver'), (N'Líderes de equipe', 'relatorios.ver'), (N'Líderes de equipe', 'pastoral.ver'), (N'Líderes de equipe', 'integracao.ver')
+    (N'Líderes de equipe', 'pessoas.ver'), (N'Líderes de equipe', 'relatorios.ver'), (N'Líderes de equipe', 'pastoral.ver'), (N'Líderes de equipe', 'integracao.ver'),
+    (N'Líderes de equipe', 'pastoral.ver_todos'), (N'Líderes de equipe', 'integracao.ver_todos')
 ) v(grupo, permissao)
 JOIN @novos n ON n.nome = v.grupo;
+
+-- v4 (uma vez só): Líderes de equipe que já existiam passam a ver todos os acompanhamentos
+IF NOT EXISTS (SELECT 1 FROM dbo.sementes WHERE chave = N'v4:lideres_ver_todos')
+BEGIN
+    INSERT INTO dbo.grupo_permissao (grupo_id, permissao)
+    SELECT g.id, p.permissao FROM dbo.grupos g CROSS JOIN (VALUES ('pastoral.ver_todos'), ('integracao.ver_todos')) p(permissao)
+    WHERE g.nome = N'Líderes de equipe' AND NOT EXISTS (SELECT 1 FROM dbo.grupo_permissao x WHERE x.grupo_id = g.id AND x.permissao = p.permissao);
+    UPDATE dbo.grupos SET descricao = N'Vê pessoas, relatórios e todos os acompanhamentos da Pastoral e da Integração, sem alterar nem apagar'
+    WHERE nome = N'Líderes de equipe' AND descricao LIKE N'Vê tudo (pessoas, chamada%';
+    INSERT INTO dbo.sementes (chave) VALUES (N'v4:lideres_ver_todos');
+END
 
 -- Administradores sempre têm todas as permissões (inclusive as novas)
 INSERT INTO dbo.grupo_permissao (grupo_id, permissao)
@@ -379,12 +402,91 @@ FROM dbo.pessoas p JOIN f ON f.id = p.id
 WHERE f.novo IS NOT NULL AND f.novo <> p.telefone;
 GO
 
-/* ---------- Ministérios iniciais (edite pelo sistema depois) ---------- */
-INSERT INTO dbo.ministerios (nome, cor)
-SELECT v.nome, v.cor FROM (VALUES
+/* ---------- Ministérios iniciais (criados uma vez só; edite pelo sistema depois) ---------- */
+DECLARE @mins TABLE (nome NVARCHAR(80), cor VARCHAR(7));
+INSERT INTO @mins VALUES
     (N'Pastoral', '#c2417a'), (N'Integração', '#f0561d'), (N'Administração', '#2a78d6'),
     (N'Comunicação', '#5b4bd6'), (N'Cozinha', '#e0a020'), (N'Mídias', '#2a9d8f'), (N'Decoração', '#b03a2e'),
-    (N'Diaconato', '#1f8a57'), (N'Líderes de equipe', '#4b4852')
-) v(nome, cor)
-WHERE NOT EXISTS (SELECT 1 FROM dbo.ministerios m WHERE m.nome = v.nome);
+    (N'Diaconato', '#1f8a57'), (N'Líderes de equipe', '#4b4852');
+INSERT INTO dbo.sementes (chave) SELECT N'ministerio:' + m.nome FROM @mins m
+WHERE EXISTS (SELECT 1 FROM dbo.ministerios x WHERE x.nome = m.nome) AND NOT EXISTS (SELECT 1 FROM dbo.sementes s WHERE s.chave = N'ministerio:' + m.nome);
+DECLARE @mnovos TABLE (nome NVARCHAR(80));
+INSERT INTO dbo.ministerios (nome, cor) OUTPUT inserted.nome INTO @mnovos
+SELECT m.nome, m.cor FROM @mins m
+WHERE NOT EXISTS (SELECT 1 FROM dbo.sementes s WHERE s.chave = N'ministerio:' + m.nome)
+  AND NOT EXISTS (SELECT 1 FROM dbo.ministerios x WHERE x.nome = m.nome);
+INSERT INTO dbo.sementes (chave) SELECT N'ministerio:' + nome FROM @mnovos;
+GO
+
+/* =====================================================================
+   ATUALIZAÇÃO v4 — vínculo login ↔ cadastro, responsáveis, líderes, Agenda e Escalas
+   Só acrescenta: o site da versão anterior continua funcionando com o banco atualizado.
+   ===================================================================== */
+-- Login ligado à pessoa do cadastro (o administrador confirma em Acessos)
+IF COL_LENGTH('dbo.usuarios', 'pessoa_id') IS NULL
+    ALTER TABLE dbo.usuarios ADD pessoa_id INT NULL CONSTRAINT fk_usuarios_pessoa REFERENCES dbo.pessoas(id) ON DELETE SET NULL;
+GO
+-- (Uma pessoa do cadastro só pode estar ligada a uma conta: o site confere isso ao ligar.
+--  Sem índice filtrado de propósito: ele exigiria configurações especiais em toda gravação de usuários.)
+IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'ux_usuarios_pessoa') DROP INDEX ux_usuarios_pessoa ON dbo.usuarios;
+
+-- Responsável do acompanhamento = pessoa do cadastro (sem FK: o histórico fica mesmo se a pessoa sair)
+IF COL_LENGTH('dbo.pastoral_casos', 'responsavel_pessoa_id') IS NULL ALTER TABLE dbo.pastoral_casos ADD responsavel_pessoa_id INT NULL;
+-- Quando o caso foi enviado ao responsável pelo WhatsApp
+IF COL_LENGTH('dbo.pastoral_casos', 'dt_enviado') IS NULL ALTER TABLE dbo.pastoral_casos ADD dt_enviado DATETIME2(0) NULL;
+GO
+-- Casos antigos: liga ao cadastro quando o nome do responsável bate com uma pessoa só
+UPDATE c SET responsavel_pessoa_id = p.id
+FROM dbo.pastoral_casos c
+CROSS APPLY (SELECT MIN(x.id) AS id, COUNT(*) AS n FROM dbo.pessoas x WHERE x.nome = c.responsavel_nome AND x.cd_status = 1) p
+WHERE c.responsavel_pessoa_id IS NULL AND p.n = 1;
+
+-- Líder do ministério (pode haver mais de um)
+IF COL_LENGTH('dbo.pessoa_ministerio', 'lider') IS NULL
+    ALTER TABLE dbo.pessoa_ministerio ADD lider BIT NOT NULL CONSTRAINT df_pm_lider DEFAULT 0;
+GO
+
+/* ---------- Agenda: reuniões dos ministérios ---------- */
+IF OBJECT_ID('dbo.reunioes') IS NULL
+CREATE TABLE dbo.reunioes (
+    id             INT IDENTITY(1,1) CONSTRAINT pk_reunioes PRIMARY KEY,
+    ministerio_id  INT NOT NULL CONSTRAINT fk_reunioes_ministerio REFERENCES dbo.ministerios(id) ON DELETE CASCADE,
+    titulo         NVARCHAR(150) NOT NULL,
+    inicio         DATETIME2(0) NOT NULL,     -- horário de Brasília
+    fim            DATETIME2(0) NOT NULL,
+    local          NVARCHAR(250) NULL,
+    descricao      NVARCHAR(1000) NULL,
+    cancelada      BIT NOT NULL CONSTRAINT df_reunioes_cancelada DEFAULT 0,
+    sequencia      INT NOT NULL CONSTRAINT df_reunioes_seq DEFAULT 0,   -- muda a cada alteração (convite de agenda)
+    criado_por     INT NULL,
+    dt_criacao     DATETIME2(0) NOT NULL CONSTRAINT df_reunioes_criacao DEFAULT SYSUTCDATETIME()
+);
+IF OBJECT_ID('dbo.reuniao_pessoa') IS NULL
+CREATE TABLE dbo.reuniao_pessoa (
+    reuniao_id   INT NOT NULL CONSTRAINT fk_rp_reuniao REFERENCES dbo.reunioes(id) ON DELETE CASCADE,
+    pessoa_id    INT NOT NULL CONSTRAINT fk_rp_pessoa REFERENCES dbo.pessoas(id) ON DELETE CASCADE,
+    dt_convite   DATETIME2(0) NULL,          -- último convite enviado por e-mail
+    CONSTRAINT pk_reuniao_pessoa PRIMARY KEY (reuniao_id, pessoa_id)
+);
+
+/* ---------- Escalas das sextas ---------- */
+IF OBJECT_ID('dbo.escala_funcoes') IS NULL
+CREATE TABLE dbo.escala_funcoes (
+    id             INT IDENTITY(1,1) CONSTRAINT pk_escala_funcoes PRIMARY KEY,
+    ministerio_id  INT NOT NULL CONSTRAINT fk_ef_ministerio REFERENCES dbo.ministerios(id) ON DELETE CASCADE,
+    nome           NVARCHAR(60) NOT NULL,
+    ordem          INT NOT NULL CONSTRAINT df_ef_ordem DEFAULT 0
+);
+IF OBJECT_ID('dbo.escala_itens') IS NULL
+CREATE TABLE dbo.escala_itens (
+    id             INT IDENTITY(1,1) CONSTRAINT pk_escala_itens PRIMARY KEY,
+    ministerio_id  INT NOT NULL CONSTRAINT fk_ei_ministerio REFERENCES dbo.ministerios(id) ON DELETE CASCADE,
+    data           DATE NOT NULL,
+    funcao         NVARCHAR(60) NULL,        -- texto: a escala antiga não muda se a função for apagada
+    pessoa_id      INT NOT NULL CONSTRAINT fk_ei_pessoa REFERENCES dbo.pessoas(id) ON DELETE CASCADE,
+    criado_por     INT NULL,
+    dt_criacao     DATETIME2(0) NOT NULL CONSTRAINT df_ei_criacao DEFAULT SYSUTCDATETIME()
+);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'ix_escala_itens_data')
+    CREATE INDEX ix_escala_itens_data ON dbo.escala_itens (data, ministerio_id) INCLUDE (pessoa_id, funcao);
 GO

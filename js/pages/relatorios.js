@@ -38,7 +38,7 @@ function resumir({ encontros, presencas }) {
 function comparar(atual, anterior) {
   if (anterior === null || anterior === undefined) return '';
   const d = Math.round((atual - anterior) * 10) / 10;
-  if (d === 0) return 'igual ao período anterior';
+  if (d === 0) return 'Igual ao período anterior';
   return `<span class="${d > 0 ? 'sobe' : 'desce'}">${d > 0 ? '+' : ''}${String(d).replace('.', ',')}</span> sobre o período anterior`;
 }
 const numero = (rot, val, det = '') => `<div><div class="rot">${rot}</div><div class="val">${val}</div><div class="det">${det || '&nbsp;'}</div></div>`;
@@ -108,7 +108,7 @@ async function semana(rel, encontros) {
     ${enc.tema ? `<p style="margin-top:12px">Tema: ${esc(enc.tema)}</p>` : ''}
     <div class="colunas c2 mt">
       <section class="painel"><div class="painel-topo"><h2>Presentes (${pres.length})</h2></div><div class="painel-corpo">${tabela(pres)}</div></section>
-      <section class="painel"><div class="painel-topo"><h2>Ausentes (${aus.length})</h2><span class="sub">para a Pastoral</span></div><div class="painel-corpo">${tabela(aus, true)}</div></section>
+      <section class="painel"><div class="painel-topo"><h2>Ausentes (${aus.length})</h2><span class="sub">Para a Pastoral</span></div><div class="painel-corpo">${tabela(aus, true)}</div></section>
     </div>`;
   return { nome: `chamada-${enc.data}`, linhas: [['Nome', 'Referência', 'Situação', 'Presença', 'Motivo da falta'], ...r.map((p) => [p.nome, p.referencia, TIPOS[p.tipo], p.presente ? 'Presente' : 'Ausente', p.justificativa || ''])] };
 }
@@ -132,8 +132,8 @@ async function mes(rel) {
     ${tituloImpressao(nomeMes(estado.mes))}
     <div class="numeros">
       ${numero('Média de presentes', virgula(A.media), `${A.porEnc.length} sexta${A.porEnc.length === 1 ? '' : 's'}${B ? ` · ${comparar(A.media, B.media)}` : ''}`)}
-      ${numero('Membros por sexta', virgula(A.mediaMembros), B ? comparar(A.mediaMembros, B.mediaMembros) : 'média do mês')}
-      ${numero('Visitantes por sexta', virgula(A.mediaVisitantes), B ? comparar(A.mediaVisitantes, B.mediaVisitantes) : 'média do mês')}
+      ${numero('Membros por sexta', virgula(A.mediaMembros), B ? comparar(A.mediaMembros, B.mediaMembros) : 'Média do mês')}
+      ${numero('Visitantes por sexta', virgula(A.mediaVisitantes), B ? comparar(A.mediaVisitantes, B.mediaVisitantes) : 'Média do mês')}
       ${numero('Vieram no mês', A.unicos, `${A.frequentes(Math.max(2, Math.ceil(A.porEnc.length / 2)))} vieram em metade das sextas ou mais${novos ? ` · ${novos} novos` : ''}`)}
     </div>
     <section class="painel mt"><div class="painel-topo"><h2>Membros e visitantes por sexta</h2><span class="sub">${nomeMes(estado.mes)}</span></div><div class="painel-corpo">
@@ -169,11 +169,11 @@ async function ano(rel) {
     ${tituloImpressao(`Ano de ${y}`)}
     <div class="numeros">
       ${numero('Média de presentes', virgula(A.media), `${A.porEnc.length} sextas · maior: ${maior.presentes} em ${fmtDiaMes(maior.data)}`)}
-      ${numero('Membros por sexta', virgula(A.mediaMembros), B ? comparar(A.mediaMembros, B.mediaMembros) : 'média do ano')}
-      ${numero('Visitantes por sexta', virgula(A.mediaVisitantes), B ? comparar(A.mediaVisitantes, B.mediaVisitantes) : 'média do ano')}
-      ${numero('Frequentes no ano', A.frequentes(Math.ceil(A.porEnc.length / 4)), `vieram em 1/4 das sextas ou mais · ${A.unicos} passaram pelo Hype ao menos 1 vez`)}
+      ${numero('Membros por sexta', virgula(A.mediaMembros), B ? comparar(A.mediaMembros, B.mediaMembros) : 'Média do ano')}
+      ${numero('Visitantes por sexta', virgula(A.mediaVisitantes), B ? comparar(A.mediaVisitantes, B.mediaVisitantes) : 'Média do ano')}
+      ${numero('Frequentes no ano', A.frequentes(Math.ceil(A.porEnc.length / 4)), `Vieram em 1/4 das sextas ou mais · ${A.unicos} passaram pelo Hype ao menos 1 vez`)}
     </div>
-    <section class="painel mt"><div class="painel-topo"><h2>Membros e visitantes por mês</h2><span class="sub">média por sexta em ${y}</span></div><div class="painel-corpo">
+    <section class="painel mt"><div class="painel-topo"><h2>Membros e visitantes por mês</h2><span class="sub">Média por sexta em ${y}</span></div><div class="painel-corpo">
       <div class="grafico"><canvas id="g-ano-tipo" role="img" aria-label="Média de membros e visitantes por mês"></canvas></div>
       ${tabelaDados(MESES, [{ rotulo: 'Membros', dados: memA }, { rotulo: 'Visitantes', dados: visA }, { rotulo: 'Total', dados: mA }])}
     </div></section>

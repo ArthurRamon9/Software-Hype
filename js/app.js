@@ -1,6 +1,6 @@
 // Gestão do Hype — rotas, menu e layout
 // © Arthur Ramon da Silva — Todos os direitos reservados.
-import { api, sessao, podeAlgum } from './api.js';
+import { api, sessao, podeAlgum, urlFoto } from './api.js';
 import { icon, esc, direitos, $, foto } from './ui.js';
 import * as acesso from './pages/acesso.js';
 import * as inicio from './pages/inicio.js';
@@ -10,6 +10,8 @@ import * as pastoral from './pages/pastoral.js';
 import * as relatorios from './pages/relatorios.js';
 import * as ministerios from './pages/ministerios.js';
 import * as usuarios from './pages/usuarios.js';
+import * as agenda from './pages/agenda.js';
+import * as escalas from './pages/escalas.js';
 
 const app = document.getElementById('app');
 
@@ -33,6 +35,8 @@ const PRIVADAS = [
   ['/relatorios', relatorios.render, ['relatorios.ver']],
   ['/ministerios', ministerios.render, ['pessoas.ver', 'ministerios.editar']],
   ['/acessos', usuarios.render, ['acessos.gerenciar']],
+  ['/agenda', agenda.render],
+  ['/escalas', escalas.render],
   ['/conta', acesso.minhaConta],
 ];
 
@@ -43,6 +47,8 @@ const MENU = [
   { href: '/integracao', rotulo: 'Integração', ic: 'integracao', mob: true, cont: 'integracao', perm: ['integracao.ver'] },
   { href: '/pastoral', rotulo: 'Pastoral', ic: 'pastoral', mob: true, cont: 'pastoral', perm: ['pastoral.ver'] },
   { href: '/relatorios', rotulo: 'Relatórios', ic: 'relatorios', mob: true, perm: ['relatorios.ver'] },
+  { href: '/escalas', rotulo: 'Escalas', ic: 'escalas', mob: true },
+  { href: '/agenda', rotulo: 'Agenda', ic: 'agenda', mob: true },
   { grupo: 'Cadastros', perm: ['pessoas.ver', 'ministerios.editar', 'acessos.gerenciar'] },
   { href: '/ministerios', rotulo: 'Ministérios', ic: 'ministerios', perm: ['pessoas.ver', 'ministerios.editar'] },
   { href: '/acessos', rotulo: 'Acessos', ic: 'acessos', cont: 'pendentes', perm: ['acessos.gerenciar'] },
@@ -78,10 +84,12 @@ async function rota() {
 
   const m = casar(caminho);
   if (!m) return navegar('/');
-  if (!permitido(m.req)) { if (caminho !== '/') return navegar('/'); }
-
   montarLayout(caminho);
   const conteudo = $('#conteudo');
+  if (!permitido(m.req)) {
+    conteudo.innerHTML = `<div class="painel vazio"><b>Você não tem acesso a esta tela</b>Se precisar, peça a um administrador para incluir você no grupo certo.<br><a class="btn" href="#/" style="margin-top:14px">Ir para o Início</a></div>`;
+    return;
+  }
   conteudo.innerHTML = '<div class="boot"><span class="spin"></span></div>';
   window.scrollTo(0, 0);
   try {
@@ -100,6 +108,13 @@ function itemMenu(item, caminho, mobile) {
   return `<a href="#${item.href}" class="${ativo ? 'ativo' : ''}">${icon(item.ic)}<span>${item.rotulo}</span>${n ? `<span class="n">${n}</span>` : ''}</a>`;
 }
 
+// Itens do menu que a pessoa pode ver (o celular mostra até 5; se passar, o 5º vira "Mais")
+export const menuPermitido = () => MENU.filter((i) => !i.grupo && permitido(i.perm));
+function itensCelular() {
+  const l = menuPermitido().filter((i) => i.mob);
+  return l.length <= 5 ? l : [...l.slice(0, 4), { href: '/conta', rotulo: 'Mais', ic: 'mais', mais: true }];
+}
+
 function montarLayout(caminho) {
   const u = sessao.usuario;
   const itens = MENU.filter((i) => permitido(i.perm));
@@ -108,12 +123,13 @@ function montarLayout(caminho) {
     app.innerHTML = `
     <div class="app">
       <aside class="lateral">
-        <div class="marca"><img src="assets/img/logo.svg" alt="">Gestão do Hype</div>
+        <a class="marca" href="#/" title="Ir para o Início"><img src="assets/img/logo.svg" alt="">Gestão do Hype</a>
         <nav class="menu" id="menu"></nav>
         <a class="conta" id="conta" href="#/conta"></a>
       </aside>
       <div class="principal">
-        <header class="topo-mobile"><div class="marca"><img src="assets/img/logo.svg" alt="">Gestão do Hype</div><a href="#/conta" id="conta-mobile"></a></header>
+        <div class="faixa-ver-como" id="faixa-ver-como" hidden></div>
+        <header class="topo-mobile"><a class="marca" href="#/" title="Ir para o Início"><img src="assets/img/logo.svg" alt="">Gestão do Hype</a><a href="#/conta" id="conta-mobile"></a></header>
         <main class="conteudo" id="conteudo"></main>
         <footer class="rodape">${direitos()}</footer>
       </div>
@@ -121,9 +137,19 @@ function montarLayout(caminho) {
     </div>`;
   }
   $('#menu').innerHTML = itens.map((i) => (i.grupo ? `<div class="grupo">${i.grupo}</div>` : itemMenu(i, caminho))).join('');
-  $('#nav-mobile').innerHTML = itens.filter((i) => i.mob).map((i) => itemMenu(i, caminho, true)).join('');
-  $('#conta').innerHTML = `${foto(u.nome, null)}<div><b>${esc(u.nome)}</b><span>Minha conta</span></div>`;
-  $('#conta-mobile').innerHTML = foto(u.nome, null);
+  const cel = itensCelular();
+  $('#nav-mobile').innerHTML = cel.map((i) => (i.mais
+    ? `<a href="#/conta" class="${caminho === '/conta' ? 'ativo' : ''}">${icon('mais')}<span>Mais</span></a>` : itemMenu(i, caminho, true))).join('');
+  const minhaFoto = u.pessoa_id && u.foto_v ? urlFoto(u.pessoa_id, u.foto_v) : null;
+  $('#conta').innerHTML = `${foto(u.nome, minhaFoto)}<div><b>${esc(u.nome)}</b><span>Minha conta</span></div>`;
+  $('#conta-mobile').innerHTML = foto(u.nome, minhaFoto);
+  // Ver como: faixa fixa avisando de quem é a tela e como voltar
+  const faixa = $('#faixa-ver-como');
+  if (u.verComoPor) {
+    faixa.hidden = false;
+    faixa.innerHTML = `<span>Você está vendo o sistema como <b>${esc(u.nome)}</b>. O que fizer aqui fica registrado no seu nome.</span><button class="btn sm" id="voltar-conta">Voltar para a minha conta</button>`;
+    $('#voltar-conta').onclick = async () => { try { await api('POST', '/auth/voltar'); } catch {} location.hash = '#/acessos'; location.reload(); };
+  } else faixa.hidden = true;
 }
 
 export async function atualizarContadores() {
@@ -159,6 +185,7 @@ async function iniciar() {
     }
   }
   window.addEventListener('hashchange', rota);
+  window.addEventListener('hype:tema', () => { if (sessao.usuario && caminhoAtual() !== '/conta') rota(); });   // gráficos trocam de cor
   await rota();
   atualizarContadores();
 }

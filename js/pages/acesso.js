@@ -1,8 +1,8 @@
 // Entrar, criar conta, esqueci a senha, nova senha, minha conta
 // © Arthur Ramon da Silva — Todos os direitos reservados.
-import { api, sessao, podeAlgum } from '../api.js';
-import { esc, $, aviso, ocupado, direitos, icon } from '../ui.js';
-import { entrou, sair, parametrosHash, navegar } from '../app.js';
+import { api, sessao, urlFoto } from '../api.js';
+import { esc, $, aviso, ocupado, direitos, icon, foto, temaAtual, aplicarTema } from '../ui.js';
+import { entrou, sair, parametrosHash, navegar, menuPermitido } from '../app.js';
 
 function tela(app, html) {
   app.innerHTML = `<div class="acesso">
@@ -156,13 +156,22 @@ export function aguardando(app) {
 // ---------------- Minha conta ----------------
 export function minhaConta(conteudo) {
   const u = sessao.usuario;
+  const minhaFoto = u.pessoa_id && u.foto_v ? urlFoto(u.pessoa_id, u.foto_v) : null;
+  // No celular a barra de baixo não cabe tudo: aqui ficam as outras telas
+  const navCelular = new Set(menuPermitido().filter((i) => i.mob).slice(0, menuPermitido().filter((i) => i.mob).length <= 5 ? 5 : 4).map((i) => i.href));
+  const outras = menuPermitido().filter((i) => !navCelular.has(i.href) && i.href !== '/');
+  const tema = temaAtual();
   conteudo.innerHTML = `
-    <div class="cabecalho"><div><h1>Minha conta</h1><p class="sub">${esc(u.email)}</p></div>
+    <div class="cabecalho"><div class="perfil-conta">${foto(u.nome, minhaFoto, 'g')}<div><h1>Minha conta</h1><p class="sub">${esc(u.email)}${u.pessoa_id ? ' · <a href="#/pessoas/' + u.pessoa_id + '">Ver minha ficha</a>' : ''}</p></div></div>
       <div class="acoes"><button class="btn" id="sair">Sair</button></div></div>
-    ${podeAlgum('pessoas.ver', 'ministerios.editar', 'acessos.gerenciar') ? `<nav class="painel so-mobile mais-telas" style="margin-bottom:16px">
-      ${podeAlgum('pessoas.ver', 'ministerios.editar') ? `<a href="#/ministerios">${icon('ministerios')}Ministérios</a>` : ''}
-      ${podeAlgum('acessos.gerenciar') ? `<a href="#/acessos">${icon('acessos')}Acessos <span class="muted small">usuários, grupos e atividades</span></a>` : ''}
+    ${!u.pessoa_id ? '<p class="msg aviso" style="margin-bottom:16px">Sua conta ainda não está ligada ao seu cadastro do Hype. Peça a um administrador para ligar: assim aparecem a sua foto, as suas escalas, a sua agenda e os acompanhamentos que estão com você.</p>' : ''}
+    ${outras.length ? `<nav class="painel so-mobile mais-telas" style="margin-bottom:16px">
+      ${outras.map((i) => `<a href="#${i.href}">${icon(i.ic)}${i.rotulo}</a>`).join('')}
     </nav>` : ''}
+    <section class="painel" style="margin-bottom:16px"><div class="painel-topo"><h2>Aparência</h2></div><div class="painel-corpo">
+      <div class="abas" id="tema">${[['auto', 'Automático'], ['claro', 'Claro'], ['escuro', 'Escuro']].map(([v, r]) => `<button type="button" data-escolha="${v}" class="${tema === v ? 'ativo' : ''}">${r}</button>`).join('')}</div>
+      <p class="hint" style="margin-top:8px">Automático segue o modo do seu celular ou computador. A escolha fica guardada neste aparelho.</p>
+    </div></section>
     <div class="colunas c2">
       <form class="painel" id="fn"><div class="painel-topo"><h2>Nome</h2></div><div class="painel-corpo" style="display:grid;gap:12px">
         <div class="field"><label for="nome">Como aparece no sistema</label><input class="input" id="nome" value="${esc(u.nome)}"></div>
@@ -173,6 +182,10 @@ export function minhaConta(conteudo) {
         <p class="hint" style="margin-top:-6px">Mínimo de 8 caracteres, com letras e números. As outras sessões abertas serão encerradas.</p>
         <div><button class="btn primary">Trocar senha</button></div></div></form>
     </div>`;
+  conteudo.querySelectorAll('[data-escolha]').forEach((b) => b.addEventListener('click', () => {
+    aplicarTema(b.dataset.escolha);
+    conteudo.querySelectorAll('[data-escolha]').forEach((x) => x.classList.toggle('ativo', x === b));
+  }));
   ligarMostrarSenha(conteudo);
   $('#sair').onclick = sair;
   $('#fn').addEventListener('submit', async (e) => {

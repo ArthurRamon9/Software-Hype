@@ -5,6 +5,11 @@ Roda o site inteiro no seu PC pelo VS Code. Não usa o Netlify e não gasta cré
 ## Jeito combinado: apontando para o banco oficial (MonsterASP)
 O site de teste usa **o mesmo banco do site oficial**: tudo o que for feito no teste vale de verdade.
 
+### Antes de testar uma versão nova: atualizar o banco
+No SSMS, conectado ao banco oficial, rode o **`sql/01_estrutura.sql`** que veio no zip.
+Ele só acrescenta tabelas e colunas: o site que está no ar continua funcionando normalmente
+(isso foi testado antes de mandar o zip). Pode rodar de novo quantas vezes quiser.
+
 ### Preparar (uma vez)
 1. Instale o **Node.js 20 ou mais novo** (LTS) em https://nodejs.org (no terminal, `node -v` mostra a versão).
 2. Abra a pasta **Software-Hype** no VS Code.

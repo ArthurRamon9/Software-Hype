@@ -14,6 +14,14 @@ const P = {
   whats: '<path d="M21 11.5a8.4 8.4 0 0 1-12.4 7.4L3 21l2.1-5.4A8.4 8.4 0 1 1 21 11.5z"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
   xis: '<path d="M18 6 6 18M6 6l12 12"/>',
+  mais: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
+  escalas: '<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 10h18M9 4v17M15 4v17"/>',
+  agenda: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M8 14h3"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  alerta: '<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>',
+  local: '<path d="M12 21s7-6.2 7-12a7 7 0 0 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/>',
+  email: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>',
+  enviar: '<path d="M22 2 11 13M22 2l-7 20-4-9-9-4z"/>',
   setaBaixo: '<path d="M12 5v14M6 13l6 6 6-6"/>',
   setaCima: '<path d="M12 19V5M6 11l6-6 6 6"/>',
   conta: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
@@ -110,6 +118,8 @@ export function ultimaSexta(base = new Date()) {
   d.setDate(d.getDate() - ((d.getDay() - 5 + 7) % 7));
   return d;
 }
+// Primeira letra maiúscula (para textos que aparecem sozinhos)
+export const maiuscula = (t) => (t ? String(t).charAt(0).toUpperCase() + String(t).slice(1) : t);
 export function haQuanto(iso) {
   const dias = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
   if (dias <= 0) return 'hoje';
@@ -132,7 +142,7 @@ export function corDoNome(nome = '') {
 export const foto = (nome, url, classe = '') => `<span class="foto ${classe}" style="--cor:${corDoNome(nome)}">${url ? `<img src="${esc(url)}" alt="" loading="lazy">` : esc(iniciais(nome))}</span>`;
 // As 6 situações (a "jornada") usadas pelo Hype, na ordem do caminho de cada pessoa
 export const SITUACOES = [
-  { id: 'novo_visitante', nome: 'Novo visitante', cor: '#f0561d' },
+  { id: 'novo_visitante', nome: 'Novo visitante', cor: '#e8336d' },
   { id: 'visitante_regular', nome: 'Visitante regular', cor: '#d98a00' },
   { id: 'novo_membro', nome: 'Novo membro', cor: '#2a9d8f' },
   { id: 'membro', nome: 'Membro', cor: '#2a78d6' },
@@ -225,3 +235,14 @@ export function saudacao() {
   const h = new Date().getHours();
   return h < 5 ? 'Boa noite' : h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite';
 }
+
+// ---------- Tema claro / escuro ----------
+export const temaAtual = () => { try { return localStorage.getItem('hype_tema') || 'auto'; } catch { return 'auto'; } };
+export function aplicarTema(escolha = temaAtual()) {
+  try { localStorage.setItem('hype_tema', escolha); } catch {}
+  const escuro = escolha === 'escuro' || (escolha === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.dataset.tema = escuro ? 'escuro' : 'claro';
+  window.dispatchEvent(new Event('hype:tema'));
+}
+// Automático: acompanha quando o celular muda de claro para escuro
+try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (temaAtual() === 'auto') aplicarTema('auto'); }); } catch {}

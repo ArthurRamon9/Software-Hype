@@ -15,7 +15,7 @@ export async function render(conteudo) {
       <thead><tr><th>Nome</th><th class="some-mobile">Descrição</th><th class="dir">Pessoas</th><th></th></tr></thead>
       <tbody>${lista.map((m) => `<tr class="${m.cd_status ? '' : 'inativo'}">
         <td><span class="ponto" style="background:${esc(m.cor)};margin-right:8px"></span>${esc(m.nome)}${m.cd_status ? '' : ' <span class="tag">inativo</span>'}</td>
-        <td class="some-mobile muted">${esc(m.descricao || '')}</td>
+        <td class="some-mobile muted">${m.lideres ? `Líder: ${esc(m.lideres)}` : esc(m.descricao || '')}</td>
         <td class="dir num">${m.pessoas ? `<button class="link-btn" data-ver="${m.id}" title="Ver essas pessoas">${m.pessoas}</button>` : '<span class="muted">0</span>'}</td>
         <td class="dir">${pode('ministerios.editar') ? `<button class="link-btn" data-editar="${m.id}">Editar</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="4" class="vazio">Nenhum ministério.</td></tr>'}</tbody>
     </table></div></div>`;
@@ -24,7 +24,9 @@ export async function render(conteudo) {
     // Pessoas ativas, marcando quem já participa (no novo ministério ninguém participa ainda)
     const todas = await api('GET', `/ministerios/${m.id || 0}/pessoas`);
     const escolhidas = new Set(todas.filter((p) => p.membro).map((p) => p.id));
-    const original = [...escolhidas].sort().join(',');
+    const lideres = new Set(todas.filter((p) => p.membro && p.lider).map((p) => p.id));
+    const assinatura = () => `${[...escolhidas].sort().join(',')}|${[...lideres].filter((x) => escolhidas.has(x)).sort().join(',')}`;
+    const original = assinatura();
     const porId = new Map(todas.map((p) => [p.id, p]));
     janela({
       titulo: m.id ? 'Editar ministério' : 'Novo ministério',
@@ -34,6 +36,7 @@ export async function render(conteudo) {
         <div class="field"><span class="label">Cor</span>
           <div class="cores">${CORES.map((c) => `<label style="--c:${c}" title="${c}"><input type="radio" name="cor" value="${c}" ${(m.cor || CORES[0]).toLowerCase() === c ? 'checked' : ''}></label>`).join('')}</div></div>
         <div class="field"><label for="mb">Pessoas no ministério <span class="muted small" id="mqtd"></span></label>
+          <span class="hint" style="margin:-2px 0 6px">Marque "Líder" em quem lidera: o líder monta as escalas e cria as reuniões do ministério.</span>
           <div class="escolhidas" id="mesc"></div>
           <input class="input" id="mb" type="search" placeholder="Digite um nome para acrescentar" autocomplete="off" style="margin-top:8px">
           <div class="sugestoes" id="msug"></div></div>
@@ -46,7 +49,9 @@ export async function render(conteudo) {
         const pintar = () => {
           const lista = [...escolhidas].map((id) => porId.get(id)).filter(Boolean).sort((a, b) => a.nome.localeCompare(b.nome));
           j.querySelector('#mqtd').textContent = lista.length ? `(${lista.length})` : '';
-          j.querySelector('#mesc').innerHTML = lista.map((p) => `<button type="button" data-tirar="${p.id}" title="Tirar do ministério">${esc(p.nome)}${p.referencia ? ` <span class="muted">· ${esc(p.referencia)}</span>` : ''}${icon('xis')}</button>`).join('')
+          j.querySelector('#mesc').innerHTML = lista.map((p) => `<span class="chip-pessoa ${lideres.has(p.id) ? 'lider' : ''}">${esc(p.nome)}${p.referencia ? ` <span class="muted">· ${esc(p.referencia)}</span>` : ''}
+              <button type="button" class="marca-lider" data-lider="${p.id}" title="${lideres.has(p.id) ? 'É líder. Clique para tirar' : 'Marcar como líder'}">Líder</button>
+              <button type="button" data-tirar="${p.id}" title="Tirar do ministério" aria-label="Tirar ${esc(p.nome)}">${icon('xis')}</button></span>`).join('')
             || '<span class="hint">Ninguém ainda.</span>';
           const termo = busca.value.trim();
           j.querySelector('#msug').innerHTML = termo ? filtrarPorNome(todas.filter((p) => !escolhidas.has(p.id)), termo).slice(0, 6)
@@ -56,7 +61,11 @@ export async function render(conteudo) {
         busca.addEventListener('input', pintar);
         busca.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); j.querySelector('#msug button')?.click(); } });
         j.querySelector('#msug').addEventListener('click', (ev) => { const b = ev.target.closest('[data-por]'); if (!b) return; escolhidas.add(Number(b.dataset.por)); busca.value = ''; pintar(); busca.focus(); });
-        j.querySelector('#mesc').addEventListener('click', (ev) => { const b = ev.target.closest('[data-tirar]'); if (!b) return; escolhidas.delete(Number(b.dataset.tirar)); pintar(); });
+        j.querySelector('#mesc').addEventListener('click', (ev) => {
+          const l = ev.target.closest('[data-lider]');
+          if (l) { const id = Number(l.dataset.lider); if (lideres.has(id)) lideres.delete(id); else lideres.add(id); pintar(); return; }
+          const b = ev.target.closest('[data-tirar]'); if (!b) return; escolhidas.delete(Number(b.dataset.tirar)); lideres.delete(Number(b.dataset.tirar)); pintar();
+        });
         if (!m.id) j.querySelector('#mn').focus();
         j.querySelector('#fm').addEventListener('submit', async (e) => {
           e.preventDefault();
@@ -65,7 +74,7 @@ export async function render(conteudo) {
             try {
               const r = await api(m.id ? 'PUT' : 'POST', m.id ? `/ministerios/${m.id}` : '/ministerios', corpo);
               const id = m.id || r.id;
-              if ([...escolhidas].sort().join(',') !== original) await api('PUT', `/ministerios/${id}/pessoas`, { pessoas: [...escolhidas] });
+              if (assinatura() !== original) await api('PUT', `/ministerios/${id}/pessoas`, { pessoas: [...escolhidas], lideres: [...lideres].filter((x) => escolhidas.has(x)) });
               aviso('Ministério salvo.'); fechar(); render(conteudo);
             } catch (err) { avisoErro(err); }
           });
