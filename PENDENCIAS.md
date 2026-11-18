@@ -40,7 +40,27 @@ Enquanto isso, o trabalho fica no ramo `desenvolvimento`.
        do envio ("cobrar o responsável").
 3. **Clicar no logo leva para o Início.** Hoje o logo "Gestão do Hype" (barra lateral no computador e
    topo no celular) não faz nada; virar link para `#/`.
-4. **Repaginação do visual com a arte do Hype** (logo e cores) — quando o Arthur mandar.
+4. **Ligar o usuário (login) à pessoa do cadastro.** Coluna nova `usuarios.pessoa_id` (via `01_estrutura.sql`).
+   - Ao liberar/abrir uma conta em Acessos → Usuários: se existir no cadastro uma pessoa com **o mesmo
+     e-mail**, sugerir "Esta conta parece ser da X (mesmo e-mail). Ligar?" e o admin confirma.
+     Se não houver, o admin escolhe a pessoa ali mesmo (busca por nome) ou deixa sem vínculo.
+   - Nunca mostrar a lista do cadastro na tela pública de "Criar conta" (expõe dados de jovens) e
+     nunca ligar sozinho: o site não verifica se o e-mail é da pessoa.
+   - Depois de ligado: foto do cadastro no avatar e nome igual nos dois lugares.
+5. **Cada um vê só os acompanhamentos atribuídos a ele (Pastoral e Integração).**
+   - Permissões novas `pastoral.ver_todos` e `integracao.ver_todos` (Administradores e Líderes de equipe
+     por padrão). Quem só tem `pastoral.ver`/`integracao.ver` vê **apenas os casos em que é o
+     responsável** (responsável = pessoa ligada ao seu login, item 4 + item 1).
+   - Regra aplicada **na API** (lista, abrir caso, registrar contato, ficha da pessoa, contador do menu),
+     não só escondida na tela.
+   - A lista "Sem acompanhamento"/"Esperando contato" (casos ainda sem responsável) só aparece para
+     quem vê todos e pode designar (o Arthur designa).
+   - Conta sem vínculo com o cadastro: mostrar "Sua conta ainda não está ligada ao seu cadastro. Peça
+     a um administrador." em vez de lista vazia sem explicação.
+   - Lembrar o Arthur: o grupo Pastoral tem `pessoas.ver` (vê o cadastro inteiro). Se quiser que vejam
+     só os seus casos e a ficha dessas pessoas, tirar `pessoas.ver` do grupo e liberar a ficha só das
+     pessoas dos seus casos.
+6. **Repaginação do visual com a arte do Hype** (logo e cores) — quando o Arthur mandar.
 
 ## Já feito no `desenvolvimento`, esperando publicar
 - (nada ainda)
