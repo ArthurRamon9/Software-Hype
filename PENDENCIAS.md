@@ -44,6 +44,16 @@ Causa: `POST /presenca` faz `DELETE` de todas as presenças da data e grava só 
   - No celular, acompanhamentos em **cartões** (nome, há quanto tempo não vem, botões WhatsApp e
     "Registrar contato"), em vez da tabela larga com rolagem lateral; filtros recolhidos num botão.
 
+### Acessos: depois de liberar, a lista não atualiza (relatado pelo Arthur com a 1ª usuária real)
+- No site publicado, depois de "Liberar acesso" a pessoa continuou em "Aguardando liberação" com o botão
+  "Analisar" até dar F5. Aqui no teste local atualiza; a recarga da lista acontece em silêncio (sem
+  indicador) e, se demorar (banco grátis "acordando") ou falhar, a tela fica parada sem avisar.
+- Corrigir: assim que o servidor confirmar, **atualizar a tela na hora** (tirar a pessoa de "Aguardando" e
+  pôr na tabela com os grupos escolhidos) sem depender da segunda busca; depois recarregar em segundo plano
+  com indicador; se a recarga falhar, mostrar aviso com "Tentar de novo". Vale para liberar, bloquear,
+  recusar, mudar grupos e salvar grupo. Revisar o mesmo padrão nas outras telas que recarregam depois de
+  salvar (Pastoral, Integração, Ministérios, Presença).
+
 ### Padrão de escrita: toda frase começa com letra maiúscula
 - O Arthur não quer textos começando com minúscula (ex.: "inclui contas bloqueadas", "últimos 12
   encontros", "nenhum", "visitantes dos últimos 30 dias", "2+ faltas seguidas", "opcional · é salvo junto
