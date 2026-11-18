@@ -162,3 +162,20 @@ Causa: `POST /presenca` faz `DELETE` de todas as presenças da data e grava só 
 
 ## Já feito no `desenvolvimento`, esperando publicar
 - (nada ainda)
+
+## Próximos pacotes (depois desta publicação)
+
+### Agenda de reuniões por ministério (ideia da Érika, aprovada pelo Arthur em 18/11)
+- Aba **Agenda**. O líder de cada ministério cria a reunião (título, data/hora, local, descrição) e escolhe
+  os membros do ministério que participam (por padrão, todos do ministério).
+- Cada um vê só as reuniões dos ministérios em que está (depende do vínculo login ↔ cadastro).
+- Precisa marcar quem é **líder de cada ministério** (no cadastro do ministério: líder(es)).
+- Google Agenda, sem custo e sem cartão:
+  1. **Convite por e-mail** com arquivo de agenda (.ics) pelo Gmail que o site já usa: chega como convite
+     no Google Agenda/iPhone/Outlook de quem tem e-mail no cadastro, com Sim/Não/Talvez. Mudou o horário
+     ou cancelou → manda a atualização e o evento muda sozinho na agenda da pessoa.
+  2. Botão **"Adicionar ao Google Agenda"** em cada reunião (link pronto, sem API).
+  - Não usar a API do Google Agenda agora (exige projeto no Google Cloud e login OAuth); só se um dia
+    precisar ler as respostas Sim/Não dentro do site.
+- Cuidados: e-mails faltando/errados no cadastro (mostrar quem não vai receber), limite do Gmail
+  (~500 e-mails/dia, sobra), LGPD (só e-mail de quem participa do ministério).
