@@ -179,3 +179,15 @@ Causa: `POST /presenca` faz `DELETE` de todas as presenças da data e grava só 
     precisar ler as respostas Sim/Não dentro do site.
 - Cuidados: e-mails faltando/errados no cadastro (mostrar quem não vai receber), limite do Gmail
   (~500 e-mails/dia, sobra), LGPD (só e-mail de quem participa do ministério).
+
+### Escalas das sextas por ministério (ideia do Arthur em 18/11) — junto com a Agenda
+- Aba **Escalas**. Hoje quem precisa: **Mídias** e **Diaconato** (fazem por planilha/WhatsApp).
+- O líder do ministério monta a escala do mês: sextas nas colunas × **funções** do ministério nas linhas
+  (ex.: Mídias: projeção, som, câmera, fotos; Diaconato: porta, recepção…), escolhendo membros do ministério.
+  Funções de cada ministério cadastráveis pelo líder.
+- Cada membro vê "Minhas escalas" (próximas sextas em que serve). Opcional depois: marcar "não posso nesta
+  sexta" para o líder ver antes de montar; pedido de troca.
+- Avisos: texto pronto da escala para colar no grupo do WhatsApp do ministério + exportar .xlsx/imprimir.
+  Convite no Google Agenda para cada escalado (mesmo esquema .ics da Agenda).
+- Alerta se a mesma pessoa estiver escalada em dois ministérios na mesma sexta.
+- Base em comum com a Agenda: líder por ministério, membros do ministério, vínculo login ↔ cadastro.
