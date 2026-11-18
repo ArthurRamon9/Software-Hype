@@ -12,6 +12,45 @@ Enquanto isso, o trabalho fica no ramo `desenvolvimento`.
 - Upgrades maiores ficam para os próximos meses, um pacote por vez.
 
 ## A fazer
+
+### PRIORIDADE MÁXIMA — chamada com duas pessoas ao mesmo tempo apaga marcações
+Simulado em 18/11: a Bia marcou 20 num celular, outra pessoa marcou 15 em outro; ficaram só 15.
+Causa: `POST /presenca` faz `DELETE` de todas as presenças da data e grava só o que veio daquele celular.
+- Salvar **mesclando**: gravar/atualizar só as pessoas que aquele celular marcou ou mudou; desmarcar
+  (tirar a marcação) vai como remoção explícita daquela pessoa. Nunca apagar a chamada inteira ao salvar.
+- "Restantes como falta" manda as faltas como automáticas: o servidor só grava a falta se ninguém tiver
+  marcado aquela pessoa ainda (não sobrescreve um "veio" marcado em outro celular).
+- Ao salvar, recarregar a chamada com o que está no servidor (marcações dos outros aparecem) e atualizar o
+  texto do topo (hoje continua "Chamada ainda não feita nesta data" depois de salvar) e o botão de apagar.
+- Tema só é alterado se veio preenchido/alterado (não apagar o tema que outra pessoa escreveu).
+- Não deixar salvar chamada em data futura (hoje aceita, ex.: 27/11 salvo antes do dia).
+- Teste obrigatório: duas sessões marcando pessoas diferentes + "restantes como falta" em uma delas.
+
+### Chamada no celular (simulação da Bia, grupo Presença)
+- Fluxo da porta: digitar 2–3 letras, tocar ✓, a busca limpa sozinha e o cursor volta para a busca.
+  Hoje a busca fica preenchida e é preciso apagar à mão a cada pessoa.
+- Topo mais compacto no celular para caber mais nomes (hoje só ~2 nomes aparecem acima da barra de
+  salvar): data e contadores numa linha só, "Tema da noite" recolhido num botão "+ Tema da noite".
+- Opção "Esconder quem já foi marcado" para ver só quem falta.
+
+### Pastoral (simulação: Arthur distribuindo e Mayck da equipe)
+- **Designar vários de uma vez** na lista "Sem acompanhamento" (hoje são 35 e é um por um): caixinhas
+  + "Designar para…" escolhendo da lista do ministério (item 1).
+- Para a equipe (junto com o item 5):
+  - Início mostra "Seus acompanhamentos (N)" com a lista dos casos atribuídos a ele.
+  - O número no menu "Pastoral" conta só os casos dele (hoje mostra 62, de todos).
+  - Equipe **não designa nem troca responsável** (hoje o Mayck vê "Designar" e "trocar"): permissão nova
+    `pastoral.designar` / `integracao.designar` só para quem distribui.
+  - No celular, acompanhamentos em **cartões** (nome, há quanto tempo não vem, botões WhatsApp e
+    "Registrar contato"), em vez da tabela larga com rolagem lateral; filtros recolhidos num botão.
+
+### "Ver como" outro usuário (no lugar da senha padrão — aguardando OK do Arthur)
+- O Arthur pediu uma senha padrão (salva no banco, alterável) para entrar na conta dos outros.
+  Proposto em vez disso: em Acessos → Usuários, botão **"Ver o sistema como Fulano"** só para
+  Administradores. Abre a sessão como aquela pessoa com uma faixa fixa "Você está vendo como Mayck ·
+  Voltar para a minha conta". Tudo o que for feito fica no registro como "Arthur (como Mayck)".
+  Não usa senha de ninguém. Não permite "ver como" outro administrador.
+
 1. **Responsável escolhido numa lista, não digitado.** No lugar do campo de texto, uma lista para
    selecionar só quem está no **ministério Pastoral do cadastro** (na Integração, quem está no
    ministério Integração). Não depende de login: a equipe só é avisada, quem designa é o Arthur.
