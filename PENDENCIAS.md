@@ -61,7 +61,15 @@ Enquanto isso, o trabalho fica no ramo `desenvolvimento`.
      grupo só vê a sua área: Pastoral não vê Integração e vice-versa (já é assim hoje pelas permissões;
      conferir de novo, inclusive na ficha da pessoa, que só mostra os acompanhamentos da área de quem
      está vendo, e dentro da área só os casos atribuídos a ele).
-6. **Repaginação do visual com a arte do Hype** (logo e cores) — quando o Arthur mandar.
+6. **Janela de grupos do usuário (Acessos → Usuários → abrir alguém) está bagunçada.**
+   - As caixinhas ficam de tamanhos diferentes quando a descrição quebra linha (a caixinha encolhe);
+     nome e descrição na mesma linha quebram feio. Fazer cada grupo como uma linha: caixinha de tamanho
+     fixo, nome em negrito em cima e descrição menor embaixo (mesmo padrão na janela do grupo, nas
+     permissões e na lista "Quem está no grupo").
+   - Quando "Administradores" estiver marcado, os outros grupos não mudam nada (admin já pode tudo):
+     deixar os outros apagados/desabilitados com a nota "Administradores já pode tudo", para não
+     marcar 5 caixinhas à toa.
+7. **Repaginação do visual com a arte do Hype** (logo e cores) — quando o Arthur mandar.
 
 ## Já feito no `desenvolvimento`, esperando publicar
 - (nada ainda)
