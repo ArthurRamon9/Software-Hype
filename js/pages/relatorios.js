@@ -14,14 +14,24 @@ const mesAnterior = (ym) => { const [y, m] = ym.split('-').map(Number); return i
 const nomeMes = (ym) => parseISO(ym + '-01').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
 const periodo = (ini, fim) => api('GET', `/relatorios?ini=${ini}&fim=${fim}`);
 
+const media = (lista, campo) => (lista.length ? Math.round((lista.reduce((s, e) => s + e[campo], 0) / lista.length) * 10) / 10 : null);
+const virgula = (n) => (n === null || n === undefined ? '—' : String(n).replace('.', ','));
+
+// Resumo de um período, separando membros e visitantes (pela situação da pessoa no dia)
 function resumir({ encontros, presencas }) {
   const porEnc = encontros.map((e) => {
     const r = presencas.filter((p) => p.encontro_id === e.id);
-    const p = r.filter((x) => x.presente).length;
-    return { ...e, presentes: p, ausentes: r.length - p };
+    const pres = r.filter((x) => x.presente);
+    const membros = pres.filter((x) => ehMembro(x.tipo)).length;
+    return { ...e, presentes: pres.length, ausentes: r.length - pres.length, membros, visitantes: pres.length - membros };
   });
-  const total = porEnc.reduce((s, e) => s + e.presentes, 0);
-  return { porEnc, media: porEnc.length ? Math.round((total / porEnc.length) * 10) / 10 : 0, unicos: new Set(presencas.filter((p) => p.presente).map((p) => p.pessoa_id)).size };
+  const vieram = presencas.filter((p) => p.presente);
+  const unicosM = new Set(vieram.filter((p) => ehMembro(p.tipo)).map((p) => p.pessoa_id)).size;
+  const unicos = new Set(vieram.map((p) => p.pessoa_id)).size;
+  return {
+    porEnc, unicos, unicosMembros: unicosM, unicosVisitantes: unicos - unicosM,
+    media: media(porEnc, 'presentes') ?? 0, mediaMembros: media(porEnc, 'membros') ?? 0, mediaVisitantes: media(porEnc, 'visitantes') ?? 0,
+  };
 }
 function comparar(atual, anterior) {
   if (anterior === null || anterior === undefined) return '';
@@ -119,23 +129,26 @@ async function mes(rel) {
   rel.innerHTML = `
     ${tituloImpressao(nomeMes(estado.mes))}
     <div class="numeros">
-      ${numero('Encontros', A.porEnc.length, B ? comparar(A.porEnc.length, B.porEnc.length) : '')}
-      ${numero('Média de presentes', String(A.media).replace('.', ','), B ? comparar(A.media, B.media) : '')}
-      ${numero('Pessoas diferentes', A.unicos, 'vieram ao menos uma vez')}
-      ${numero('Novos', novos, 'cadastrados no mês')}
+      ${numero('Média de presentes', virgula(A.media), `${A.porEnc.length} sexta${A.porEnc.length === 1 ? '' : 's'}${B ? ` · ${comparar(A.media, B.media)}` : ''}`)}
+      ${numero('Membros por sexta', virgula(A.mediaMembros), B ? comparar(A.mediaMembros, B.mediaMembros) : 'média do mês')}
+      ${numero('Visitantes por sexta', virgula(A.mediaVisitantes), B ? comparar(A.mediaVisitantes, B.mediaVisitantes) : 'média do mês')}
+      ${numero('Pessoas diferentes', A.unicos, `${A.unicosMembros} membros · ${A.unicosVisitantes} visitantes${novos ? ` · ${novos} novos` : ''}`)}
     </div>
-    <section class="painel mt"><div class="painel-topo"><h2>Presentes por sexta</h2><span class="sub">${nomeMes(estado.mes)}</span></div><div class="painel-corpo">
-      <div class="grafico" style="height:220px"><canvas id="g-mes" role="img" aria-label="Presentes por sexta no mês"></canvas></div>
-      ${tabelaDados(A.porEnc.map((e) => fmtData(e.data)), [{ rotulo: 'Presentes', dados: A.porEnc.map((e) => e.presentes) }, { rotulo: 'Ausentes', dados: A.porEnc.map((e) => e.ausentes) }])}
+    <section class="painel mt"><div class="painel-topo"><h2>Membros e visitantes por sexta</h2><span class="sub">${nomeMes(estado.mes)}</span></div><div class="painel-corpo">
+      <div class="grafico" style="height:240px"><canvas id="g-mes" role="img" aria-label="Membros e visitantes por sexta no mês"></canvas></div>
+      ${tabelaDados(A.porEnc.map((e) => fmtData(e.data)), [{ rotulo: 'Membros', dados: A.porEnc.map((e) => e.membros) }, { rotulo: 'Visitantes', dados: A.porEnc.map((e) => e.visitantes) }, { rotulo: 'Total', dados: A.porEnc.map((e) => e.presentes) }, { rotulo: 'Ausentes', dados: A.porEnc.map((e) => e.ausentes) }])}
     </div></section>
     <section class="painel mt"><div class="painel-topo"><h2>Frequência de cada pessoa</h2></div><div class="painel-corpo"><div class="tabela-wrap">
-      <table class="tabela"><thead><tr><th>Nome</th><th>Tipo</th><th class="dir">Veio</th><th class="dir">%</th></tr></thead><tbody>
+      <table class="tabela"><thead><tr><th>Nome</th><th>Situação</th><th class="dir">Veio</th><th class="dir">%</th></tr></thead><tbody>
       ${ranking.map((p) => `<tr><td><a href="#/pessoas/${p.id}">${esc(p.nome)}</a></td><td>${tagTipo(p.tipo)}</td><td class="dir num">${p.pres} de ${p.tot}</td><td class="dir num">${pct(p.pres, p.tot)}%</td></tr>`).join('')}
       </tbody></table></div></div></section>`;
-  graficos.push(barras($('#g-mes'), { rotulos: A.porEnc.map((e) => fmtDiaMes(e.data)), series: [{ rotulo: 'Presentes', dados: A.porEnc.map((e) => e.presentes), cor: COR.s1 }] }));
+  graficos.push(barras($('#g-mes'), {
+    rotulos: A.porEnc.map((e) => fmtDiaMes(e.data)), empilhado: true,
+    series: [{ rotulo: 'Membros', dados: A.porEnc.map((e) => e.membros), cor: COR.s1 }, { rotulo: 'Visitantes', dados: A.porEnc.map((e) => e.visitantes), cor: COR.s2 }],
+  }));
   return { nome: `frequencia-${estado.mes}`, abas: [
     { nome: 'Frequência', linhas: [['Nome', 'Referência', 'Situação', 'Presenças', 'Sextas marcadas', '%'], ...ranking.map((p) => [p.nome, p.referencia, TIPOS[p.tipo], p.pres, p.tot, pct(p.pres, p.tot)])] },
-    { nome: 'Por sexta', linhas: [['Data', 'Tema', 'Presentes', 'Ausentes'], ...A.porEnc.map((e) => [e.data, e.tema, e.presentes, e.ausentes])] },
+    { nome: 'Por sexta', linhas: [['Data', 'Tema', 'Membros', 'Visitantes', 'Total de presentes', 'Ausentes'], ...A.porEnc.map((e) => [e.data, e.tema, e.membros, e.visitantes, e.presentes, e.ausentes])] },
   ] };
 }
 
@@ -145,22 +158,35 @@ async function ano(rel) {
   const [atual, anterior] = await Promise.all([periodo(`${y}-01-01`, `${y}-12-31`), periodo(`${y - 1}-01-01`, `${y - 1}-12-31`)]);
   if (!atual.encontros.length) { rel.innerHTML = `<div class="painel vazio">Nenhuma chamada em ${y}.</div>`; return null; }
   const A = resumir(atual), B = anterior.encontros.length ? resumir(anterior) : null;
-  const mediaMes = (R) => MESES.map((_, m) => { const e = R.porEnc.filter((x) => parseISO(x.data).getMonth() === m); return e.length ? Math.round((e.reduce((s, x) => s + x.presentes, 0) / e.length) * 10) / 10 : null; });
+  const mediaMes = (R, campo = 'presentes') => MESES.map((_, m) => media(R.porEnc.filter((x) => parseISO(x.data).getMonth() === m), campo));
   const mA = mediaMes(A), mB = B ? mediaMes(B) : null;
+  const memA = mediaMes(A, 'membros'), visA = mediaMes(A, 'visitantes');
   const maior = A.porEnc.reduce((m, e) => (!m || e.presentes > m.presentes ? e : m), null);
 
   rel.innerHTML = `
     ${tituloImpressao(`Ano de ${y}`)}
     <div class="numeros">
-      ${numero('Encontros', A.porEnc.length, B ? comparar(A.porEnc.length, B.porEnc.length) : '')}
-      ${numero('Média de presentes', String(A.media).replace('.', ','), B ? comparar(A.media, B.media) : '')}
-      ${numero('Pessoas diferentes', A.unicos, 'vieram ao menos uma vez')}
-      ${numero('Maior encontro', maior.presentes, fmtData(maior.data))}
+      ${numero('Média de presentes', virgula(A.media), `${A.porEnc.length} sextas · maior: ${maior.presentes} em ${fmtDiaMes(maior.data)}`)}
+      ${numero('Membros por sexta', virgula(A.mediaMembros), B ? comparar(A.mediaMembros, B.mediaMembros) : 'média do ano')}
+      ${numero('Visitantes por sexta', virgula(A.mediaVisitantes), B ? comparar(A.mediaVisitantes, B.mediaVisitantes) : 'média do ano')}
+      ${numero('Pessoas diferentes', A.unicos, `${A.unicosMembros} membros · ${A.unicosVisitantes} visitantes`)}
     </div>
-    <section class="painel mt"><div class="painel-topo"><h2>Média de presentes por mês</h2><span class="sub">${B ? `${y} e ${y - 1}` : y}</span></div><div class="painel-corpo">
+    <section class="painel mt"><div class="painel-topo"><h2>Membros e visitantes por mês</h2><span class="sub">média por sexta em ${y}</span></div><div class="painel-corpo">
+      <div class="grafico"><canvas id="g-ano-tipo" role="img" aria-label="Média de membros e visitantes por mês"></canvas></div>
+      ${tabelaDados(MESES, [{ rotulo: 'Membros', dados: memA }, { rotulo: 'Visitantes', dados: visA }, { rotulo: 'Total', dados: mA }])}
+    </div></section>
+    <section class="painel mt"><div class="painel-topo"><h2>Média de presentes por mês</h2><span class="sub">${B ? `${y} comparado com ${y - 1}` : y}</span></div><div class="painel-corpo">
       <div class="grafico"><canvas id="g-ano" role="img" aria-label="Média de presentes por mês"></canvas></div>
       ${tabelaDados(MESES, [{ rotulo: String(y), dados: mA }, ...(B ? [{ rotulo: String(y - 1), dados: mB }] : [])])}
     </div></section>`;
+  graficos.push(barras($('#g-ano-tipo'), {
+    rotulos: MESES, empilhado: true,
+    series: [{ rotulo: 'Membros', dados: memA, cor: COR.s1 }, { rotulo: 'Visitantes', dados: visA, cor: COR.s2 }],
+  }));
   graficos.push(linhas($('#g-ano'), { rotulos: MESES, series: [{ rotulo: String(y), dados: mA, cor: COR.s1 }, ...(B ? [{ rotulo: String(y - 1), dados: mB, cor: COR.s2, tracejado: true }] : [])] }));
-  return { nome: `ano-${y}`, linhas: [['Mês', `Média ${y}`, ...(B ? [`Média ${y - 1}`] : [])], ...MESES.map((m, i) => [m, mA[i] ?? '', ...(B ? [mB[i] ?? ''] : [])])] };
+  return { nome: `ano-${y}`, abas: [
+    { nome: `Por mês ${y}`, linhas: [['Mês', 'Média de membros', 'Média de visitantes', `Média total ${y}`, ...(B ? [`Média total ${y - 1}`] : [])],
+      ...MESES.map((m, i) => [m, memA[i] ?? '', visA[i] ?? '', mA[i] ?? '', ...(B ? [mB[i] ?? ''] : [])])] },
+    { nome: 'Por sexta', linhas: [['Data', 'Tema', 'Membros', 'Visitantes', 'Total de presentes', 'Ausentes'], ...A.porEnc.map((e) => [e.data, e.tema, e.membros, e.visitantes, e.presentes, e.ausentes])] },
+  ] };
 }
