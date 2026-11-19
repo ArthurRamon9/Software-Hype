@@ -1045,3 +1045,15 @@ details.anterior[open] summary { margin-bottom: 8px; }
 .fin-cats i { grid-column: 1 / -1; display: block; height: 8px; border-radius: 4px; background: var(--accent); opacity: .85; }
 .fin-escolha { width: 100%; }
 .fin-escolha button { flex: 1; }
+
+/* Documentos */
+.pastas { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+.pasta { display: flex; align-items: center; gap: 12px; padding: 12px 12px 12px 14px; border: 1px solid var(--line); border-left: 4px solid var(--c, var(--accent)); border-radius: 12px; background: var(--surface); }
+.pasta > svg.i { width: 22px; height: 22px; color: var(--c, var(--accent)); flex: none; }
+.pasta .cresce { min-width: 0; }
+.pasta b { display: block; font-size: 14.5px; }
+.pasta span { color: var(--muted); font-size: 12.5px; }
+.pasta.geral { --c: var(--accent); background: var(--accent-soft); }
+.pasta .btn-icone { width: 34px; height: 34px; }
+.doc-tipo { display: inline-block; margin-left: 8px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.doc-assunto { max-width: 360px; }

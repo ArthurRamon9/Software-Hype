@@ -48,6 +48,11 @@ const PERMISSAO_DA_ROTA = {
   'POST /financeiro':                 'financeiro.editar',
   'PUT /financeiro/:id':              'financeiro.editar',
   'DELETE /financeiro/:id':           'acessos.gerenciar',   // apagar lançamento: só administrador (os outros corrigem editando)
+  'GET /documentos':                  'aprovado',   // cada um vê os dos seus ministérios (a regra está na rota)
+  'POST /documentos':                 'aprovado',   // líder do ministério, quem tem documentos.gerenciar ou administrador
+  'PUT /documentos/:id':              'aprovado',
+  'DELETE /documentos/:id':           'aprovado',
+  'PUT /documentos/pasta-geral':      'documentos.gerenciar',
   'GET /escalas':                     'aprovado',
   'GET /escalas/minhas':              'aprovado',
   'PUT /escalas/:ministerio/funcoes': 'aprovado',
@@ -388,7 +393,7 @@ rota('GET', '/contadores', async ({ usuario }) => {
 
 // ------------------------------------------------------------------ MINISTÉRIOS
 rota('GET', '/ministerios', async () => query(`
-  SELECT m.id, m.nome, m.descricao, m.cor, m.cd_status,
+  SELECT m.id, m.nome, m.descricao, m.cor, m.cd_status, m.drive_url,
          (SELECT COUNT(*) FROM dbo.pessoa_ministerio pm JOIN dbo.pessoas p ON p.id = pm.pessoa_id
            WHERE pm.ministerio_id = m.id AND p.cd_status = 1) AS pessoas,
          (SELECT STRING_AGG(p.nome, ', ') FROM dbo.pessoa_ministerio pm JOIN dbo.pessoas p ON p.id = pm.pessoa_id
@@ -403,14 +408,14 @@ function dadosMinisterio(b) {
 rota('POST', '/ministerios', async ({ body, usuario, ip }) => {
   const d = dadosMinisterio(body);
   let m;
-  try { m = await umaLinha('INSERT INTO dbo.ministerios (nome, descricao, cor) OUTPUT inserted.id VALUES (@nome, @descricao, @cor)', d); }
+  try { m = await umaLinha('INSERT INTO dbo.ministerios (nome, descricao, cor, drive_url) OUTPUT inserted.id VALUES (@nome, @descricao, @cor, @drive)', { ...d, drive: linkDrive(body.drive_url, true) }); }
   catch (e) { if (e.number === 2627) throw new HttpError(409, 'Já existe um ministério com esse nome.'); throw e; }
   await seg.registrar('ministerio_salvo', { usuario, ip, detalhe: `${d.nome} (novo)` });
   return { id: m.id };
 });
 rota('PUT', '/ministerios/:id', async ({ params, body, usuario, ip }) => {
   const d = dadosMinisterio(body);
-  try { await query('UPDATE dbo.ministerios SET nome=@nome, descricao=@descricao, cor=@cor, cd_status=@status WHERE id=@id', { ...d, id: int(params.id) }); }
+  try { await query('UPDATE dbo.ministerios SET nome=@nome, descricao=@descricao, cor=@cor, cd_status=@status, drive_url = CASE WHEN @mudaDrive = 1 THEN @drive ELSE drive_url END WHERE id=@id', { ...d, id: int(params.id), mudaDrive: body.drive_url === undefined ? 0 : 1, drive: linkDrive(body.drive_url, true) }); }
   catch (e) { if (e.number === 2627) throw new HttpError(409, 'Já existe um ministério com esse nome.'); throw e; }
   await seg.registrar('ministerio_salvo', { usuario, ip, detalhe: d.nome });
   return { ok: true };
@@ -1216,6 +1221,76 @@ rota('DELETE', '/escalas/funcoes/:id', async ({ params, usuario }) => {
   if (!f) return { ok: true };
   precisaLiderar(usuario, f.ministerio_id);
   await query('DELETE FROM dbo.escala_funcoes WHERE id = @id', { id: int(params.id) });   // a escala antiga continua mostrando o nome
+  return { ok: true };
+});
+
+// ------------------------------------------------------------------ DOCUMENTOS (links do Google Drive)
+// Os arquivos ficam no Drive (quem abre ou envia fala direto com o Google: nada passa pelo Netlify).
+// O site guarda só o link, o título e o assunto, para achar rápido.
+// Quem vê: o geral, todos; o de um ministério, quem é dele, os líderes, quem gerencia documentos e administradores.
+// Quem mexe: líder do ministério, quem tem "documentos.gerenciar" e administradores. Apagar: líder ou administrador.
+function linkDrive(v, opcional = false) {
+  const t = txt(v, 500);
+  if (!t) { if (opcional) return null; throw new HttpError(400, 'Cole o link do Google Drive.'); }
+  let u;
+  try { u = new URL(t); } catch { throw new HttpError(400, 'Esse link não parece válido. Copie pelo botão "Compartilhar" → "Copiar link" do Drive.'); }
+  if (u.protocol !== 'https:' || !['drive.google.com', 'docs.google.com'].includes(u.hostname)) throw new HttpError(400, 'Use um link do Google Drive (drive.google.com ou docs.google.com).');
+  return u.toString();
+}
+const veTodosDocumentos = (u) => ehGestor(u) || pode(u, 'documentos.gerenciar') || (u.ministerios || []).some((m) => m.lider);
+const mexeDocumento = (u, mid) => ehGestor(u) || pode(u, 'documentos.gerenciar') || (mid && lideraMinisterio(u, mid));
+rota('GET', '/documentos', async ({ usuario }) => {
+  const todos = veTodosDocumentos(usuario);
+  const meus = (usuario.ministerios || []).map((m) => m.id);
+  const [ministerios, documentos, geral] = await query(`
+    SELECT m.id, m.nome, m.cor, m.drive_url FROM dbo.ministerios m WHERE m.cd_status = 1 AND (@todos = 1 OR m.id IN (SELECT value FROM OPENJSON(@meus))) ORDER BY m.nome;
+    SELECT d.id, d.ministerio_id, d.titulo, d.assunto, CONVERT(CHAR(10), d.data, 126) AS data, d.url, u.nome AS criado_por_nome
+      FROM dbo.documentos d LEFT JOIN dbo.usuarios u ON u.id = d.criado_por
+     WHERE d.ministerio_id IS NULL OR @todos = 1 OR d.ministerio_id IN (SELECT value FROM OPENJSON(@meus))
+     ORDER BY COALESCE(d.data, CAST(d.dt_criacao AS DATE)) DESC, d.id DESC;
+    SELECT valor FROM dbo.configuracoes WHERE chave = 'drive_pasta_geral';`, { todos: todos ? 1 : 0, meus: JSON.stringify(meus) }, { todos: true });
+  return {
+    pasta_geral: geral[0]?.valor || null,
+    ministerios: ministerios.map((m) => ({ ...m, pode_editar: !!mexeDocumento(usuario, m.id) })),
+    documentos, pode_geral: !!mexeDocumento(usuario, null), pode_pasta_geral: ehGestor(usuario) || pode(usuario, 'documentos.gerenciar'),
+  };
+});
+function dadosDocumento(b, usuario) {
+  const titulo = txt(b.titulo, 200);
+  if (!titulo) throw new HttpError(400, 'Dê um título (ex.: Reunião de novembro).');
+  const mid = b.ministerio_id ? int(b.ministerio_id) : null;
+  if (!mexeDocumento(usuario, mid)) throw new HttpError(403, mid ? 'Só o líder deste ministério (ou a administração) adiciona documentos nele.' : 'Só a administração adiciona documentos gerais.');
+  return { titulo, assunto: txt(b.assunto, 500), data: dataISO(b.data), url: linkDrive(b.url), mid };
+}
+rota('POST', '/documentos', async ({ body, usuario, ip }) => {
+  const d = dadosDocumento(body, usuario);
+  const r = await umaLinha(`INSERT INTO dbo.documentos (ministerio_id, titulo, assunto, data, url, criado_por) OUTPUT inserted.id
+    VALUES (@mid, @titulo, @assunto, @data, @url, @uid)`, { ...d, uid: usuario.id });
+  await seg.registrar('documento_adicionado', { usuario, ip, detalhe: d.titulo });
+  return { id: r.id };
+});
+rota('PUT', '/documentos/pasta-geral', async ({ body, usuario, ip }) => {
+  const url = linkDrive(body.url, true);
+  await query(`MERGE dbo.configuracoes AS t USING (SELECT 'drive_pasta_geral' AS chave) s ON t.chave = s.chave
+    WHEN MATCHED THEN UPDATE SET valor = @url WHEN NOT MATCHED THEN INSERT (chave, valor) VALUES ('drive_pasta_geral', @url);`, { url });
+  await seg.registrar('documentos_pasta_geral', { usuario, ip, detalhe: url || '(tirada)' });
+  return { ok: true };
+});
+rota('PUT', '/documentos/:id', async ({ params, body, usuario, ip }) => {
+  const atual = await umaLinha('SELECT ministerio_id FROM dbo.documentos WHERE id = @id', { id: int(params.id) });
+  if (!atual) throw new HttpError(404, 'Documento não encontrado.');
+  if (!mexeDocumento(usuario, atual.ministerio_id)) throw new HttpError(403, 'Você não pode alterar este documento.');
+  const d = dadosDocumento(body, usuario);
+  await query('UPDATE dbo.documentos SET ministerio_id = @mid, titulo = @titulo, assunto = @assunto, data = @data, url = @url WHERE id = @id', { ...d, id: int(params.id) });
+  await seg.registrar('documento_alterado', { usuario, ip, detalhe: d.titulo });
+  return { ok: true };
+});
+rota('DELETE', '/documentos/:id', async ({ params, usuario, ip }) => {
+  const atual = await umaLinha('SELECT ministerio_id, titulo FROM dbo.documentos WHERE id = @id', { id: int(params.id) });
+  if (!atual) return { ok: true };
+  if (!(ehGestor(usuario) || (atual.ministerio_id && lideraMinisterio(usuario, atual.ministerio_id)))) throw new HttpError(403, 'Só o líder do ministério ou um administrador apaga documentos.');
+  await query('DELETE FROM dbo.documentos WHERE id = @id', { id: int(params.id) });   // tira só o link do site: o arquivo continua no Drive
+  await seg.registrar('documento_apagado', { usuario, ip, detalhe: atual.titulo });
   return { ok: true };
 });
 

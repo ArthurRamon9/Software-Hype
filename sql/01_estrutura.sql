@@ -253,6 +253,7 @@ USING (VALUES
     ('relatorios.exportar', N'Baixar e importar planilhas e imprimir relatórios', 41),
     ('financeiro.ver',     N'Ver o financeiro (verba, despesas e entradas)', 70),
     ('financeiro.editar',  N'Lançar e corrigir verba, despesas e entradas', 71),
+    ('documentos.gerenciar', N'Documentos: adicionar e corrigir links do Drive de todos os ministérios', 80),
     ('acessos.gerenciar',  N'Liberar usuários, gerenciar grupos e ver o registro de atividades', 60)
 ) AS s (codigo, descricao, ordem) ON t.codigo = s.codigo
 WHEN MATCHED THEN UPDATE SET descricao = s.descricao, ordem = s.ordem
@@ -588,3 +589,32 @@ IF @le IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM dbo.pessoa_ministerio x WHERE x.pessoa_id = pm.pessoa_id AND x.ministerio_id = @le);
 GO
 
+/* Documentos: os arquivos ficam no Google Drive; o site guarda só os links (não pesa no banco) */
+IF COL_LENGTH('dbo.ministerios', 'drive_url') IS NULL
+    ALTER TABLE dbo.ministerios ADD drive_url NVARCHAR(500) NULL;   -- pasta do ministério no Drive
+GO
+IF OBJECT_ID('dbo.configuracoes') IS NULL
+CREATE TABLE dbo.configuracoes (
+    chave  VARCHAR(60) NOT NULL CONSTRAINT pk_configuracoes PRIMARY KEY,
+    valor  NVARCHAR(1000) NULL
+);
+IF OBJECT_ID('dbo.documentos') IS NULL
+CREATE TABLE dbo.documentos (
+    id             INT IDENTITY(1,1) CONSTRAINT pk_documentos PRIMARY KEY,
+    ministerio_id  INT NULL CONSTRAINT fk_doc_ministerio REFERENCES dbo.ministerios(id) ON DELETE SET NULL,   -- vazio = geral
+    titulo         NVARCHAR(200) NOT NULL,
+    assunto        NVARCHAR(500) NULL,       -- temas e assuntos (ex.: pauta da reunião)
+    data           DATE NULL,
+    url            NVARCHAR(500) NOT NULL,
+    criado_por     INT NULL,
+    dt_criacao     DATETIME2(0) NOT NULL CONSTRAINT df_doc_criacao DEFAULT SYSUTCDATETIME()
+);
+GO
+IF NOT EXISTS (SELECT 1 FROM dbo.sementes WHERE chave = N'v6:documentos')
+BEGIN
+    INSERT INTO dbo.grupo_permissao (grupo_id, permissao)
+    SELECT g.id, 'documentos.gerenciar' FROM dbo.grupos g WHERE g.nome = N'Administração'
+      AND NOT EXISTS (SELECT 1 FROM dbo.grupo_permissao x WHERE x.grupo_id = g.id AND x.permissao = 'documentos.gerenciar');
+    INSERT INTO dbo.sementes (chave) VALUES (N'v6:documentos');
+END
+GO

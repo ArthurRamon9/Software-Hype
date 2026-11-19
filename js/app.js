@@ -15,6 +15,7 @@ import * as usuarios from './pages/usuarios.js';
 import * as agenda from './pages/agenda.js';
 import * as escalas from './pages/escalas.js';
 import * as financeiro from './pages/financeiro.js';
+import * as documentos from './pages/documentos.js';
 
 const app = document.getElementById('app');
 
@@ -41,6 +42,7 @@ const PRIVADAS = [
   ['/agenda', agenda.render],
   ['/escalas', escalas.render],
   ['/financeiro', financeiro.render, ['financeiro.ver']],
+  ['/documentos', documentos.render],
   ['/conta', acesso.minhaConta],
 ];
 
@@ -49,7 +51,7 @@ const proximaSextaMes = () => { const d = new Date(); d.setHours(12); while (d.g
 const BUSCA_DA_TELA = {
   '/': () => ['/painel'], '/pessoas': () => ['/pessoas', '/ministerios'], '/integracao': () => ['/integracao'], '/pastoral': () => ['/pastoral'],
   '/relatorios': () => ['/encontros'], '/escalas': () => [`/escalas?mes=${proximaSextaMes()}`, '/escalas/minhas'], '/agenda': () => ['/agenda?periodo=proximas'],
-  '/ministerios': () => ['/ministerios'], '/acessos': () => ['/acessos'], '/financeiro': () => [`/financeiro?ano=${new Date().getFullYear()}`],
+  '/ministerios': () => ['/ministerios'], '/acessos': () => ['/acessos'], '/financeiro': () => [`/financeiro?ano=${new Date().getFullYear()}`], '/documentos': () => ['/documentos'],
 };
 const MENU = [
   { href: '/', rotulo: 'Início', ic: 'inicio', mob: true },
@@ -60,6 +62,7 @@ const MENU = [
   { href: '/relatorios', rotulo: 'Relatórios', ic: 'relatorios', mob: true, perm: ['relatorios.ver'] },
   { href: '/escalas', rotulo: 'Escalas', ic: 'escalas', mob: true },
   { href: '/agenda', rotulo: 'Agenda', ic: 'agenda', mob: true },
+  { href: '/documentos', rotulo: 'Documentos', ic: 'documentos' },
   { href: '/financeiro', rotulo: 'Financeiro', ic: 'financeiro', perm: ['financeiro.ver'] },
   { grupo: 'Cadastros', perm: ['pessoas.ver', 'ministerios.editar', 'acessos.gerenciar'] },
   { href: '/ministerios', rotulo: 'Ministérios', ic: 'ministerios', perm: ['pessoas.ver', 'ministerios.editar'] },

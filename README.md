@@ -136,6 +136,9 @@ Várias pessoas podem fazer a chamada ao mesmo tempo, cada uma no seu celular: c
 
 O líder de cada ministério (marcado em Ministérios) distribui os acompanhamentos da sua área, monta escalas e marca reuniões.
 
+## Documentos
+Os arquivos (PDF, Word, Excel, apresentações) ficam no Google Drive, nas pastas que vocês já usam. O site guarda só os links: cada ministério tem a sua pasta (Ministérios → Editar → "Pasta no Google Drive"), há uma pasta geral e uma lista de documentos importantes com título, assunto e data, para buscar rápido. Abrir ou enviar arquivos é direto com o Google, nada passa pelo servidor do site.
+
 ## Financeiro
 Verba do ano, despesas e entradas (ofertas, doações). O saldo é verba + entradas − despesas. Gastos por categoria e planilha com gráfico.
 

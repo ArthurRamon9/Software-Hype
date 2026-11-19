@@ -40,6 +40,8 @@ export async function render(conteudo) {
       corpo: `<form id="fm" style="display:grid;gap:14px">
         <div class="field"><label for="mn">Nome *</label><input class="input" id="mn" value="${esc(m.nome)}" required></div>
         <div class="field"><label for="md">Descrição</label><input class="input" id="md" value="${esc(m.descricao || '')}"></div>
+        <div class="field"><label for="mdrive">Pasta no Google Drive</label><input class="input" id="mdrive" value="${esc(m.drive_url || '')}" placeholder="Cole o link da pasta (Compartilhar → Copiar link)">
+          <span class="hint">Aparece em Documentos para quem é do ministério. Os arquivos continuam no Drive.</span></div>
         <div class="field"><span class="label">Cor</span>
           <div class="cores">${CORES.map((c) => `<label style="--c:${c}" title="${c}"><input type="radio" name="cor" value="${c}" ${(m.cor || CORES[0]).toLowerCase() === c ? 'checked' : ''}></label>`).join('')}</div></div>
         <div class="field"><label for="mb">Pessoas no ministério <span class="muted small" id="mqtd"></span></label>
@@ -81,7 +83,7 @@ export async function render(conteudo) {
         if (!m.id) j.querySelector('#mn').focus();
         j.querySelector('#fm').addEventListener('submit', async (e) => {
           e.preventDefault();
-          const corpo = { nome: j.querySelector('#mn').value, descricao: j.querySelector('#md').value, cor: j.querySelector('input[name=cor]:checked')?.value || CORES[0], cd_status: m.id ? (j.querySelector('#ma').checked ? 1 : 0) : 1 };
+          const corpo = { nome: j.querySelector('#mn').value, descricao: j.querySelector('#md').value, drive_url: j.querySelector('#mdrive').value, cor: j.querySelector('input[name=cor]:checked')?.value || CORES[0], cd_status: m.id ? (j.querySelector('#ma').checked ? 1 : 0) : 1 };
           await ocupado(e.submitter, async () => {
             try {
               const r = await api(m.id ? 'PUT' : 'POST', m.id ? `/ministerios/${m.id}` : '/ministerios', corpo);

@@ -26,7 +26,9 @@ SELECT 'reunião', CAST(id AS VARCHAR(20)), titulo FROM dbo.reunioes WHERE titul
 UNION ALL
 SELECT 'financeiro', CAST(id AS VARCHAR(20)), descricao FROM dbo.fin_lancamentos WHERE descricao LIKE N'Zz Teste%'
 UNION ALL
-SELECT 'função de escala', CAST(id AS VARCHAR(20)), nome FROM dbo.escala_funcoes WHERE nome LIKE N'Zz Teste%';
+SELECT 'função de escala', CAST(id AS VARCHAR(20)), nome FROM dbo.escala_funcoes WHERE nome LIKE N'Zz Teste%'
+UNION ALL
+SELECT 'documento', CAST(id AS VARCHAR(20)), titulo FROM dbo.documentos WHERE titulo LIKE N'Zz Teste%';
 
 IF @apagar = 1
 BEGIN
@@ -38,6 +40,7 @@ BEGIN
         DELETE FROM dbo.reunioes  WHERE titulo LIKE N'Zz Teste%';    -- leva junto os convidados
         DELETE FROM dbo.fin_lancamentos WHERE descricao LIKE N'Zz Teste%';
         DELETE FROM dbo.escala_funcoes  WHERE nome LIKE N'Zz Teste%';
+        DELETE FROM dbo.documentos      WHERE titulo LIKE N'Zz Teste%';
     COMMIT;
     PRINT 'Testes apagados.';
 END
