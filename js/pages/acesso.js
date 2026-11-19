@@ -152,15 +152,35 @@ export function novaSenha(app) {
   });
 }
 
-// ---------------- Aguardando liberação ----------------
+// ---------------- Aguardando liberação: boas-vindas "Você está no Hype" ----------------
+// A liberação pode demorar: a tela confere sozinha de vez em quando e entra direto quando a conta for liberada.
+let vigiaLiberacao = null;
 export function aguardando(app) {
-  tela(app, `
-    <h1>Acesso em análise</h1>
-    <p class="sub" style="margin-bottom:16px">Olá, ${esc(sessao.usuario.nome.split(' ')[0])}. Sua conta existe, mas ainda não está liberada.
-    Um administrador precisa liberar o acesso e colocar você nos grupos certos. Os administradores já foram avisados por e-mail.</p>
-    <p><button class="btn primary" id="recarregar">Recarregar</button> &nbsp; <button class="link-btn" id="sair">Sair</button></p>`);
-  $('#recarregar').onclick = () => location.reload();
-  $('#sair').onclick = sair;
+  document.body.dataset.tela = 'acesso';
+  const nome = esc(sessao.usuario.nome.split(' ')[0]);
+  app.innerHTML = `<div class="boas-vindas">
+    <main>
+      <div class="bv-arte" id="bv-arte" role="img" aria-label="Você está no Hype"></div>
+      <h1>Olá, ${nome}!</h1>
+      <p>Sua conta foi criada. Agora um administrador precisa liberar o seu acesso e colocar você nos grupos certos. Os administradores já foram avisados.</p>
+      <p class="bv-calma">Pode levar um tempinho. Esta tela confere sozinha de vez em quando: quando o acesso for liberado, você entra direto.</p>
+      <div class="bv-acoes"><button class="btn primary" id="verificar">Verificar agora</button><button class="link-btn" id="sair">Sair</button></div>
+      <p class="bv-msg" id="bv-msg" aria-live="polite"></p>
+    </main>
+    <footer>${direitos()}</footer></div>`;
+  fetch('assets/img/voce-esta-no-hype.svg').then((r) => r.text()).then((t) => { const el = $('#bv-arte'); if (el && t.trim().startsWith('<svg')) el.innerHTML = t; }).catch(() => {});
+
+  const conferir = async (manual) => {
+    try {
+      const { usuario } = await api('GET', '/auth/eu');
+      if (usuario.cd_status === 1) { clearInterval(vigiaLiberacao); vigiaLiberacao = null; await entrou(); return; }
+      if (manual) $('#bv-msg').textContent = 'Ainda não foi liberado. Assim que for, esta tela entra sozinha.';
+    } catch { if (manual) $('#bv-msg').textContent = 'Não deu para conferir agora. Tente de novo em instantes.'; }
+  };
+  clearInterval(vigiaLiberacao);
+  vigiaLiberacao = setInterval(() => { if (!document.querySelector('.boas-vindas')) { clearInterval(vigiaLiberacao); vigiaLiberacao = null; return; } if (!document.hidden) conferir(false); }, 45000);
+  $('#verificar').onclick = (e) => ocupado(e.currentTarget, () => conferir(true));
+  $('#sair').onclick = () => { clearInterval(vigiaLiberacao); vigiaLiberacao = null; sair(); };
 }
 
 // ---------------- Minha conta ----------------

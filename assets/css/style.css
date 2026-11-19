@@ -917,3 +917,27 @@ input[type=checkbox]:disabled { opacity: .45; cursor: default; }
 .conteudo > .boot { flex: 1; min-height: calc(100vh - 160px); min-height: calc(100dvh - 160px); }
 #app > .boot { min-height: 100vh; min-height: 100dvh; }
 @media (max-width: 760px) { .conteudo > .boot { min-height: calc(100dvh - 200px); } }
+
+/* ---------- Boas-vindas de quem espera liberação ("Você está no Hype") ---------- */
+.boas-vindas { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; background: #050507; color: #fff; }
+.boas-vindas main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 40px 22px; max-width: 620px; margin: 0 auto; }
+.bv-arte { width: min(520px, 88vw); aspect-ratio: 820 / 365; margin-bottom: 34px; color: #fff; }
+.bv-arte svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.boas-vindas h1 { font-family: var(--destaque); font-weight: 400; font-style: italic; text-transform: uppercase; font-size: 30px; letter-spacing: .02em; margin: 0 0 10px; color: #fff; }
+.boas-vindas p { color: #c9c6d3; font-size: 16px; line-height: 1.55; margin: 0 0 10px; }
+.boas-vindas .bv-calma { color: #8f8b9c; font-size: 14px; }
+.bv-acoes { display: flex; gap: 18px; align-items: center; justify-content: center; margin-top: 18px; }
+.boas-vindas .link-btn { color: #c9adff; }
+.bv-msg { min-height: 22px; margin-top: 12px !important; font-size: 14px !important; color: #c9adff !important; }
+.boas-vindas footer { text-align: center; font-size: 12px; color: #6f6b7a; padding: 18px; }
+/* Leve "falha de sinal" de vez em quando, como nos vídeos do Hype */
+.bv-arte .sombra-c, .bv-arte .sombra-v { transform-box: view-box; }
+.bv-linha2 .sombra-c { animation: bv-falha-c 4.2s steps(1) infinite; }
+.bv-linha2 .sombra-v { animation: bv-falha-v 4.2s steps(1) infinite; }
+.bv-linha1 .sombra-c { animation: bv-falha-c1 5.3s steps(1) infinite; }
+.bv-linha1 .sombra-v { animation: bv-falha-v1 5.3s steps(1) infinite; }
+@keyframes bv-falha-c { 0%, 88%, 100% { transform: translate(-14px, 0); } 90% { transform: translate(-24px, 2px); } 92% { transform: translate(-6px, -2px); } 94% { transform: translate(-20px, 0); } }
+@keyframes bv-falha-v { 0%, 88%, 100% { transform: translate(14px, 0); } 90% { transform: translate(24px, -2px); } 92% { transform: translate(6px, 2px); } 94% { transform: translate(20px, 0); } }
+@keyframes bv-falha-c1 { 0%, 90%, 100% { transform: translate(-4px, 0); } 92% { transform: translate(-9px, 0); } 95% { transform: translate(-2px, 1px); } }
+@keyframes bv-falha-v1 { 0%, 90%, 100% { transform: translate(4px, 0); } 92% { transform: translate(9px, 0); } 95% { transform: translate(2px, -1px); } }
+@media (prefers-reduced-motion: reduce) { .bv-arte .sombra-c, .bv-arte .sombra-v { animation: none !important; } }
