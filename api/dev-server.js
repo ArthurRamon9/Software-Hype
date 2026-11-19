@@ -22,10 +22,12 @@ http.createServer(async (req, res) => {
   if (url.pathname.startsWith('/api/')) {
     let texto = '';
     for await (const c of req) { texto += c; if (texto.length > 2e6) break; }
+    const t0 = Date.now();
     const r = await atender({
       metodo: req.method, caminho: url.pathname.slice(4), query: Object.fromEntries(url.searchParams), texto,
       cabecalhos: { ...req.headers, 'x-ip-local': req.socket.remoteAddress }, origemPadrao: `http://${req.headers.host}/`,
     });
+    if (process.env.SQL_CONTAR === '1') console.log(`[api] ${req.method} ${url.pathname.slice(4)}${url.search} ${r.status} ${Date.now() - t0}ms idas=${require('./src/db').idasAoBanco()} ${Buffer.byteLength(r.corpo || '')}B`);
     res.writeHead(r.status, r.cabecalhos);
     return res.end(r.corpo);
   }

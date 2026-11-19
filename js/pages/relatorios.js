@@ -1,6 +1,6 @@
 // Relatórios: semana, mês e ano
 // © Arthur Ramon da Silva — Todos os direitos reservados.
-import { api } from '../api.js';
+import { api, pode } from '../api.js';
 import { esc, $, $$, tagTipo, fmtData, fmtDiaMes, parseISO, isoLocal, pct, TIPOS, ehMembro, direitos } from '../ui.js';
 import { baixarXLSX } from '../xlsx.js';
 import { barras, linhas, tabelaDados, COR } from '../charts.js';
@@ -12,7 +12,16 @@ let graficos = [];
 const fimMes = (ym) => { const [y, m] = ym.split('-').map(Number); return isoLocal(new Date(y, m, 0)); };
 const mesAnterior = (ym) => { const [y, m] = ym.split('-').map(Number); return isoLocal(new Date(y, m - 2, 1)).slice(0, 7); };
 const nomeMes = (ym) => parseISO(ym + '-01').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
-const periodo = (ini, fim) => api('GET', `/relatorios?ini=${ini}&fim=${fim}`);
+// O servidor manda o período enxuto; aqui volta ao formato completo que as contas usam
+const periodo = async (ini, fim) => {
+  const r = await api('GET', `/relatorios?ini=${ini}&fim=${fim}`);
+  if (!r.pessoas) return r;
+  const quem = new Map(r.pessoas.map((p) => [p.id, p]));
+  return { encontros: r.encontros, presencas: r.presencas.map(([encontro_id, pessoa_id, presente, tipo, justificativa]) => {
+    const p = quem.get(pessoa_id) || {};
+    return { encontro_id, pessoa_id, presente: !!presente, tipo, justificativa, nome: p.nome, referencia: p.referencia, data_cadastro: p.data_cadastro };
+  }) };
+};
 
 const media = (lista, campo) => (lista.length ? Math.round((lista.reduce((s, e) => s + e[campo], 0) / lista.length) * 10) / 10 : null);
 const virgula = (n) => (n === null || n === undefined ? '—' : String(n).replace('.', ','));
@@ -51,7 +60,7 @@ export async function render(conteudo) {
 
   conteudo.innerHTML = `
     <div class="cabecalho nao-imprimir"><div><h1>Relatórios</h1></div>
-      <div class="acoes"><button class="btn" id="csv">Baixar planilha</button><button class="btn" id="imprimir">Imprimir</button></div></div>
+      <div class="acoes">${pode('relatorios.exportar') ? '<button class="btn" id="csv">Baixar planilha</button><button class="btn" id="imprimir">Imprimir</button>' : ''}</div></div>
     <div class="nao-imprimir" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
       <div class="abas" id="modo"><button data-m="semana">Semana</button><button data-m="mes">Mês</button><button data-m="ano">Ano</button></div>
       <select class="input" id="sel-enc" style="width:auto">${encontros.map((e) => `<option value="${e.id}">${fmtData(e.data)}${e.tema ? ' · ' + esc(e.tema) : ''}</option>`).join('') || '<option>Nenhuma chamada</option>'}</select>
@@ -77,8 +86,19 @@ export async function render(conteudo) {
   $('#sel-enc').addEventListener('change', (e) => { estado.encontro = Number(e.target.value); gerar(); });
   $('#sel-mes').addEventListener('change', (e) => { if (e.target.value) { estado.mes = e.target.value; gerar(); } });
   $('#sel-ano').addEventListener('change', (e) => { estado.ano = Number(e.target.value); gerar(); });
-  $('#imprimir').onclick = () => window.print();
-  $('#csv').onclick = () => csv && baixarXLSX(csv.nome, csv.abas || [{ nome: 'Relatório', linhas: csv.linhas }]);
+  if ($('#imprimir')) $('#imprimir').onclick = () => window.print();
+  // Planilha no jeito do "Imprimir": primeiro o resumo (os números de cima), depois o gráfico e as tabelas
+  if ($('#csv')) $('#csv').onclick = () => {
+    if (!csv) return;
+    const num = (t) => { const x = t.trim().replace(/\./g, '').replace(',', '.'); return /^-?\d+(\.\d+)?$/.test(x) ? Number(x) : t.trim(); };
+    const resumo = [...document.querySelectorAll('#rel .numeros > div')].map((d) => [d.querySelector('.rot')?.textContent.trim() || '', num(d.querySelector('.val')?.textContent || ''), (d.querySelector('.det')?.textContent || '').replace(/\s+/g, ' ').trim()]);
+    const titulo = { semana: 'Semana', mes: 'Mês', ano: 'Ano' }[estado.modo];
+    const abas = [
+      ...(resumo.length ? [{ nome: 'Resumo', semFiltro: true, linhas: [[`Resumo · ${titulo}`, 'Valor', 'Detalhe'], ...resumo, [], ['Gerado em', new Date().toLocaleString('pt-BR'), direitos().replace(/<[^>]+>/g, '')]] }] : []),
+      ...(csv.abas || [{ nome: 'Relatório', linhas: csv.linhas }]),
+    ];
+    baixarXLSX(csv.nome, abas);
+  };
   await gerar();
   return () => { graficos.forEach((g) => g?.destroy()); graficos = []; };
 }
@@ -149,6 +169,8 @@ async function mes(rel) {
     series: [{ rotulo: 'Membros', dados: A.porEnc.map((e) => e.membros), cor: COR.s1 }, { rotulo: 'Visitantes', dados: A.porEnc.map((e) => e.visitantes), cor: COR.s2 }],
   }));
   return { nome: `frequencia-${estado.mes}`, abas: [
+    { nome: 'Gráfico', linhas: [['Sexta', 'Membros', 'Visitantes', 'Total'], ...A.porEnc.map((e) => [fmtDiaMes(e.data), e.membros, e.visitantes, e.presentes])],
+      grafico: { titulo: 'Membros e visitantes por sexta', tipo: 'barra', empilhado: true, categoria: 0, series: [1, 2], rotulos: true } },
     { nome: 'Frequência', linhas: [['Nome', 'Referência', 'Situação', 'Presenças', 'Sextas marcadas', '%'], ...ranking.map((p) => [p.nome, p.referencia, TIPOS[p.tipo], p.pres, p.tot, pct(p.pres, p.tot)])] },
     { nome: 'Por sexta', linhas: [['Data', 'Tema', 'Membros', 'Visitantes', 'Total de presentes', 'Ausentes'], ...A.porEnc.map((e) => [e.data, e.tema, e.membros, e.visitantes, e.presentes, e.ausentes])] },
   ] };
@@ -198,6 +220,10 @@ async function ano(rel) {
   }));
   graficos.push(linhas($('#g-ano'), { rotulos: MESES, series: [{ rotulo: String(y), dados: mA, cor: COR.s1 }, ...(B ? [{ rotulo: String(y - 1), dados: mB, cor: COR.s2, tracejado: true }] : [])] }));
   return { nome: `ano-${y}`, abas: [
+    { nome: 'Gráfico', linhas: [['Mês', 'Membros', 'Visitantes', 'Total'], ...MESES.map((m, i) => [m, memA[i] ?? '', visA[i] ?? '', totA[i] ?? ''])],
+      grafico: { titulo: `Quem veio em cada mês de ${y} (pessoas diferentes)`, tipo: 'barra', empilhado: true, categoria: 0, series: [1, 2], rotulos: true } },
+    { nome: 'Média por sexta', linhas: [['Mês', String(y), ...(B ? [String(y - 1)] : [])], ...MESES.map((m, i) => [m, mA[i] ?? '', ...(B ? [mB[i] ?? ''] : [])])],
+      grafico: { titulo: 'Média de presentes por sexta', tipo: 'linha', categoria: 0, series: B ? [1, 2] : [1] } },
     { nome: `Por mês ${y}`, linhas: [['Mês', 'Membros que vieram', 'Visitantes que vieram', 'Total de pessoas', `Média por sexta ${y}`, ...(B ? [`Média por sexta ${y - 1}`] : [])],
       ...MESES.map((m, i) => [m, memA[i] ?? '', visA[i] ?? '', totA[i] ?? '', mA[i] ?? '', ...(B ? [mB[i] ?? ''] : [])])] },
     { nome: 'Por sexta', linhas: [['Data', 'Tema', 'Membros', 'Visitantes', 'Total de presentes', 'Ausentes'], ...A.porEnc.map((e) => [e.data, e.tema, e.membros, e.visitantes, e.presentes, e.ausentes])] },

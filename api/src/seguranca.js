@@ -76,9 +76,26 @@ async function carregarUsuario(id) {
   return u;
 }
 
+// Quem está logado fica guardado por alguns segundos: cada tela deixa de ir ao banco só para isso
+// (o banco fica longe, cada ida custa tempo). Qualquer gravação limpa a lembrança na hora.
+const LEMBRAR_MS = 20000;
+const lembrados = new Map();
+let geracaoSessoes = 0;   // muda a cada gravação: uma busca que começou antes dela não é guardada
+const esquecerSessoes = () => { lembrados.clear(); geracaoSessoes++; };
 async function usuarioDaSessao(cabecalhoCookie) {
   const token = lerCookie(cabecalhoCookie);
   if (!token) return null;
+  const lembrado = lembrados.get(token);
+  if (lembrado && lembrado.ate > Date.now()) return lembrado.u;
+  const geracao = geracaoSessoes;
+  const u = await usuarioDaSessaoNoBanco(token);
+  if (u && geracao === geracaoSessoes) {
+    if (lembrados.size > 500) lembrados.clear();
+    lembrados.set(token, { u, ate: Date.now() + LEMBRAR_MS });
+  }
+  return u;
+}
+async function usuarioDaSessaoNoBanco(token) {
   let dados;
   try { dados = jwt.verify(token, segredo(), { algorithms: ['HS256'] }); } catch { return null; }
   const u = await carregarUsuario(dados.sub);
@@ -134,5 +151,5 @@ function validarJpeg(dataUrl) {
 
 module.exports = {
   validarSenha, gerarHash, conferirSenha, sha256, cookieSessao, cookieSair, usuarioDaSessao, carregarUsuario, publico,
-  conferirLimite, registrar, validarJpeg,
+  conferirLimite, registrar, validarJpeg, esquecerSessoes,
 };

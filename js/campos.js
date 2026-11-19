@@ -64,6 +64,7 @@ function embrulhar(el, classe) {
   const caixa = document.createElement('span');
   caixa.className = `campo ${classe}`;
   if (el.style.cssText) { caixa.style.cssText = el.style.cssText; el.style.cssText = ''; }
+  if (caixa.style.width === 'auto') caixa.classList.add('auto');   // do tamanho do texto (não corta o "2026")
   el.parentNode.insertBefore(caixa, el);
   caixa.appendChild(el);
   el.classList.add('campo-nativo');

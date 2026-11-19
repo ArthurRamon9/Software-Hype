@@ -17,6 +17,25 @@
   <div id="app"><div class="boot"><span class="spin"></span></div></div>
   <div id="avisos" aria-live="polite"></div>
   <script src="assets/vendor/chart.umd.min.js" defer></script>
+  <!-- Baixa todos os módulos de uma vez (sem esperar um descobrir o outro) -->
+  <link rel="modulepreload" href="js/api.js">
+  <link rel="modulepreload" href="js/ui.js">
+  <link rel="modulepreload" href="js/campos.js">
+  <link rel="modulepreload" href="js/abas.js">
+  <link rel="modulepreload" href="js/charts.js">
+  <link rel="modulepreload" href="js/xlsx.js">
+  <link rel="modulepreload" href="js/importar.js">
+  <link rel="modulepreload" href="js/pages/acesso.js">
+  <link rel="modulepreload" href="js/pages/agenda.js">
+  <link rel="modulepreload" href="js/pages/escalas.js">
+  <link rel="modulepreload" href="js/pages/financeiro.js">
+  <link rel="modulepreload" href="js/pages/inicio.js">
+  <link rel="modulepreload" href="js/pages/ministerios.js">
+  <link rel="modulepreload" href="js/pages/pastoral.js">
+  <link rel="modulepreload" href="js/pages/pessoas.js">
+  <link rel="modulepreload" href="js/pages/presenca.js">
+  <link rel="modulepreload" href="js/pages/relatorios.js">
+  <link rel="modulepreload" href="js/pages/usuarios.js">
   <script type="module" src="js/app.js"></script>
 </body>
 </html>

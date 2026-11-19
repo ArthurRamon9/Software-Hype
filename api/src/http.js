@@ -1,5 +1,6 @@
 // Tradução comum entre HTTP e as rotas (usada pela função do Netlify e pelo servidor local)
 // © Arthur Ramon da Silva — Todos os direitos reservados.
+const zlib = require('zlib');
 const { despachar, respostaErro, CABECALHOS } = require('./rotas');
 
 const LIMITE_CORPO = 1.5 * 1024 * 1024;
@@ -30,7 +31,12 @@ async function atender({ metodo, caminho, query, texto, cabecalhos, origemPadrao
     if (r.corpo && r.corpo.$binario) {
       return resp(200, r.corpo.$binario, { ...extra, 'Content-Type': 'image/jpeg', 'Content-Disposition': 'inline', 'Cache-Control': 'private, max-age=604800' });
     }
-    return resp(200, JSON.stringify(r.corpo ?? { ok: true }), { ...extra, 'Content-Type': 'application/json; charset=utf-8' });
+    const json = JSON.stringify(r.corpo ?? { ok: true });
+    // Respostas grandes vão compactadas (a lista de pessoas cai de ~120 KB para ~15 KB): chega bem mais rápido no celular
+    if (json.length > 1400 && /\bgzip\b/.test(cabecalhos['accept-encoding'] || '')) {
+      return resp(200, zlib.gzipSync(json, { level: 6 }), { ...extra, 'Content-Type': 'application/json; charset=utf-8', 'Content-Encoding': 'gzip', Vary: 'Accept-Encoding' });
+    }
+    return resp(200, json, { ...extra, 'Content-Type': 'application/json; charset=utf-8' });
   } catch (e) {
     const { status, body } = respostaErro(e);
     return resp(status, JSON.stringify(body), { 'Content-Type': 'application/json; charset=utf-8' });

@@ -1,10 +1,11 @@
 // Agenda: reuniões dos ministérios, com convite no Google Agenda
 // © Arthur Ramon da Silva — Todos os direitos reservados.
-import { api, sessao } from '../api.js';
+import { api, sessao, preaquecer } from '../api.js';
 import { esc, $, icon, aviso, avisoErro, ocupado, janela, confirmar, hojeISO } from '../ui.js';
 
 let periodo = 'proximas';
 let filtroMin = '';
+let entrada = '';   // de que lado a lista entra ao trocar de aba
 
 const dataLonga = (iso) => new Date(iso).toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' }).replace(/^./, (c) => c.toUpperCase());
 const hora = (iso) => iso.slice(11, 16).replace(':', 'h');
@@ -17,6 +18,7 @@ function linkGoogle(r) {
 
 export async function render(conteudo) {
   const { reunioes, posso_criar: possoCriar } = await api('GET', `/agenda?periodo=${periodo}`);
+  preaquecer(`/agenda?periodo=${periodo === 'proximas' ? 'anteriores' : 'proximas'}`);   // a outra aba já fica pronta
   const meusMins = (sessao.usuario.ministerios || []).map((m) => m.nome);
   const ministeriosNaLista = [...new Map(reunioes.map((r) => [r.ministerio_id, r.ministerio])).entries()];
   const lista = reunioes.filter((r) => !filtroMin || String(r.ministerio_id) === filtroMin);
@@ -39,8 +41,8 @@ export async function render(conteudo) {
         ${r.descricao ? `<p class="small muted" style="margin-top:6px">${esc(r.descricao)}</p>` : ''}
       </div>
       <div class="acoes-r">
-        ${r.pode_editar && !r.cancelada && periodo === 'proximas' ? `<button class="btn sm" data-editar="${r.id}">Editar</button>` : ''}
-        ${!r.cancelada && periodo === 'proximas' ? `<a class="btn sm" href="${linkGoogle(r)}" target="_blank" rel="noopener" title="Colocar no meu Google Agenda">+ Agenda</a>` : ''}
+        ${!r.cancelada && periodo === 'proximas' ? `<a class="btn-icone" href="${linkGoogle(r)}" target="_blank" rel="noopener" title="Colocar no meu Google Agenda" aria-label="Colocar no meu Google Agenda">${icon('agendaMais')}</a>` : ''}
+        ${r.pode_editar && !r.cancelada && periodo === 'proximas' ? `<button class="btn-icone" data-editar="${r.id}" title="Editar reunião" aria-label="Editar reunião">${icon('lapis')}</button>` : ''}
       </div></div>`;
   };
 
@@ -52,10 +54,11 @@ export async function render(conteudo) {
       <div class="abas" id="periodo"><button data-p="proximas" class="${periodo === 'proximas' ? 'ativo' : ''}">Próximas</button><button data-p="anteriores" class="${periodo === 'anteriores' ? 'ativo' : ''}">Anteriores</button></div>
       ${ministeriosNaLista.length > 1 ? `<select class="input" id="f-min" style="width:auto"><option value="">Todos os ministérios</option>${ministeriosNaLista.map(([id, n]) => `<option value="${id}" ${filtroMin === String(id) ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>` : ''}
     </div></div>
-    ${dias.length ? dias.map((g) => `<div class="dia-grupo"><h2>${dataLonga(g.dia + 'T12:00:00')}</h2><section class="painel">${g.itens.map(reuniao).join('')}</section></div>`).join('')
-      : `<div class="painel vazio"><b>${periodo === 'proximas' ? 'Nenhuma reunião marcada' : 'Nenhuma reunião anterior'}</b>${possoCriar.length && periodo === 'proximas' ? 'Use "Nova reunião" para marcar a próxima do seu ministério.' : 'Quando o líder do seu ministério marcar uma reunião, ela aparece aqui e o convite chega no seu e-mail.'}</div>`}`;
+    <div class="ag-lista ${entrada}">${dias.length ? dias.map((g) => `<div class="dia-grupo"><h2>${dataLonga(g.dia + 'T12:00:00')}</h2><section class="painel">${g.itens.map(reuniao).join('')}</section></div>`).join('')
+      : `<div class="painel vazio"><b>${periodo === 'proximas' ? 'Nenhuma reunião marcada' : 'Nenhuma reunião anterior'}</b>${possoCriar.length && periodo === 'proximas' ? 'Use "Nova reunião" para marcar a próxima do seu ministério.' : 'Quando o líder do seu ministério marcar uma reunião, ela aparece aqui e o convite chega no seu e-mail.'}</div>`}</div>`;
+  entrada = '';
 
-  conteudo.querySelectorAll('[data-p]').forEach((b) => b.addEventListener('click', () => { periodo = b.dataset.p; render(conteudo).catch(avisoErro); }));
+  conteudo.querySelectorAll('[data-p]').forEach((b) => b.addEventListener('click', () => { if (periodo === b.dataset.p) return; entrada = b.dataset.p === 'anteriores' ? 'entra-esq' : 'entra-dir'; periodo = b.dataset.p; render(conteudo).catch(avisoErro); }));
   $('#f-min')?.addEventListener('change', (e) => { filtroMin = e.target.value; render(conteudo).catch(avisoErro); });
   $('#nova')?.addEventListener('click', () => editar(conteudo, null, possoCriar));
   conteudo.querySelectorAll('[data-editar]').forEach((b) => b.addEventListener('click', () => editar(conteudo, reunioes.find((r) => r.id === Number(b.dataset.editar)), possoCriar)));

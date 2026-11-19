@@ -3,14 +3,28 @@
 import { api, urlFoto, pode } from '../api.js';
 import {
   esc, $, $$, aviso, avisoErro, ocupado, confirmar, foto, tagTipo, TIPOS, SITUACOES, corSituacao, idade, fmtData,
-  hojeISO, prepararFoto, pct, semAcento, linkWhats, janela, estaNoHype, ultimaVez, textoUltimaVez, minuscula, fmtTel, formatarAoSair,
+  icon, hojeISO, prepararFoto, pct, semAcento, linkWhats, janela, estaNoHype, ultimaVez, textoUltimaVez, minuscula, fmtTel, formatarAoSair,
 } from '../ui.js';
 import { navegar, atualizarContadores } from '../app.js';
 import { abrirAcompanhamento } from './pastoral.js';
 import { lerPlanilha, CAMPOS, mapearAutomatico, montarPessoa } from '../importar.js';
 import { baixarXLSX } from '../xlsx.js';
 
-const filtro = { busca: '', tipo: '', status: 'nohype', ministerio: '' };
+const filtro = { busca: '', tipo: '', status: 'nohype', ministerio: '', extra: '' };
+// Ordem da lista (clicar no título da coluna)
+const ordemPessoas = { col: 'nome', dir: 1 };
+// Grupos de situação para o filtro (além de cada situação sozinha)
+const GRUPOS_SITUACAO = { visitantes: ['novo_visitante', 'visitante_regular'], membros: ['novo_membro', 'membro', 'membro_ativo'] };
+// Filtros que ajudam a completar o cadastro e a cuidar das pessoas
+const mesAtual = () => new Date().getMonth() + 1;
+const EXTRAS = {
+  aniversario: { rotulo: 'Aniversariantes do mês', f: (p) => p.data_nascimento && Number(p.data_nascimento.slice(5, 7)) === mesAtual() },
+  sem_whats: { rotulo: 'Sem WhatsApp', f: (p) => !p.telefone },
+  sem_nascimento: { rotulo: 'Sem data de nascimento', f: (p) => !p.data_nascimento },
+  sem_ministerio: { rotulo: 'Sem ministério', f: (p) => !p.ministerios.length },
+  nao_batizados: { rotulo: 'Não batizados', f: (p) => p.batizado === false || p.batizado === 0 },
+  novos: { rotulo: 'Chegaram nos últimos 30 dias', f: (p) => p.data_cadastro && (Date.now() - new Date(p.data_cadastro + 'T12:00:00').getTime()) < 30 * 86400000 },
+};
 const simNao = (v) => (v === true || v === 1 ? 'Sim' : v === false || v === 0 ? 'Não' : '');
 
 // ======================= LISTA =======================
@@ -18,20 +32,22 @@ export async function lista(conteudo) {
   const [pessoas, ministerios] = await Promise.all([api('GET', '/pessoas'), api('GET', '/ministerios')]);
   const nomeMin = Object.fromEntries(ministerios.map((m) => [m.id, m.nome]));
   const vindoDeMinisterio = sessionStorage.getItem('hype_filtro_min');
-  if (vindoDeMinisterio) { Object.assign(filtro, { ministerio: vindoDeMinisterio, busca: '', tipo: '', status: 'nohype' }); sessionStorage.removeItem('hype_filtro_min'); }
+  if (vindoDeMinisterio) { Object.assign(filtro, { ministerio: vindoDeMinisterio, busca: '', tipo: '', status: 'nohype', extra: '' }); sessionStorage.removeItem('hype_filtro_min'); }
   const vindoDeSituacao = sessionStorage.getItem('hype_filtro_tipo');
-  if (vindoDeSituacao) { Object.assign(filtro, { tipo: vindoDeSituacao, busca: '', ministerio: '', status: 'nohype' }); sessionStorage.removeItem('hype_filtro_tipo'); }
+  if (vindoDeSituacao) { Object.assign(filtro, { tipo: vindoDeSituacao, busca: '', ministerio: '', status: 'nohype', extra: '' }); sessionStorage.removeItem('hype_filtro_tipo'); }
+  const vindoDeExtra = sessionStorage.getItem('hype_filtro_extra');
+  if (vindoDeExtra) { Object.assign(filtro, { extra: vindoDeExtra, busca: '', tipo: '', ministerio: '', status: 'todos' }); sessionStorage.removeItem('hype_filtro_extra'); }
 
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>Pessoas</h1><p class="sub">${pessoas.filter((p) => p.cd_status && estaNoHype(p)).length} no Hype agora (vieram nos últimos 3 meses) · ${pessoas.length} no cadastro</p></div>
       <div class="acoes">
-        <button class="btn" id="exportar">Baixar planilha</button>
-        ${pode('pessoas.editar') ? '<button class="btn" id="importar">Importar planilha</button><a class="btn primary" href="#/pessoas/nova">Cadastrar pessoa</a>' : ''}
+        ${pode('relatorios.exportar') ? '<button class="btn" id="exportar">Baixar planilha</button><button class="btn" id="importar">Importar planilha</button>' : ''}
+        ${pode('pessoas.editar') ? '<a class="btn primary" href="#/pessoas/nova">Cadastrar pessoa</a>' : ''}
       </div></div>
-    <div class="chips" id="chips"></div>
     <div class="painel">
       <div class="filtros">
         <input class="input busca" id="busca" type="search" placeholder="Buscar por nome, referência ou telefone" value="${esc(filtro.busca)}">
+        <select class="input" id="tipo" aria-label="Situação"></select>
         <select class="input" id="min"><option value="">Todos os ministérios</option>${ministerios.map((m) => `<option value="${m.id}" ${String(filtro.ministerio) === String(m.id) ? 'selected' : ''}>${esc(m.nome)}</option>`).join('')}</select>
         <select class="input" id="status">
           <option value="nohype" ${filtro.status === 'nohype' ? 'selected' : ''}>No Hype (últimos 3 meses)</option>
@@ -39,9 +55,11 @@ export async function lista(conteudo) {
           <option value="todos" ${filtro.status === 'todos' ? 'selected' : ''}>Todo o cadastro</option>
           <option value="inativos" ${filtro.status === 'inativos' ? 'selected' : ''}>Cadastro desativado</option>
         </select>
+        <select class="input" id="extra" aria-label="Mais filtros"><option value="">Mais filtros</option>${Object.entries(EXTRAS).map(([k, v]) => `<option value="${k}" ${filtro.extra === k ? 'selected' : ''}>${v.rotulo}</option>`).join('')}</select>
+        <button class="link-btn small hidden" id="limpar-pessoas">Limpar filtros</button>
       </div>
       <div class="tabela-wrap"><table class="tabela">
-        <thead><tr><th>Nome</th><th>Situação</th><th>Última vez</th><th class="some-mobile">WhatsApp</th><th class="some-mobile">Ministérios</th></tr></thead>
+        <thead><tr><th><button class="th-ordem" data-ordem="nome">Nome<span class="seta-ordem" data-seta="nome"></span></button></th><th><button class="th-ordem" data-ordem="tipo">Situação<span class="seta-ordem" data-seta="tipo"></span></button></th><th><button class="th-ordem" data-ordem="ultima">Última vez<span class="seta-ordem" data-seta="ultima"></span></button></th><th class="some-mobile">WhatsApp</th><th class="some-mobile">Ministérios</th></tr></thead>
         <tbody id="linhas"></tbody>
       </table></div>
       <div class="filtros" style="border-top:1px solid var(--line);border-bottom:0"><span class="muted small" id="total"></span></div>
@@ -54,18 +72,25 @@ export async function lista(conteudo) {
   const base = () => pessoas.filter((p) => (filtro.busca ? true : porStatus(p)) && (!filtro.ministerio || p.ministerios.includes(Number(filtro.ministerio))));
   const filtradas = () => {
     const b = semAcento(filtro.busca), bNum = filtro.busca.replace(/\D/g, '');
-    return base().filter((p) => (!filtro.tipo || p.tipo === filtro.tipo)
-      && (!b || semAcento(`${p.nome} ${p.referencia || ''}`).includes(b) || (bNum.length >= 3 && (p.telefone || '').replace(/\D/g, '').includes(bNum))));
+    const daSituacao = (p) => !filtro.tipo || (GRUPOS_SITUACAO[filtro.tipo] ? GRUPOS_SITUACAO[filtro.tipo].includes(p.tipo) : p.tipo === filtro.tipo);
+    const ORD = { nome: (a, x) => a.nome.localeCompare(x.nome, 'pt-BR'), tipo: (a, x) => SITUACOES.findIndex((q) => q.id === a.tipo) - SITUACOES.findIndex((q) => q.id === x.tipo),
+      ultima: (a, x) => String(x.ultima_presenca || '').localeCompare(String(a.ultima_presenca || '')) };
+    return base().filter((p) => daSituacao(p) && (!filtro.extra || EXTRAS[filtro.extra].f(p))
+      && (!b || semAcento(`${p.nome} ${p.referencia || ''}`).includes(b) || (bNum.length >= 3 && (p.telefone || '').replace(/\D/g, '').includes(bNum))))
+      .sort((a, x) => ordemPessoas.dir * ORD[ordemPessoas.col](a, x) || a.nome.localeCompare(x.nome, 'pt-BR'));
   };
-  const chips = () => {
-    const b = base();
-    $('#chips').innerHTML = `<button data-t="" class="${filtro.tipo === '' ? 'ativo' : ''}">Todas <b>${b.length}</b></button>${SITUACOES.map((s) => {
-      const n = b.filter((p) => p.tipo === s.id).length;
-      return `<button data-t="${s.id}" class="${filtro.tipo === s.id ? 'ativo' : ''}" style="--c:${s.cor}"><i></i>${s.nome} <b>${n}</b></button>`;
-    }).join('')}`;
+  // Situação: com quantas pessoas cada uma tem (dentro dos outros filtros)
+  const opcoesSituacao = () => {
+    const b = base(), n = (f) => b.filter(f).length;
+    $('#tipo').innerHTML = `<option value="">Todas as situações (${b.length})</option>
+      <option value="visitantes" ${filtro.tipo === 'visitantes' ? 'selected' : ''}>Visitantes (${n((p) => GRUPOS_SITUACAO.visitantes.includes(p.tipo))})</option>
+      <option value="membros" ${filtro.tipo === 'membros' ? 'selected' : ''}>Membros (${n((p) => GRUPOS_SITUACAO.membros.includes(p.tipo))})</option>
+      ${SITUACOES.map((s) => `<option value="${s.id}" ${filtro.tipo === s.id ? 'selected' : ''}>${s.nome} (${n((p) => p.tipo === s.id)})</option>`).join('')}`;
   };
   const desenhar = () => {
-    chips();
+    opcoesSituacao();
+    conteudo.querySelectorAll('[data-seta]').forEach((el) => { el.textContent = el.dataset.seta === ordemPessoas.col ? (ordemPessoas.dir > 0 ? ' ↑' : ' ↓') : ''; });
+    $('#limpar-pessoas').classList.toggle('hidden', !(filtro.busca || filtro.tipo || filtro.ministerio || filtro.extra || filtro.status !== 'nohype'));
     const l = filtradas();
     $('#total').textContent = `${l.length} ${l.length === 1 ? 'pessoa' : 'pessoas'}`;
     $('#linhas').innerHTML = l.length ? l.map((p) => `
@@ -79,13 +104,19 @@ export async function lista(conteudo) {
   };
   desenhar();
 
-  $('#chips').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; filtro.tipo = b.dataset.t; desenhar(); });
+  $('#tipo').addEventListener('change', (e) => { filtro.tipo = e.target.value; desenhar(); });
+  $('#extra').addEventListener('change', (e) => { filtro.extra = e.target.value; if (filtro.extra && filtro.status === 'nohype') { filtro.status = 'todos'; $('#status').value = 'todos'; } desenhar(); });
+  $('#limpar-pessoas').addEventListener('click', () => { Object.assign(filtro, { busca: '', tipo: '', status: 'nohype', ministerio: '', extra: '' }); lista(conteudo); });
+  conteudo.querySelectorAll('[data-ordem]').forEach((b) => b.addEventListener('click', () => {
+    if (ordemPessoas.col === b.dataset.ordem) ordemPessoas.dir *= -1; else { ordemPessoas.col = b.dataset.ordem; ordemPessoas.dir = 1; }
+    desenhar();
+  }));
   $('#linhas').addEventListener('click', (e) => { const tr = e.target.closest('tr[data-id]'); if (tr) navegar(`/pessoas/${tr.dataset.id}`); });
   $('#busca').addEventListener('input', (e) => { filtro.busca = e.target.value; desenhar(); });
   $('#min').addEventListener('change', (e) => { filtro.ministerio = e.target.value; desenhar(); });
   $('#status').addEventListener('change', (e) => { filtro.status = e.target.value; desenhar(); });
   $('#importar')?.addEventListener('click', () => abrirImportacao(() => lista(conteudo)));
-  $('#exportar').addEventListener('click', () => baixarXLSX(`pessoas-hype-${hojeISO()}`, [{
+  $('#exportar')?.addEventListener('click', () => baixarXLSX(`pessoas-hype-${hojeISO()}`, [{
     nome: 'Pessoas',
     linhas: [['Nome', 'Referência', 'Situação', 'WhatsApp', 'Instagram', 'E-mail', 'Nascimento', 'Idade', 'Bairro / endereço', 'Ministérios',
       'Grupo cultivo', 'Batizado', 'Quem integrou', 'Como conheceu', 'Presenças', 'Última presença', 'Frequência', 'Cadastro', 'Cadastro ativo'],
@@ -199,10 +230,10 @@ export async function formulario(conteudo, { id } = {}) {
 // ======================= FICHA =======================
 const JORNADA = ['novo_visitante', 'visitante_regular', 'novo_membro', 'membro', 'membro_ativo'];
 const AREA = { pastoral: 'Pastoral', integracao: 'Integração' };
-const STATUS = { aberto: 'Aberto', em_andamento: 'Em andamento', concluido: 'Concluído' };
+const STATUS = { aberto: 'Aguardando contato', em_andamento: 'Em andamento', concluido: 'Concluído' };
 
 export async function perfil(conteudo, { id }) {
-  const [{ pessoa: p, historico, casos, areas }, ministerios] = await Promise.all([api('GET', `/pessoas/${id}`), api('GET', '/ministerios')]);
+  const [{ pessoa: p, historico, casos, podeAbrir = [] }, ministerios] = await Promise.all([api('GET', `/pessoas/${id}`), api('GET', '/ministerios')]);
   const nomeMin = Object.fromEntries(ministerios.map((m) => [m.id, m.nome]));
   const presencas = historico.filter((h) => h.presente).length;
   let seguidas = 0; for (const h of historico) { if (h.presente) break; seguidas++; }
@@ -272,14 +303,14 @@ export async function perfil(conteudo, { id }) {
       </div></section>
     </div>
 
-    ${casos ? `<section class="painel mt"><div class="painel-topo"><h2>Acompanhamento</h2>
-      <div style="display:flex;gap:14px">${areas.filter((a) => pode(`${a}.editar`) && !casosAbertos.some((c) => c.area === a)).map((a) => `<button class="link-btn" data-novo="${a}">Abrir na ${AREA[a]}</button>`).join('')}</div></div>
+    ${casos || podeAbrir.length ? `<section class="painel mt"><div class="painel-topo"><h2>Acompanhamento</h2>
+      <div class="abrir-acomp">${podeAbrir.filter((a) => !casosAbertos.some((c) => c.area === a)).map((a) => `<button class="btn sm" data-novo="${a}">${icon('plus')} ${AREA[a]}</button>`).join('')}</div></div>
       <div class="painel-corpo">
-        ${casos.length ? `<table class="tabela"><tbody>${casos.map((c) => `<tr class="clicavel" data-caso="${c.id}" data-area="${c.area}">
+        ${casos && casos.length ? `<table class="tabela"><tbody>${casos.map((c) => `<tr class="clicavel" data-caso="${c.id}" data-area="${c.area}">
           <td><span class="tag">${AREA[c.area]}</span></td>
           <td style="white-space:nowrap"><span class="status-dot st-${c.status}"></span>${STATUS[c.status]}</td><td class="some-mobile">${esc(c.motivo || '')}</td>
-          <td class="some-mobile">${esc(c.responsavel_nome)}</td><td class="dir muted small">${c.contatos} contato${c.contatos === 1 ? '' : 's'}</td></tr>`).join('')}</tbody></table>`
-        : '<p class="muted">Nenhum acompanhamento ainda.</p>'}
+          <td class="some-mobile">${esc(c.responsavel_nome || '')}</td><td class="dir muted small">${c.contatos} contato${c.contatos === 1 ? '' : 's'}</td></tr>`).join('')}</tbody></table>`
+        : casos ? '<p class="muted">Nenhum acompanhamento ainda.</p>' : '<p class="muted small">O histórico de acompanhamento fica só com o líder da área e com o responsável. Para começar um, use os botões acima.</p>'}
       </div></section>` : ''}`;
 
   conteudo.querySelectorAll('[data-novo]').forEach((b) => b.addEventListener('click', () => abrirAcompanhamento({

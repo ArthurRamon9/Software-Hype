@@ -2,8 +2,8 @@
 // (colunas = sextas do mês, um bloco por função, os nomes um embaixo do outro).
 // Todo mundo vê as escalas de todos; só o líder do ministério (ou administrador) altera.
 // © Arthur Ramon da Silva — Todos os direitos reservados.
-import { api, sessao } from '../api.js';
-import { esc, $, icon, aviso, avisoErro, janela, confirmar, isoLocal, semAcento } from '../ui.js';
+import { api, sessao, pode as podeGeral } from '../api.js';
+import { esc, $, icon, aviso, avisoErro, janela, confirmar, isoLocal, semAcento, ocupado } from '../ui.js';
 import { baixarXLSX } from '../xlsx.js';
 
 let mes = null;              // 'AAAA-MM'
@@ -73,21 +73,26 @@ export async function render(conteudo) {
   // funções apagadas que ainda estão na escala continuam aparecendo
   dados.itens.filter((i) => i.ministerio_id === m.id && i.funcao && !funcoes.includes(i.funcao)).forEach((i) => { if (!funcoes.includes(i.funcao)) funcoes.push(i.funcao); });
   const temSemFuncao = dados.itens.some((i) => i.ministerio_id === m.id && !i.funcao);
-  const blocos = funcoes.length ? [...funcoes.map((f) => ({ f, rot: f })), ...(temSemFuncao ? [{ f: '', rot: 'Sem função' }] : [])] : [{ f: null, rot: '' }];
+  const vagasDe = (nomeF) => m.funcoes.find((x) => x.nome === nomeF)?.vagas || null;
+  const blocos = funcoes.length ? [...funcoes.map((f) => ({ f, rot: f, vagas: vagasDe(f) })), ...(temSemFuncao ? [{ f: '', rot: 'Sem função' }] : [])] : [{ f: null, rot: '' }];
   const naCelula = (data, f) => dados.itens.filter((i) => i.ministerio_id === m.id && i.data === data && (f === null || (i.funcao || '') === f));
   const emOutro = (pid, data) => [...new Set(dados.itens.filter((i) => i.pessoa_id === pid && i.data === data && i.ministerio_id !== m.id).map((i) => nomeMin(i.ministerio_id)))];
   const pode = m.pode_editar;
+  const podeBaixar = podeGeral('relatorios.exportar');
 
   const nome = (i, data) => {
     const o = emOutro(i.pessoa_id, data);
     return `<li class="${o.length ? 'conf' : ''} ${i.pessoa_id === eu ? 'eu' : ''}" title="${esc(i.nome)}${o.length ? ` · também na ${esc(o.join(' e '))} nesta sexta` : ''}"><span>${esc(i.nome)}</span>${o.length ? icon('alerta') : ''}</li>`;
   };
+  // Função com quantidade (ex.: Entrada 3): mostra as vagas, preenchidas ou não
   const celula = (data, b) => {
     const l = naCelula(data, b.f);
     const passou = data < isoLocal(new Date());
+    const faltam = b.vagas ? Math.max(0, b.vagas - l.length) : 0;
+    const vazias = Array.from({ length: faltam }, () => `<li class="vaga">${passou ? '—' : 'Vaga'}</li>`).join('');
     return `<div class="cel-esc ${pode ? 'editavel' : ''}" ${pode ? `data-data="${data}" data-f="${b.f === null ? '' : esc(b.f)}" data-todas="${b.f === null ? 1 : 0}" role="button" tabindex="0"` : ''}>
-      ${l.length ? `<ul>${l.map((i) => nome(i, data)).join('')}</ul>` : `<span class="vazio-f">${passou ? '—' : 'A definir'}</span>`}
-      ${pode ? `<span class="add">${icon('plus')}${l.length ? 'Alterar' : 'Escolher'}</span>` : ''}</div>`;
+      ${l.length || vazias ? `<ul>${l.map((i) => nome(i, data)).join('')}${vazias}</ul>` : `<span class="vazio-f">${passou ? '—' : 'A definir'}</span>`}
+      ${pode ? `<span class="add">${icon('plus')}${l.length ? 'Alterar' : 'Escolher'}${b.vagas ? ` <em>${l.length}/${b.vagas}</em>` : ''}</span>` : ''}</div>`;
   };
   // Quem também serve em outro ministério na mesma sexta (agrupado por pessoa)
   const conflitosMes = [];
@@ -108,20 +113,20 @@ export async function render(conteudo) {
         <div class="acoes">
           ${pode ? '<button class="btn sm" id="funcoes">Funções</button>' : ''}
           ${pode ? `<button class="btn sm" id="texto">${icon('whats')} Texto para o grupo</button>` : ''}
-          <button class="btn sm" id="planilha">Baixar planilha</button>
+          ${pode || podeBaixar ? '<button class="btn sm" id="planilha">Baixar planilha</button>' : ''}
         </div>
       </div>
       <div class="tabela-wrap so-computador"><table class="tab-escala">
         <thead><tr>${sextas.map((s) => `<th class="${s === prox ? 'prox' : ''}">${cabecaSexta(s)}</th>`).join('')}</tr></thead>
-        <tbody>${blocos.map((b) => `${b.rot ? `<tr class="banda"><th colspan="${sextas.length}">${esc(b.rot)}</th></tr>` : ''}
+        <tbody>${blocos.map((b) => `${b.rot ? `<tr class="banda"><th colspan="${sextas.length}">${esc(b.rot)}${b.vagas ? ` <span>${b.vagas} por sexta</span>` : ''}</th></tr>` : ''}
           <tr>${sextas.map((s) => `<td class="${s === prox ? 'prox' : ''}">${celula(s, b)}</td>`).join('')}</tr>`).join('')}</tbody>
       </table></div>
       <div class="esc-cel so-mobile">${sextas.map((s) => `<div class="esc-dia ${s === prox ? 'prox' : ''}"><h3>${cabecaSexta(s)}</h3>
-        ${blocos.map((b) => `<div class="esc-bloco">${b.rot ? `<span class="fn">${esc(b.rot)}</span>` : ''}${celula(s, b)}</div>`).join('')}</div>`).join('')}</div>
+        ${blocos.map((b) => `<div class="esc-bloco">${b.rot ? `<span class="fn">${esc(b.rot)}${b.vagas ? ` · ${b.vagas}` : ''}</span>` : ''}${celula(s, b)}</div>`).join('')}</div>`).join('')}</div>
       ${pode && !m.funcoes.length ? '<p class="rodape-quadro">Sem funções, a escala é só a lista de quem serve. Para separar (ex.: Entrada, Saída), crie funções no botão "Funções".</p>' : ''}
     </section>`;
 
-  $('#planilha').addEventListener('click', () => baixarXLSX(`escala-${semAcento(m.nome).replace(/\s+/g, '-').toLowerCase()}-${mes}`, [{
+  $('#planilha')?.addEventListener('click', () => baixarXLSX(`escala-${semAcento(m.nome).replace(/\s+/g, '-').toLowerCase()}-${mes}`, [{
     nome: 'Escala', linhas: [['', ...sextas.map((s) => `Sexta ${diaMes(s)}`)],
       ...blocos.flatMap((b) => {
         const cols = sextas.map((s) => naCelula(s, b.f).map((i) => i.nome));
@@ -136,6 +141,7 @@ export async function render(conteudo) {
     const data = cel.dataset.data, todas = cel.dataset.todas === '1', funcao = todas ? null : cel.dataset.f;
     const atuais = new Set(naCelula(data, funcao).map((i) => i.pessoa_id));
     const membros = m.membros;
+    const vagas = funcao ? vagasDe(funcao) : null;
     janela({
       titulo: `${m.nome} · Sexta ${diaMes(data)}${funcao ? ` · ${funcao}` : ''}`,
       corpo: `<div style="display:grid;gap:10px">
@@ -145,7 +151,11 @@ export async function render(conteudo) {
           : `<p class="muted">Ninguém no ministério ${esc(m.nome)} ainda. Coloque a equipe em Ministérios.</p>`}
         <div class="janela-acoes" style="justify-content:space-between"><span class="muted small" id="cel-conta"></span><div style="display:flex;gap:8px"><button type="button" class="btn" data-fechar>Cancelar</button>${membros.length ? '<button type="button" class="btn primary" id="cel-ok">Salvar</button>' : ''}</div></div></div>`,
       aoAbrir: (j, fechar) => {
-        const conta = () => { const n = j.querySelectorAll('#cel-lista input:checked').length; j.querySelector('#cel-conta').textContent = n ? `${n} escolhido${n === 1 ? '' : 's'}` : ''; };
+        const conta = () => {
+          const n = j.querySelectorAll('#cel-lista input:checked').length, el = j.querySelector('#cel-conta');
+          el.textContent = vagas ? `${n} de ${vagas}${n > vagas ? ' (passou do combinado)' : ''}` : n ? `${n} escolhido${n === 1 ? '' : 's'}` : '';
+          el.classList.toggle('txt-alerta', !!vagas && n > vagas);
+        };
         conta();
         j.querySelector('#cel-lista')?.addEventListener('change', conta);
         const busca = j.querySelector('#cel-busca');
@@ -165,29 +175,54 @@ export async function render(conteudo) {
     cel.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrirCelula(cel); } });
   });
 
-  // Funções do ministério (o líder cria, renomeia e apaga; nada vem pronto)
-  $('#funcoes').addEventListener('click', () => janela({
-    titulo: `Funções da ${m.nome}`,
-    corpo: `<div style="display:grid;gap:12px">
-      <p class="hint">Ex.: Entrada, Saída, Iluminação. Cada função vira um bloco na escala. Sem funções, a escala é só a lista de quem serve.</p>
-      <div id="fn-lista" class="fn-lista">${m.funcoes.map((f) => `<div><input class="input" data-fn="${f.id}" value="${esc(f.nome)}" maxlength="60"><button class="btn sm icone danger" data-apagar="${f.id}" title="Apagar função">${icon('lixeira')}</button></div>`).join('') || '<p class="muted">Nenhuma função ainda.</p>'}</div>
-      <form id="fn-nova" style="display:flex;gap:8px"><input class="input" id="fn-nome" placeholder="Nova função" maxlength="60"><button class="btn">Adicionar</button></form>
-      <div class="janela-acoes"><button type="button" class="btn primary" data-fechar>Pronto</button></div></div>`,
-    aoAbrir: (j) => {
-      j.querySelector('#fn-nova').addEventListener('submit', async (e) => {
-        e.preventDefault(); const nomeF = j.querySelector('#fn-nome').value.trim(); if (!nomeF) return;
-        try { await api('POST', `/escalas/${m.id}/funcoes`, { nome: nomeF }); aviso('Função criada.'); j.querySelector('[data-fechar]').click(); } catch (err) { avisoErro(err); }
-      });
-      j.querySelectorAll('[data-fn]').forEach((inp) => inp.addEventListener('change', async () => {
-        try { await api('PUT', `/escalas/funcoes/${inp.dataset.fn}`, { nome: inp.value }); aviso('Função renomeada.'); } catch (err) { avisoErro(err); }
-      }));
-      j.querySelectorAll('[data-apagar]').forEach((b) => b.addEventListener('click', async () => {
-        if (!(await confirmar('Apagar esta função? As escalas já montadas continuam mostrando o nome dela.', { botao: 'Apagar', perigo: true }))) return;
-        try { await api('DELETE', `/escalas/funcoes/${b.dataset.apagar}`); aviso('Função apagada.'); recarregar(); } catch (err) { avisoErro(err); }
-      }));
-    },
-    aoFechar: () => recarregar(),
-  }));
+  // Funções do ministério: o líder cria quantas quiser, com a quantidade de pessoas de cada uma,
+  // e só grava quando clica em Salvar (fechar sem salvar pergunta antes)
+  $('#funcoes').addEventListener('click', () => {
+    let linhas = m.funcoes.map((f) => ({ id: f.id, nome: f.nome, vagas: f.vagas || '' }));
+    janela({
+      titulo: `Funções da ${m.nome}`,
+      corpo: `<form id="fn-form" style="display:grid;gap:12px">
+        <p class="hint">Cada função vira um bloco na escala. Em "Pessoas" coloque quantas servem nela em cada sexta (ex.: Entrada 3, Saída 5); deixe em branco se varia. Sem funções, a escala é só a lista de quem serve.</p>
+        <div class="fn-cab"><span>Função</span><span>Pessoas</span><span></span></div>
+        <div id="fn-lista" class="fn-lista"></div>
+        <button type="button" class="btn sm fn-add" id="fn-add">${icon('plus')} Adicionar função</button>
+        <div class="janela-acoes rodape-acoes"><span class="muted small" id="fn-total"></span>
+          <div class="dir-acoes"><button type="button" class="btn" data-fechar>Cancelar</button><button class="btn primary">Salvar</button></div></div></form>`,
+      aoAbrir: (j, fechar) => {
+        const box = j.querySelector('#fn-lista');
+        const ler = () => { linhas = [...box.querySelectorAll('.fn-linha')].map((l) => ({ id: l.dataset.id ? Number(l.dataset.id) : null, nome: l.querySelector('.fn-nome').value, vagas: l.querySelector('.fn-vagas').value })); };
+        const pintar = (focar) => {
+          box.innerHTML = linhas.map((f) => `<div class="fn-linha" ${f.id ? `data-id="${f.id}"` : ''}>
+            <input class="input fn-nome" value="${esc(f.nome)}" maxlength="60" placeholder="Ex.: Entrada" aria-label="Nome da função">
+            <input class="input fn-vagas" type="number" min="1" max="99" inputmode="numeric" value="${esc(String(f.vagas || ''))}" placeholder="—" aria-label="Quantas pessoas">
+            <button type="button" class="btn-icone fn-tirar" title="Tirar esta função" aria-label="Tirar esta função">${icon('lixeira')}</button></div>`).join('')
+            || '<p class="muted small fn-vazio">Nenhuma função. A escala fica sendo só a lista de quem serve.</p>';
+          const total = linhas.reduce((t, f) => t + (Number(f.vagas) || 0), 0);
+          j.querySelector('#fn-total').textContent = total ? `${total} pessoa${total === 1 ? '' : 's'} por sexta` : '';
+          if (focar) box.querySelector('.fn-linha:last-child .fn-nome')?.focus();
+        };
+        pintar();
+        box.addEventListener('input', () => { ler(); const total = linhas.reduce((t, f) => t + (Number(f.vagas) || 0), 0); j.querySelector('#fn-total').textContent = total ? `${total} pessoa${total === 1 ? '' : 's'} por sexta` : ''; });
+        j.querySelector('#fn-add').addEventListener('click', () => { ler(); linhas.push({ id: null, nome: '', vagas: '' }); j.alterou = true; pintar(true); });
+        box.addEventListener('click', (e) => {
+          const b = e.target.closest('.fn-tirar'); if (!b) return;
+          ler(); linhas.splice([...box.querySelectorAll('.fn-linha')].indexOf(b.closest('.fn-linha')), 1); j.alterou = true; pintar();
+        });
+        box.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.classList.contains('fn-nome')) { e.preventDefault(); j.querySelector('#fn-add').click(); } });
+        if (!linhas.length) j.querySelector('#fn-add').click();
+        j.alterou = false;
+        j.querySelector('#fn-form').addEventListener('submit', async (e) => {
+          e.preventDefault(); ler();
+          const funcoes = linhas.filter((f) => f.nome.trim()).map((f) => ({ id: f.id, nome: f.nome.trim(), vagas: f.vagas ? Number(f.vagas) : null }));
+          const apagadas = m.funcoes.filter((f) => !funcoes.some((x) => x.id === f.id));
+          if (apagadas.length && !(await confirmar(`Tirar ${apagadas.map((f) => `"${f.nome}"`).join(', ')}? As escalas já montadas continuam mostrando o nome.`, { botao: 'Tirar e salvar', perigo: true }))) return;
+          await ocupado(e.submitter, async () => {
+            try { await api('PUT', `/escalas/${m.id}/funcoes`, { funcoes }); aviso('Funções salvas.'); fechar(); recarregar(); } catch (err) { avisoErro(err); }
+          });
+        });
+      },
+    });
+  });
 
   // Texto pronto para colar no grupo do WhatsApp do ministério
   $('#texto').addEventListener('click', async () => {

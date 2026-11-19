@@ -83,10 +83,10 @@ export async function render(conteudo) {
       </div></section>` : '';
 
   const blocoFaltando = alertas ? `<section class="painel">
-      <div class="painel-topo"><h2>Sentindo falta</h2><span class="sub">2+ faltas seguidas, até 5 semanas</span></div>
+      <div class="painel-topo"><h2>Sentindo falta</h2><span class="sub">Quem começou a faltar primeiro, para o contato ser rápido</span></div>
       <div class="painel-corpo">
-        ${alertas.length ? `<div class="lista">${alertas.slice(0, 6).map((a) => link(a.pessoa.id, `${foto(a.pessoa.nome, urlFoto(a.pessoa.id, a.pessoa.foto_v))}
-            <div class="cresce">${esc(a.pessoa.nome)}<span>${a.faltas} faltas${a.ultimaPresenca ? ` · veio em ${fmtData(a.ultimaPresenca)}` : ''}</span></div>`)).join('')}</div>
+        ${alertas.length ? `<div class="lista">${[...alertas].sort((x, y) => x.faltas - y.faltas || x.pessoa.nome.localeCompare(y.pessoa.nome)).slice(0, 6).map((a) => link(a.pessoa.id, `${foto(a.pessoa.nome, urlFoto(a.pessoa.id, a.pessoa.foto_v))}
+            <div class="cresce">${esc(a.pessoa.nome)}<span>${a.faltas} Hypes sem vir${a.ultimaPresenca ? ` · veio em ${fmtData(a.ultimaPresenca)}` : ''}</span></div>`)).join('')}</div>
           <p class="small" style="margin-top:10px"><a href="#/pastoral">${alertas.length > 6 ? `Ver todos os ${alertas.length} na Pastoral` : 'Abrir Pastoral'}</a></p>`
         : '<div class="vazio" style="padding:20px 0"><b>Todo mundo por perto</b>Ninguém com faltas seguidas sem acompanhamento.</div>'}
       </div></section>` : '';

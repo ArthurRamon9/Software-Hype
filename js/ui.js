@@ -25,6 +25,12 @@ const P = {
   setaBaixo: '<path d="M12 5v14M6 13l6 6 6-6"/>',
   setaCima: '<path d="M12 19V5M6 11l6-6 6 6"/>',
   conta: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+  financeiro: '<rect x="2" y="6" width="20" height="14" rx="2"/><path d="M2 10h20M16 15h2"/><path d="M6 6V4h12v2"/>',
+  lapis: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+  agendaMais: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M12 13v6M9 16h6"/>',
+  olho: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  bloquear: '<circle cx="12" cy="12" r="9"/><path d="m5.6 5.6 12.8 12.8"/>',
+  zap: '<path d="M20.5 3.5A11.8 11.8 0 0 0 1.9 17.6L.5 23.5l6.1-1.4A11.8 11.8 0 0 0 20.5 3.5zM12 21.4c-1.8 0-3.5-.5-5-1.4l-.4-.2-3.6.9.9-3.5-.2-.4A9.6 9.6 0 1 1 12 21.4zm5.3-7.2c-.3-.1-1.7-.8-2-.9s-.5-.1-.7.1-.8.9-.9 1.1-.3.2-.6.1a7.9 7.9 0 0 1-2.3-1.4 8.8 8.8 0 0 1-1.6-2c-.2-.3 0-.5.1-.6l.4-.5.3-.5a.5.5 0 0 0 0-.5l-.9-2.2c-.2-.6-.5-.5-.7-.5h-.6a1.1 1.1 0 0 0-.8.4 3.4 3.4 0 0 0-1.1 2.5 5.9 5.9 0 0 0 1.2 3.1 13.5 13.5 0 0 0 5.2 4.6c1.9.8 2.7.9 3.6.7a3.1 3.1 0 0 0 2-1.4 2.5 2.5 0 0 0 .2-1.4c-.1-.2-.3-.3-.6-.4z" fill="currentColor" stroke="none"/>',
 };
 export const icon = (n) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${P[n] || ''}</svg>`;
 
@@ -57,28 +63,45 @@ export function aviso(msg, tipo = 'ok') {
 export const avisoErro = (e) => { console.error(e); aviso(e?.message || String(e), 'erro'); };
 
 // ---------- Janela ----------
-export function janela({ titulo, corpo, larga = false, aoAbrir, aoFechar }) {
+// Se a pessoa mexeu em algo e tenta fechar (X, Cancelar, Esc ou clicando fora), o site pergunta antes de perder.
+// Mexer = digitar/escolher num campo da janela (menos as buscas) ou a tela avisar com j.alterou = true.
+// Depois de salvar, a tela chama fechar() e a janela fecha direto.
+export function janela({ titulo, corpo, larga = false, aoAbrir, aoFechar, avisarAoSair = true }) {
   const fundo = document.createElement('div');
   fundo.className = 'fundo';
   fundo.innerHTML = `<div class="janela ${larga ? 'larga' : ''}" role="dialog" aria-modal="true">
     <div class="janela-topo"><h2>${esc(titulo)}</h2><button type="button" data-fechar aria-label="Fechar">×</button></div>
     <div class="janela-corpo">${corpo}</div></div>`;
-  const fechar = () => { fundo.remove(); document.removeEventListener('keydown', tecla); aoFechar?.(); };
-  const tecla = (e) => { if (e.key === 'Escape') fechar(); };
-  fundo.addEventListener('mousedown', (e) => { if (e.target === fundo) fechar(); });
-  $$('[data-fechar]', fundo).forEach((b) => b.addEventListener('click', fechar));
+  const j = fundo.querySelector('.janela');
+  j.alterou = false;
+  const marcar = (e) => { const t = e.target; if (t.type === 'search' || t.closest('[data-sem-aviso]') || t.classList.contains('busca')) return; j.alterou = true; };
+  j.addEventListener('input', marcar);
+  j.addEventListener('change', marcar);
+  let fechada = false;
+  const fechar = () => { if (fechada) return; fechada = true; fundo.remove(); document.removeEventListener('keydown', tecla); aoFechar?.(); };
+  const tentarFechar = async () => {
+    if (avisarAoSair && j.alterou && !fechada) {
+      if (!(await confirmar('Sair sem salvar? O que você mudou aqui vai se perder.', { botao: 'Sair sem salvar', perigo: true, cancelar: 'Continuar editando' }))) return;
+    }
+    fechar();
+  };
+  const noTopo = () => [...document.querySelectorAll('.fundo')].pop() === fundo;
+  const tecla = (e) => { if (e.key === 'Escape' && noTopo()) { e.stopPropagation(); tentarFechar(); } };
+  fundo.addEventListener('mousedown', (e) => { if (e.target === fundo) tentarFechar(); });
+  $$('[data-fechar]', fundo).forEach((b) => b.addEventListener('click', tentarFechar));
   document.addEventListener('keydown', tecla);
   document.body.appendChild(fundo);
-  aoAbrir?.(fundo.querySelector('.janela'), fechar);
+  aoAbrir?.(j, fechar);
   return fechar;
 }
 
-export function confirmar(msg, { botao = 'Confirmar', perigo = false } = {}) {
+export function confirmar(msg, { botao = 'Confirmar', perigo = false, cancelar = 'Cancelar' } = {}) {
   return new Promise((resolve) => {
     let sim = false;
     janela({
       titulo: 'Confirmar',
-      corpo: `<p>${esc(msg)}</p><div class="janela-acoes"><button class="btn" data-fechar>Cancelar</button>
+      avisarAoSair: false,
+      corpo: `<p>${esc(msg)}</p><div class="janela-acoes"><button class="btn" data-fechar>${esc(cancelar)}</button>
         <button class="btn ${perigo ? 'danger' : 'primary'}" data-sim>${esc(botao)}</button></div>`,
       aoAbrir: (j, fechar) => { j.querySelector('[data-sim]').onclick = () => { sim = true; fechar(); }; },
       aoFechar: () => resolve(sim),

@@ -8,6 +8,7 @@
      - chamadas de teste na data 03/01/2020
      - contas de teste com e-mail terminando em @teste.com
      - reuniões de teste com título começando com "Zz Teste"
+     - lançamentos do financeiro e funções de escala começando com "Zz Teste"
 
    Rode primeiro como está (só MOSTRA o que seria apagado).
    Conferiu? Troque @apagar para 1 e rode de novo.
@@ -21,7 +22,11 @@ SELECT 'chamada', CAST(id AS VARCHAR(20)), CONVERT(CHAR(10), data, 103) FROM dbo
 UNION ALL
 SELECT 'conta', CAST(id AS VARCHAR(20)), email FROM dbo.usuarios WHERE email LIKE N'%@teste.com'
 UNION ALL
-SELECT 'reunião', CAST(id AS VARCHAR(20)), titulo FROM dbo.reunioes WHERE titulo LIKE N'Zz Teste%';
+SELECT 'reunião', CAST(id AS VARCHAR(20)), titulo FROM dbo.reunioes WHERE titulo LIKE N'Zz Teste%'
+UNION ALL
+SELECT 'financeiro', CAST(id AS VARCHAR(20)), descricao FROM dbo.fin_lancamentos WHERE descricao LIKE N'Zz Teste%'
+UNION ALL
+SELECT 'função de escala', CAST(id AS VARCHAR(20)), nome FROM dbo.escala_funcoes WHERE nome LIKE N'Zz Teste%';
 
 IF @apagar = 1
 BEGIN
@@ -31,6 +36,8 @@ BEGIN
         DELETE FROM dbo.pessoas   WHERE nome LIKE N'Zz Teste%';      -- leva junto presenças, acompanhamentos, foto e ministérios
         DELETE FROM dbo.usuarios  WHERE email LIKE N'%@teste.com';   -- leva junto os grupos da conta
         DELETE FROM dbo.reunioes  WHERE titulo LIKE N'Zz Teste%';    -- leva junto os convidados
+        DELETE FROM dbo.fin_lancamentos WHERE descricao LIKE N'Zz Teste%';
+        DELETE FROM dbo.escala_funcoes  WHERE nome LIKE N'Zz Teste%';
     COMMIT;
     PRINT 'Testes apagados.';
 END

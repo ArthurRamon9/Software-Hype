@@ -89,8 +89,14 @@ function bind(req, params) {
 
 // Executa uma consulta. Retorna as linhas do primeiro resultado
 // (ou todos os resultados, se { todos: true }).
+// Só no teste local: SQL_LATENCIA_MS imita a distância até o banco (ele fica na Europa) e SQL_CONTAR mostra quantas idas cada chamada faz
+const LATENCIA = Number(process.env.MODO_LOCAL === '1' && process.env.SQL_LATENCIA_MS) || 0;
+let contador = 0;
+const idasAoBanco = () => { const n = contador; contador = 0; return n; };
 async function query(texto, params = {}, { todos = false } = {}) {
   const inicio = Date.now();
+  contador++;
+  if (LATENCIA) await esperar(LATENCIA);
   for (let tentativa = 1; ; tentativa++) {
     try {
       const pool = await getPool();
@@ -112,4 +118,4 @@ async function query(texto, params = {}, { todos = false } = {}) {
 
 const umaLinha = async (texto, params) => (await query(texto, params))[0] || null;
 
-module.exports = { query, umaLinha, HttpError, sql };
+module.exports = { query, umaLinha, HttpError, sql, idasAoBanco };

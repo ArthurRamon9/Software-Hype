@@ -12,7 +12,58 @@ export const podeAlgum = (...ps) => ps.some(pode);
 
 let avisouAcordando = false;
 
-export async function api(metodo, caminho, corpo, tentativa = 1) {
+// ---------- Memória das consultas (deixa o site rápido) ----------
+// Uma tela já aberta aparece na hora com o que já veio; por trás, o site confere no servidor e,
+// se algo mudou (outra pessoa mexeu), avisa a tela para se redesenhar. Qualquer gravação limpa a memória.
+// A chamada (/presenca) e o login nunca usam a memória: precisam estar sempre fresquinhos.
+const memoria = new Map();            // caminho -> { dados, texto, quando }
+const buscando = new Map();           // caminho -> promessa em andamento (não pede duas vezes a mesma coisa)
+const VALIDADE_MS = 5 * 60 * 1000;
+export const usadosNaTela = new Set();
+const podeGuardar = (caminho) => !/^\/(auth|presenca|fotos)/.test(caminho);
+let geracao = 0;                      // muda a cada gravação: resposta antiga que chegar atrasada é descartada
+export const esquecerTudo = () => { memoria.clear(); buscando.clear(); geracao++; };
+
+async function buscarFresco(caminho) {
+  if (buscando.has(caminho)) return buscando.get(caminho);
+  const minha = geracao;
+  const p = chamar('GET', caminho).then((dados) => {
+    if (minha !== geracao) return dados;
+    const texto = JSON.stringify(dados);
+    const antes = memoria.get(caminho);
+    memoria.set(caminho, { dados, texto, quando: Date.now() });
+    if (antes && antes.texto !== texto) window.dispatchEvent(new CustomEvent('hype:atualizou', { detail: caminho }));
+    return dados;
+  }).finally(() => { if (buscando.get(caminho) === p) buscando.delete(caminho); });
+  buscando.set(caminho, p);
+  return p;
+}
+// Copia para a tela poder mexer à vontade sem estragar a memória
+const copia = (d) => (typeof structuredClone === 'function' ? structuredClone(d) : JSON.parse(JSON.stringify(d)));
+
+// Esquenta a memória antes de a pessoa abrir a tela (ao passar o mouse ou tocar no menu)
+export function preaquecer(caminho) {
+  if (!podeGuardar(caminho)) return;
+  const m = memoria.get(caminho);
+  if (m && Date.now() - m.quando < 15000) return;
+  buscarFresco(caminho).catch(() => {});
+}
+
+export async function api(metodo, caminho, corpo) {
+  if (metodo === 'GET' && podeGuardar(caminho)) {
+    usadosNaTela.add(caminho);
+    const m = memoria.get(caminho);
+    if (m && Date.now() - m.quando < VALIDADE_MS) {
+      buscarFresco(caminho).catch(() => {});   // confere por trás
+      return copia(m.dados);
+    }
+    return copia(await buscarFresco(caminho));
+  }
+  if (metodo !== 'GET') esquecerTudo();
+  try { return await chamar(metodo, caminho, corpo); } finally { if (metodo !== 'GET') esquecerTudo(); }
+}
+
+async function chamar(metodo, caminho, corpo, tentativa = 1) {
   let r;
   try {
     r = await fetch('api' + caminho, {
@@ -28,7 +79,7 @@ export async function api(metodo, caminho, corpo, tentativa = 1) {
   if (r.status === 503 && tentativa < 4) {
     if (!avisouAcordando) { aviso('Conectando ao banco, só um instante...'); avisouAcordando = true; }
     await new Promise((ok) => setTimeout(ok, 3000));
-    return api(metodo, caminho, corpo, tentativa + 1);
+    return chamar(metodo, caminho, corpo, tentativa + 1);
   }
   avisouAcordando = false;
   const dados = await r.json().catch(() => ({}));

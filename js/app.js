@@ -1,8 +1,9 @@
 // Gestão do Hype — rotas, menu e layout
 // © Arthur Ramon da Silva — Todos os direitos reservados.
-import { api, sessao, podeAlgum, urlFoto } from './api.js';
+import { api, sessao, podeAlgum, urlFoto, usadosNaTela, preaquecer } from './api.js';
 import { icon, esc, direitos, $, foto } from './ui.js';
 import './campos.js';
+import './abas.js';
 import * as acesso from './pages/acesso.js';
 import * as inicio from './pages/inicio.js';
 import * as pessoas from './pages/pessoas.js';
@@ -13,6 +14,7 @@ import * as ministerios from './pages/ministerios.js';
 import * as usuarios from './pages/usuarios.js';
 import * as agenda from './pages/agenda.js';
 import * as escalas from './pages/escalas.js';
+import * as financeiro from './pages/financeiro.js';
 
 const app = document.getElementById('app');
 
@@ -38,9 +40,17 @@ const PRIVADAS = [
   ['/acessos', usuarios.render, ['acessos.gerenciar']],
   ['/agenda', agenda.render],
   ['/escalas', escalas.render],
+  ['/financeiro', financeiro.render, ['financeiro.ver']],
   ['/conta', acesso.minhaConta],
 ];
 
+// O que cada tela busca primeiro: o menu já começa a buscar quando a pessoa passa o mouse ou toca
+const proximaSextaMes = () => { const d = new Date(); d.setHours(12); while (d.getDay() !== 5) d.setDate(d.getDate() + 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
+const BUSCA_DA_TELA = {
+  '/': () => ['/painel'], '/pessoas': () => ['/pessoas', '/ministerios'], '/integracao': () => ['/integracao'], '/pastoral': () => ['/pastoral'],
+  '/relatorios': () => ['/encontros'], '/escalas': () => [`/escalas?mes=${proximaSextaMes()}`, '/escalas/minhas'], '/agenda': () => ['/agenda?periodo=proximas'],
+  '/ministerios': () => ['/ministerios'], '/acessos': () => ['/acessos'], '/financeiro': () => [`/financeiro?ano=${new Date().getFullYear()}`],
+};
 const MENU = [
   { href: '/', rotulo: 'Início', ic: 'inicio', mob: true },
   { href: '/pessoas', rotulo: 'Pessoas', ic: 'pessoas', mob: true, perm: ['pessoas.ver'] },
@@ -50,6 +60,7 @@ const MENU = [
   { href: '/relatorios', rotulo: 'Relatórios', ic: 'relatorios', mob: true, perm: ['relatorios.ver'] },
   { href: '/escalas', rotulo: 'Escalas', ic: 'escalas', mob: true },
   { href: '/agenda', rotulo: 'Agenda', ic: 'agenda', mob: true },
+  { href: '/financeiro', rotulo: 'Financeiro', ic: 'financeiro', perm: ['financeiro.ver'] },
   { grupo: 'Cadastros', perm: ['pessoas.ver', 'ministerios.editar', 'acessos.gerenciar'] },
   { href: '/ministerios', rotulo: 'Ministérios', ic: 'ministerios', perm: ['pessoas.ver', 'ministerios.editar'] },
   { href: '/acessos', rotulo: 'Acessos', ic: 'acessos', cont: 'pendentes', perm: ['acessos.gerenciar'] },
@@ -72,10 +83,11 @@ function casar(caminho) {
 }
 
 let limpar = null;
-async function rota() {
+async function rota(silencioso = false) {
   if (typeof limpar === 'function') { try { limpar(); } catch {} }
   limpar = null;
-  document.querySelectorAll('.fundo').forEach((m) => m.remove());
+  if (!silencioso) document.querySelectorAll('.fundo').forEach((m) => m.remove());
+  usadosNaTela.clear();
   const caminho = caminhoAtual();
 
   if (PUBLICAS[caminho] && (caminho === '/nova-senha' || !sessao.usuario)) { document.body.dataset.tela = 'acesso'; return PUBLICAS[caminho](app); }
@@ -91,11 +103,18 @@ async function rota() {
     conteudo.innerHTML = `<div class="painel vazio"><b>Você não tem acesso a esta tela</b>Se precisar, peça a um administrador para incluir você no grupo certo.<br><a class="btn" href="#/" style="margin-top:14px">Ir para o Início</a></div>`;
     return;
   }
-  conteudo.innerHTML = '<div class="boot"><span class="spin"></span></div>';
-  window.scrollTo(0, 0);
+  const rolagem = window.scrollY;
+  // A tela só mostra o "carregando" se demorar: com a memória ela aparece na hora, sem piscar
+  const carregando = silencioso ? null : setTimeout(() => { conteudo.innerHTML = '<div class="boot"><span class="spin"></span></div>'; }, 120);
+  if (!silencioso) window.scrollTo(0, 0);
   try {
+    if (!silencioso) conteudo.classList.add('nova-tela');
     limpar = await m.fn(conteudo, m.params);
+    clearTimeout(carregando);
+    if (!silencioso) setTimeout(() => conteudo.classList.remove('nova-tela'), 450);
+    if (silencioso) window.scrollTo(0, rolagem);
   } catch (e) {
+    clearTimeout(carregando);
     console.error(e);
     conteudo.innerHTML = `<div class="painel vazio"><p>Não foi possível carregar esta página.</p><p class="small" style="margin:6px 0 14px">${esc(e.message)}</p>
       <button class="btn" id="recarregar">Tentar de novo</button></div>`;
@@ -185,7 +204,20 @@ async function iniciar() {
       return;
     }
   }
-  window.addEventListener('hashchange', rota);
+  window.addEventListener('hashchange', () => rota());
+  // Esquenta a próxima tela ao passar o mouse/tocar no menu
+  const esquentar = (e) => { const a = e.target.closest?.('a[href^="#/"]'); if (!a || !sessao.usuario || sessao.usuario.cd_status !== 1) return; const f = BUSCA_DA_TELA[a.getAttribute('href').slice(1).replace(/\/$/, '') || '/']; if (f) f().forEach(preaquecer); };
+  document.addEventListener('pointerover', esquentar, { passive: true });
+  document.addEventListener('touchstart', esquentar, { passive: true });
+  // Outra pessoa mudou algo que esta tela mostra: redesenha sem piscar (se ninguém estiver digitando ou com janela aberta)
+  window.addEventListener('hype:atualizou', (e) => {
+    if (!usadosNaTela.has(e.detail) || document.querySelector('.fundo, .pop-campo')) return;
+    const c = $('#conteudo');
+    if (!c || c.dataset.alterado === '1') return;
+    const foco = document.activeElement;
+    if (foco && c.contains(foco) && /INPUT|TEXTAREA|SELECT/.test(foco.tagName) && foco.value) return;
+    rota(true);
+  });
   window.addEventListener('hype:tema', () => { if (sessao.usuario && caminhoAtual() !== '/conta') rota(); });   // gráficos trocam de cor
   await rota();
   atualizarContadores();

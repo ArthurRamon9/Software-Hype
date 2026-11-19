@@ -1,7 +1,7 @@
 // Acessos: usuários, grupos de permissão e registro de atividades
 // © Arthur Ramon da Silva — Todos os direitos reservados.
 import { api, sessao, urlFoto } from '../api.js';
-import { esc, aviso, avisoErro, ocupado, janela, confirmar, fmtData, foto, semAcento, filtrarPorNome } from '../ui.js';
+import { esc, aviso, avisoErro, ocupado, janela, confirmar, fmtData, foto, semAcento, filtrarPorNome, icon } from '../ui.js';
 import { atualizarContadores } from '../app.js';
 
 let aba = 'usuarios';
@@ -92,12 +92,10 @@ export async function render(conteudo) {
           <div class="lista-check grupos-check">${grupos.map((g) => `<label class="check opcao"><input type="checkbox" name="g" value="${g.id}" ${u.grupos.includes(g.id) ? 'checked' : ''} ${g.sistema ? 'data-admin' : ''}>
             <span><b>${esc(g.nome)}</b><small>${esc(g.descricao || '')}</small></span></label>`).join('')}</div>
           <span class="hint" id="nota-admin" hidden>Administradores já pode tudo: os outros grupos não fazem diferença.</span></div>
-        <div class="janela-acoes" style="justify-content:space-between;flex-wrap:wrap">
-          <div style="display:flex;gap:14px;flex-wrap:wrap">
-            ${u.id === sessao.usuario.id ? '' : u.cd_status ? '<button type="button" class="link-btn danger" id="bloquear">Bloquear acesso</button>' : '<button type="button" class="link-btn danger" id="recusar">Recusar e apagar conta</button>'}
-            ${u.cd_status && u.id !== sessao.usuario.id && !ehAdmin(u) ? '<button type="button" class="link-btn" id="ver-como">Ver o sistema como esta pessoa</button>' : ''}
-          </div>
-          <div style="display:flex;gap:8px"><button type="button" class="btn" data-fechar>Cancelar</button><button class="btn primary">${u.cd_status ? 'Salvar' : 'Liberar acesso'}</button></div>
+        ${u.cd_status && u.id !== sessao.usuario.id && !ehAdmin(u) ? `<button type="button" class="acao-ver-como" id="ver-como">${icon('olho')}<span><b>Ver o sistema como esta pessoa</b><small>Abre o site do jeito que ${esc(u.nome.split(' ')[0])} enxerga, para conferir os acessos. Fica registrado e nada é alterado por ela.</small></span></button>` : ''}
+        <div class="janela-acoes rodape-acoes">
+          ${u.id === sessao.usuario.id ? '<span></span>' : u.cd_status ? `<button type="button" class="link-btn danger com-icone" id="bloquear">${icon('bloquear')}Bloquear acesso</button>` : `<button type="button" class="link-btn danger com-icone" id="recusar">${icon('lixeira')}Recusar e apagar conta</button>`}
+          <div class="dir-acoes"><button type="button" class="btn" data-fechar>Cancelar</button><button class="btn primary">${u.cd_status ? 'Salvar' : 'Liberar acesso'}</button></div>
         </div></form>`,
       aoAbrir: (j, fechar) => {
         const marcados = () => [...j.querySelectorAll('input[name=g]:checked')].map((c) => Number(c.value));

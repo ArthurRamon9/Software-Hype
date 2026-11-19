@@ -250,6 +250,9 @@ USING (VALUES
     ('pastoral.designar',  N'Pastoral: designar e trocar responsáveis', 34),
     ('integracao.ver_todos', N'Integração: ver os acompanhamentos de todos (sem isso, só os atribuídos a você)', 37),
     ('integracao.designar',  N'Integração: designar e trocar quem integra', 38),
+    ('relatorios.exportar', N'Baixar e importar planilhas e imprimir relatórios', 41),
+    ('financeiro.ver',     N'Ver o financeiro (verba, despesas e entradas)', 70),
+    ('financeiro.editar',  N'Lançar e corrigir verba, despesas e entradas', 71),
     ('acessos.gerenciar',  N'Liberar usuários, gerenciar grupos e ver o registro de atividades', 60)
 ) AS s (codigo, descricao, ordem) ON t.codigo = s.codigo
 WHEN MATCHED THEN UPDATE SET descricao = s.descricao, ordem = s.ordem
@@ -490,3 +493,98 @@ CREATE TABLE dbo.escala_itens (
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'ix_escala_itens_data')
     CREATE INDEX ix_escala_itens_data ON dbo.escala_itens (data, ministerio_id) INCLUDE (pessoa_id, funcao);
 GO
+
+/* =====================================================================
+   v5 (tudo só acrescenta; cada ajuste de grupo roda uma vez só)
+   ===================================================================== */
+/* Escalas: quantas pessoas cada função precisa (ex.: Entrada 3, Saída 5). Vazio = sem número fixo */
+IF COL_LENGTH('dbo.escala_funcoes', 'vagas') IS NULL
+    ALTER TABLE dbo.escala_funcoes ADD vagas INT NULL;
+GO
+/* Pastoral/Integração: como o acompanhamento terminou */
+IF COL_LENGTH('dbo.pastoral_casos', 'desfecho') IS NULL
+    ALTER TABLE dbo.pastoral_casos ADD desfecho NVARCHAR(40) NULL;
+GO
+/* Financeiro: verba do ano, despesas e entradas (ofertas, doações) */
+IF OBJECT_ID('dbo.fin_lancamentos') IS NULL
+CREATE TABLE dbo.fin_lancamentos (
+    id          INT IDENTITY(1,1) CONSTRAINT pk_fin_lancamentos PRIMARY KEY,
+    ano         INT NOT NULL,
+    tipo        VARCHAR(10) NOT NULL CONSTRAINT ck_fin_tipo CHECK (tipo IN ('verba', 'despesa', 'entrada')),
+    data        DATE NOT NULL,
+    descricao   NVARCHAR(200) NOT NULL,
+    categoria   NVARCHAR(60) NULL,
+    valor       DECIMAL(12, 2) NOT NULL CONSTRAINT ck_fin_valor CHECK (valor > 0),
+    criado_por  INT NULL,
+    dt_criacao  DATETIME2(0) NOT NULL CONSTRAINT df_fin_criacao DEFAULT SYSUTCDATETIME()
+);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'ix_fin_ano')
+    CREATE INDEX ix_fin_ano ON dbo.fin_lancamentos (ano, data);
+GO
+
+/* Grupo Administração: baixa relatórios e cuida do financeiro (continua sem apagar nada) */
+IF NOT EXISTS (SELECT 1 FROM dbo.sementes WHERE chave = N'v5:administracao')
+BEGIN
+    INSERT INTO dbo.grupo_permissao (grupo_id, permissao)
+    SELECT g.id, p.permissao FROM dbo.grupos g CROSS JOIN (VALUES ('relatorios.exportar'), ('financeiro.ver'), ('financeiro.editar')) p(permissao)
+    WHERE g.nome = N'Administração' AND NOT EXISTS (SELECT 1 FROM dbo.grupo_permissao x WHERE x.grupo_id = g.id AND x.permissao = p.permissao);
+    UPDATE dbo.grupos SET descricao = N'Cadastra pessoas, faz a chamada, cuida dos ministérios, vê e baixa relatórios e cuida do financeiro. Não apaga nada'
+    WHERE nome = N'Administração';
+    INSERT INTO dbo.sementes (chave) VALUES (N'v5:administracao');
+END
+GO
+
+/* "Cadastro" e "Presença" viram um grupo só: quem faz a chamada também cadastra o visitante */
+IF NOT EXISTS (SELECT 1 FROM dbo.sementes WHERE chave = N'v5:cadastro_chamada')
+BEGIN
+    SET XACT_ABORT ON; BEGIN TRAN;
+    IF NOT EXISTS (SELECT 1 FROM dbo.grupos WHERE nome = N'Cadastro e chamada')
+        INSERT INTO dbo.grupos (nome, descricao, sistema) VALUES (N'Cadastro e chamada', N'Cadastra e atualiza pessoas e faz a chamada das sextas. Não apaga nem baixa nada', 0);
+    DECLARE @cc INT = (SELECT id FROM dbo.grupos WHERE nome = N'Cadastro e chamada');
+    INSERT INTO dbo.grupo_permissao (grupo_id, permissao)
+    SELECT @cc, p.permissao FROM (VALUES ('pessoas.ver'), ('pessoas.editar'), ('presenca.marcar')) p(permissao)
+    WHERE NOT EXISTS (SELECT 1 FROM dbo.grupo_permissao x WHERE x.grupo_id = @cc AND x.permissao = p.permissao);
+    -- quem estava em Cadastro ou Presença passa para o grupo novo
+    INSERT INTO dbo.usuario_grupo (usuario_id, grupo_id)
+    SELECT DISTINCT ug.usuario_id, @cc FROM dbo.usuario_grupo ug JOIN dbo.grupos g ON g.id = ug.grupo_id
+    WHERE g.nome IN (N'Cadastro', N'Presença') AND g.sistema = 0
+      AND NOT EXISTS (SELECT 1 FROM dbo.usuario_grupo x WHERE x.usuario_id = ug.usuario_id AND x.grupo_id = @cc);
+    DELETE FROM dbo.grupos WHERE nome IN (N'Cadastro', N'Presença') AND sistema = 0;   -- leva junto as permissões e os vínculos antigos
+    INSERT INTO dbo.sementes (chave) VALUES (N'v5:cadastro_chamada');
+    COMMIT;
+END
+GO
+
+/* Quem só serve num ministério (Cozinha, Mídias, Decoração...): vê Início, escalas, agenda e relatórios */
+IF NOT EXISTS (SELECT 1 FROM dbo.sementes WHERE chave = N'v5:equipe')
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM dbo.grupos WHERE nome = N'Equipe dos ministérios')
+        INSERT INTO dbo.grupos (nome, descricao, sistema) VALUES (N'Equipe dos ministérios', N'Quem serve nos ministérios: vê o Início, as escalas, a agenda e os relatórios', 0);
+    INSERT INTO dbo.grupo_permissao (grupo_id, permissao)
+    SELECT g.id, 'relatorios.ver' FROM dbo.grupos g WHERE g.nome = N'Equipe dos ministérios'
+      AND NOT EXISTS (SELECT 1 FROM dbo.grupo_permissao x WHERE x.grupo_id = g.id AND x.permissao = 'relatorios.ver');
+    INSERT INTO dbo.sementes (chave) VALUES (N'v5:equipe');
+END
+GO
+
+/* Privacidade (LGPD): os detalhes da Pastoral e da Integração ficam só com o líder do ministério,
+   os administradores e o responsável. Líderes de equipe deixam de ver os acompanhamentos de todos. */
+IF NOT EXISTS (SELECT 1 FROM dbo.sementes WHERE chave = N'v5:lideres_privacidade')
+BEGIN
+    DELETE gp FROM dbo.grupo_permissao gp JOIN dbo.grupos g ON g.id = gp.grupo_id
+    WHERE g.nome = N'Líderes de equipe' AND gp.permissao IN ('pastoral.ver_todos', 'integracao.ver_todos');
+    UPDATE dbo.grupos SET descricao = N'Vê pessoas e relatórios. Os acompanhamentos da Pastoral e da Integração ficam com o líder de cada um e com os responsáveis'
+    WHERE nome = N'Líderes de equipe';
+    INSERT INTO dbo.sementes (chave) VALUES (N'v5:lideres_privacidade');
+END
+GO
+
+/* Líder de ministério = líder de equipe: quem já está marcado como líder entra no ministério "Líderes de equipe" */
+DECLARE @le INT = (SELECT id FROM dbo.ministerios WHERE nome = N'Líderes de equipe');
+IF @le IS NOT NULL
+    INSERT INTO dbo.pessoa_ministerio (pessoa_id, ministerio_id, lider)
+    SELECT DISTINCT pm.pessoa_id, @le, 0 FROM dbo.pessoa_ministerio pm
+    WHERE pm.lider = 1 AND pm.ministerio_id <> @le
+      AND NOT EXISTS (SELECT 1 FROM dbo.pessoa_ministerio x WHERE x.pessoa_id = pm.pessoa_id AND x.ministerio_id = @le);
+GO
+

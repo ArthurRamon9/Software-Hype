@@ -124,6 +124,21 @@ As duas áreas usam a mesma estrutura (`pastoral_casos` + `pastoral_registros`),
 Várias pessoas podem fazer a chamada ao mesmo tempo, cada uma no seu celular: cada uma grava só o que marcou.
 "Restantes como falta" não apaga quem outra pessoa marcou como presente. Não dá para salvar chamada de data futura.
 
+## Grupos de acesso (v5)
+| Grupo | O que faz |
+|---|---|
+| Administradores | Tudo, inclusive apagar e "Ver como" |
+| Administração | Cadastro, chamada, ministérios, relatórios, baixar/importar planilhas e financeiro. Não apaga nada |
+| Cadastro e chamada | Cadastra/atualiza pessoas e faz a chamada (cadastra o visitante na hora). Não apaga nem baixa |
+| Pastoral / Integração | Vê e registra os acompanhamentos que estão com a pessoa |
+| Líderes de equipe | Vê pessoas e relatórios |
+| Equipe dos ministérios | Quem só serve (Cozinha, Mídias...): Início, escalas, agenda e relatórios |
+
+O líder de cada ministério (marcado em Ministérios) distribui os acompanhamentos da sua área, monta escalas e marca reuniões.
+
+## Financeiro
+Verba do ano, despesas e entradas (ofertas, doações). O saldo é verba + entradas − despesas. Gastos por categoria e planilha com gráfico.
+
 ## Campos de data, hora e listas
 `js/campos.js` troca a aparência dos campos do navegador (listas de escolha, data, hora e mês) pela do Hype, em todo o site e sozinho.
 O campo original continua escondido guardando o valor, então o resto do código não muda. Para manter um campo do jeito do navegador: `data-nativo`.
