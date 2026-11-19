@@ -802,10 +802,14 @@ a.marca, a.marca:hover { text-decoration: none; color: inherit; }
 /* "GESTÃO DO / HYPE" da tela de entrada, no estilo do Instagram: condensado, inclinado, com as sombras ciano e vermelha */
 .marca-hype { font-family: var(--destaque); font-weight: 400; font-style: italic; text-transform: uppercase; line-height: .86; color: #fff; position: relative; z-index: 1; }
 .marca-hype span { display: block; font-size: clamp(30px, 3.6vw, 52px); letter-spacing: .02em; margin-left: .08em; margin-bottom: .32em; line-height: 1; }
-.marca-hype b { display: block; font-weight: 400; font-size: clamp(96px, 13vw, 190px); letter-spacing: .01em; text-shadow: -5px 0 0 #19d3f0, 5px 0 0 #ff2e55; }
+.marca-hype b { display: block; }
+.marca-hype b img { display: block; width: clamp(300px, 32vw, 470px); height: auto; margin-left: -.1em; }
+/* A arte branca no fundo escuro; a versão preta só no celular com tema claro */
+.marca-hype .escuro-some { display: none; }
 .acesso-box .marca-mobile span { font-size: 22px; }
-.acesso-box .marca-mobile b { font-size: 76px; text-shadow: -3px 0 0 #19d3f0, 3px 0 0 #ff2e55; color: var(--ink); }
-[data-tema="escuro"] .acesso-box .marca-mobile b { color: #fff; }
+.acesso-box .marca-mobile b img { width: 230px; }
+:root:not([data-tema="escuro"]) .acesso-box .marca-mobile .claro-some { display: none; }
+:root:not([data-tema="escuro"]) .acesso-box .marca-mobile .escuro-some { display: block; }
 .acesso-lado .frase { font-family: inherit; font-size: 16px; font-weight: 400; color: #b9b5aa; max-width: 360px; margin-top: 22px; line-height: 1.5; }
 .rodape-form.duas-pontas { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .senha-wrap .input { padding-right: 46px; }

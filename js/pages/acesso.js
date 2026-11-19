@@ -5,7 +5,7 @@ import { esc, $, aviso, ocupado, direitos, icon, foto, temaAtual, aplicarTema } 
 import { entrou, sair, parametrosHash, navegar, menuPermitido } from '../app.js';
 
 // "GESTÃO DO / HYPE" no estilo do Instagram do Hype
-const marcaHype = (classe = '') => `<div class="marca-hype ${classe}"><span>Gestão do</span><b>Hype</b></div>`;
+const marcaHype = (classe = '') => `<div class="marca-hype ${classe}"><span>Gestão do</span><b><img class="claro-some" src="assets/img/hype-marca.svg" alt="Hype"><img class="escuro-some" src="assets/img/hype-marca-preto.svg" alt=""></b></div>`;
 
 function tela(app, html) {
   app.innerHTML = `<div class="acesso">
