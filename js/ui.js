@@ -70,9 +70,10 @@ export const avisoErro = (e) => { console.error(e); aviso(e?.message || String(e
 // Mexer = digitar/escolher num campo da janela (menos as buscas) ou a tela avisar com j.alterou = true.
 // Depois de salvar, a tela chama fechar() e a janela fecha direto.
 export function janela({ titulo, corpo, larga = false, aoAbrir, aoFechar, avisarAoSair = true }) {
+  const antes = document.activeElement;   // ao fechar, o foco volta para onde estava
   const fundo = document.createElement('div');
   fundo.className = 'fundo';
-  fundo.innerHTML = `<div class="janela ${larga ? 'larga' : ''}" role="dialog" aria-modal="true">
+  fundo.innerHTML = `<div class="janela ${larga ? 'larga' : ''}" role="dialog" aria-modal="true" tabindex="-1">
     <div class="janela-topo"><h2>${esc(titulo)}</h2><button type="button" data-fechar aria-label="Fechar">×</button></div>
     <div class="janela-corpo">${corpo}</div></div>`;
   const j = fundo.querySelector('.janela');
@@ -81,7 +82,7 @@ export function janela({ titulo, corpo, larga = false, aoAbrir, aoFechar, avisar
   j.addEventListener('input', marcar);
   j.addEventListener('change', marcar);
   let fechada = false;
-  const fechar = () => { if (fechada) return; fechada = true; fundo.remove(); document.removeEventListener('keydown', tecla); aoFechar?.(); };
+  const fechar = () => { if (fechada) return; fechada = true; fundo.remove(); document.removeEventListener('keydown', tecla); if (antes?.isConnected) antes.focus({ preventScroll: true }); aoFechar?.(); };
   const tentarFechar = async () => {
     if (avisarAoSair && j.alterou && !fechada) {
       if (!(await confirmar('Sair sem salvar? O que você mudou aqui vai se perder.', { botao: 'Sair sem salvar', perigo: true, cancelar: 'Continuar editando' }))) return;
@@ -95,6 +96,8 @@ export function janela({ titulo, corpo, larga = false, aoAbrir, aoFechar, avisar
   document.addEventListener('keydown', tecla);
   document.body.appendChild(fundo);
   aoAbrir?.(j, fechar);
+  // O foco entra na janela (senão Enter no botão de trás abriria outra igual)
+  if (!j.contains(document.activeElement)) j.focus({ preventScroll: true });
   return fechar;
 }
 

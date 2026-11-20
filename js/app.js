@@ -108,7 +108,13 @@ async function rota(silencioso = false) {
   }
   const rolagem = window.scrollY;
   // A tela só mostra o "carregando" se demorar: com a memória ela aparece na hora, sem piscar
-  const carregando = silencioso ? null : setTimeout(() => { conteudo.innerHTML = '<div class="boot"><span class="spin"></span></div>'; }, 120);
+  // (e só se a tela ainda não desenhou nada: se já mostrou o topo e espera o resto, não apaga o que está pronto)
+  let carregando = null;
+  if (!silencioso) {
+    const vigia = new MutationObserver(() => { clearTimeout(carregando); vigia.disconnect(); });
+    carregando = setTimeout(() => { vigia.disconnect(); conteudo.innerHTML = '<div class="boot"><span class="spin"></span></div>'; }, 120);
+    vigia.observe(conteudo, { childList: true });
+  }
   if (!silencioso) window.scrollTo(0, 0);
   try {
     if (!silencioso) conteudo.classList.add('nova-tela');

@@ -17,7 +17,7 @@ function linkGoogle(r) {
 }
 
 export async function render(conteudo) {
-  const { reunioes, posso_criar: possoCriar } = await api('GET', `/agenda?periodo=${periodo}`);
+  const { reunioes, posso_criar: possoCriar, email_ativo: emailAtivo = true } = await api('GET', `/agenda?periodo=${periodo}`);
   preaquecer(`/agenda?periodo=${periodo === 'proximas' ? 'anteriores' : 'proximas'}`);   // a outra aba já fica pronta
   const meusMins = (sessao.usuario.ministerios || []).map((m) => m.nome);
   const ministeriosNaLista = [...new Map(reunioes.map((r) => [r.ministerio_id, r.ministerio])).entries()];
@@ -36,7 +36,7 @@ export async function render(conteudo) {
         <h3>${esc(r.titulo)}</h3>
         <div class="meta">${r.local ? `<span>${icon('local')}${esc(r.local)}</span>` : ''}
           <span>${icon('pessoas')}${r.pessoas.length} participante${r.pessoas.length === 1 ? '' : 's'}</span>
-          ${r.pode_editar ? `<span>${icon('email')}${convidados ? `Convite enviado a ${convidados}` : 'Convite ainda não enviado'}${semEmail ? ` · ${semEmail} sem e-mail` : ''}</span>` : r.eu_participo ? `<span>${icon('email')}Convite no seu e-mail</span>` : ''}
+          ${r.cancelada ? '' : r.pode_editar ? `<span>${icon('email')}${convidados ? `Na agenda de ${convidados} pelo convite` : emailAtivo ? 'Convite ainda não enviado' : 'Convite não enviado (e-mail do site desligado)'}${semEmail ? ` · ${semEmail} sem e-mail` : ''}</span>` : r.eu_participo ? `<span>${icon('email')}Convite no seu e-mail</span>` : ''}
         </div>
         ${r.descricao ? `<p class="small muted" style="margin-top:6px">${esc(r.descricao)}</p>` : ''}
       </div>
@@ -50,6 +50,7 @@ export async function render(conteudo) {
     <div class="cabecalho"><div><h1>Agenda</h1><p class="sub">${meusMins.length ? `Reuniões dos seus ministérios: ${esc(meusMins.join(', '))}.` : 'Reuniões dos ministérios do Hype.'}</p></div>
       <div class="acoes">${possoCriar.length ? '<button class="btn primary" id="nova">Nova reunião</button>' : ''}</div></div>
     ${!sessao.usuario.pessoa_id && !possoCriar.length ? '<p class="msg aviso" style="margin-bottom:14px">Sua conta ainda não está ligada ao seu cadastro do Hype, então ainda não dá para saber quais são os seus ministérios. Peça a um administrador para ligar.</p>' : ''}
+    ${possoCriar.length && !emailAtivo ? '<p class="msg aviso" style="margin-bottom:14px">O e-mail do site não está ligado aqui, então os convites não saem. No site publicado (com o e-mail configurado na Netlify) eles chegam no e-mail e entram sozinhos no Google Agenda de cada participante.</p>' : ''}
     <div class="painel" style="margin-bottom:16px"><div class="filtros" style="justify-content:space-between">
       <div class="abas" id="periodo"><button data-p="proximas" class="${periodo === 'proximas' ? 'ativo' : ''}">Próximas</button><button data-p="anteriores" class="${periodo === 'anteriores' ? 'ativo' : ''}">Anteriores</button></div>
       ${ministeriosNaLista.length > 1 ? `<select class="input" id="f-min" style="width:auto"><option value="">Todos os ministérios</option>${ministeriosNaLista.map(([id, n]) => `<option value="${id}" ${filtroMin === String(id) ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>` : ''}

@@ -20,6 +20,9 @@
 @font-face { font-family: 'Anton'; src: url('../fonts/anton-latin-ext-400-normal.woff2') format('woff2'); font-weight: 400; font-display: swap;
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1E00-1E9F, U+20A0-20AB, U+20AD-20C0, U+2C60-2C7F, U+A720-A7FF; }
 
+/* O atributo hidden sempre esconde (mesmo em elementos com display próprio) */
+[hidden] { display: none !important; }
+
 :root {
   /* Cores do Hype: preto, branco e roxo elétrico (ciano e vermelho só no "H" do logo) */
   --accent: #7b2ff7;
@@ -762,11 +765,15 @@ a.marca, a.marca:hover { text-decoration: none; color: inherit; }
 [data-tema="escuro"] .aviso-conf { border-color: #5c4416; }
 .minhas-faixa { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 16px; }
 .minhas-faixa .rot { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-right: 4px; }
-.minha { display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px; border: 1px solid var(--line-2); border-radius: 10px; background: var(--surface); color: var(--ink); text-decoration: none; font-size: 13.5px; transition: border-color .15s, transform .15s; }
-.minha:hover { border-color: var(--accent); transform: translateY(-1px); }
+.minha { display: inline-flex; align-items: stretch; border: 1px solid var(--line-2); border-radius: 10px; background: var(--surface); font-size: 13.5px; overflow: hidden; transition: border-color .15s; }
+.minha:hover { border-color: var(--accent); }
+.minha-abrir { display: inline-flex; align-items: center; gap: 8px; padding: 7px 10px 7px 12px; border: 0; background: none; color: var(--ink); font: inherit; cursor: pointer; }
+.minha-abrir:hover { background: var(--sunken); }
 .minha span { color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
 .minha span i { width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
-.minha svg.i { width: 15px; height: 15px; color: var(--accent); }
+.minha-agenda { display: grid; place-items: center; padding: 0 10px; border-left: 1px solid var(--line); color: var(--accent); }
+.minha-agenda:hover { background: var(--accent-soft); }
+.minha-agenda svg.i { width: 16px; height: 16px; }
 .quadro-escala { overflow: hidden; }
 .quadro-topo { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; padding: 16px 18px; border-bottom: 1px solid var(--line); }
 .quadro-topo h2 { display: flex; align-items: center; gap: 9px; font-size: 18px; margin: 0 0 2px; }
@@ -1076,3 +1083,5 @@ a.pasta:hover .pasta-seta { color: var(--c, var(--accent)); transform: translate
 .enviar-escala .hint { margin: -4px 0 0; }
 @media (max-width: 520px) { .ee-acoes .btn { flex: 1 1 calc(50% - 4px); justify-content: center; } .ee-previa { max-height: 50vh; } }
 .ee-acoes .btn[hidden] { display: none; }
+.fc-linha { display: grid; grid-template-columns: minmax(0, 1fr) 38px; gap: 8px; align-items: center; }
+.janela:focus { outline: none; }

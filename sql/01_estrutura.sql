@@ -618,3 +618,28 @@ BEGIN
     INSERT INTO dbo.sementes (chave) VALUES (N'v6:documentos');
 END
 GO
+
+/* =========================================================================
+   v7: categorias do financeiro (lista fixa para escolher no lançamento).
+   O lançamento continua guardando o nome da categoria em texto.
+   ========================================================================= */
+IF OBJECT_ID('dbo.fin_categorias') IS NULL
+CREATE TABLE dbo.fin_categorias (
+    id          INT IDENTITY(1,1) CONSTRAINT pk_fin_categorias PRIMARY KEY,
+    nome        NVARCHAR(60) NOT NULL,
+    ordem       INT NOT NULL CONSTRAINT df_fin_cat_ordem DEFAULT 0,
+    dt_criacao  DATETIME2(0) NOT NULL CONSTRAINT df_fin_cat_criacao DEFAULT SYSUTCDATETIME()
+);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'ux_fin_categorias_nome')
+    CREATE UNIQUE INDEX ux_fin_categorias_nome ON dbo.fin_categorias (nome);
+GO
+/* As categorias já digitadas nos lançamentos viram a lista inicial */
+IF NOT EXISTS (SELECT 1 FROM dbo.sementes WHERE chave = N'v7:fin_categorias')
+BEGIN
+    INSERT INTO dbo.fin_categorias (nome, ordem)
+    SELECT c.categoria, ROW_NUMBER() OVER (ORDER BY c.categoria)
+      FROM (SELECT DISTINCT LTRIM(RTRIM(categoria)) AS categoria FROM dbo.fin_lancamentos WHERE categoria IS NOT NULL AND LTRIM(RTRIM(categoria)) <> N'') c
+     WHERE NOT EXISTS (SELECT 1 FROM dbo.fin_categorias x WHERE x.nome = c.categoria);
+    INSERT INTO dbo.sementes (chave) VALUES (N'v7:fin_categorias');
+END
+GO

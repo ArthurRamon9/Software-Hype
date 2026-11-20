@@ -48,9 +48,10 @@ export async function render(conteudo) {
 
   // As minhas próximas sextas (de qualquer mês)
   const minhasHtml = minhas.vinculado && minhas.itens.length ? `<section class="minhas-faixa">
-      <span class="rot">Você serve</span>
-      ${minhas.itens.slice(0, 6).map((i) => `<a class="minha" href="${linkGoogle(i.data, `Escala ${i.ministerio}${i.funcao ? ` · ${i.funcao}` : ''}`)}" target="_blank" rel="noopener" title="Colocar no meu Google Agenda" style="--c:${esc(i.cor)}">
-        <b>Sexta ${diaMes(i.data)}</b><span><i></i>${esc(i.ministerio)}${i.funcao ? ` · ${esc(i.funcao)}` : ''}</span>${icon('agenda')}</a>`).join('')}
+      <span class="rot">Suas próximas escalas</span>
+      ${minhas.itens.slice(0, 6).map((i) => `<span class="minha" style="--c:${esc(i.cor)}">
+        <button type="button" class="minha-abrir" data-ir-min="${i.ministerio_id}" data-ir-mes="${i.data.slice(0, 7)}" title="Ver esta escala"><b>Sexta ${diaMes(i.data)}</b><span><i></i>${esc(i.ministerio)}${i.funcao ? ` · ${esc(i.funcao)}` : ''}</span></button>
+        <a class="minha-agenda" href="${linkGoogle(i.data, `Escala ${i.ministerio}${i.funcao ? ` · ${i.funcao}` : ''}`)}" target="_blank" rel="noopener" title="Colocar no meu Google Agenda (lembrete)" aria-label="Colocar no meu Google Agenda">${icon('agendaMais')}</a></span>`).join('')}
     </section>` : '';
 
   const navMes = `<div class="nav-mes"><button class="btn sm icone" id="mes-ant" aria-label="Mês anterior">‹</button><b>${nomeMes(mes)}</b><button class="btn sm icone" id="mes-prox" aria-label="Próximo mês">›</button></div>`;
@@ -66,6 +67,8 @@ export async function render(conteudo) {
   $('#abas-min .ativo')?.scrollIntoView({ block: 'nearest', inline: 'center' });
   $('#mes-ant').addEventListener('click', () => { mes = somaMes(mes, -1); recarregar(); });
   $('#mes-prox').addEventListener('click', () => { mes = somaMes(mes, 1); recarregar(); });
+  // Clicar numa das minhas escalas abre o ministério e o mês dela
+  conteudo.querySelectorAll('[data-ir-min]').forEach((b) => b.addEventListener('click', () => { minSel = Number(b.dataset.irMin); mes = b.dataset.irMes; recarregar(); }));
   conteudo.querySelectorAll('[data-min]').forEach((b) => b.addEventListener('click', () => { minSel = Number(b.dataset.min); recarregar(); }));
   if (!m) return;
 
@@ -234,26 +237,11 @@ function montarEscala({ m, blocos, naCelula, prox }, datas) {
   return datas.map((s) => ({ iso: s, data: dd(s), prox: s === prox,
     blocos: blocos.map((b) => ({ rot: b.rot, vagas: b.vagas || 0, nomes: naCelula(s, b.f).map((i) => curto(i.nome)) })) }));
 }
-function textoWhats(m, titulo, sx) {
-  const l = [`*ESCALA · ${m.nome.toUpperCase()}*`, `_${titulo}_`];
-  for (const s of sx) {
-    l.push('', `*Sexta, ${s.data}*${s.prox ? ' (próxima)' : ''}`);
-    for (const b of s.blocos) {
-      if (b.rot) l.push(`*${b.rot}*`);
-      b.nomes.forEach((n) => l.push(`• ${n}`));
-      const faltam = Math.max(0, b.vagas - b.nomes.length);
-      if (faltam) l.push(`• _${faltam === 1 ? '1 vaga em aberto' : `${faltam} vagas em aberto`}_`);
-      if (!b.nomes.length && !faltam) l.push('• _A definir_');
-    }
-  }
-  return l.join('\n');
-}
-
 function enviarParaGrupo(ctx) {
   const { m, sextas, prox } = ctx;
   const nomeArq = (sufixo) => `escala-${semAcento(m.nome).replace(/\s+/g, '-').toLowerCase()}-${sufixo}.png`;
   let escolha = sextas.includes(prox) ? prox : 'mes';
-  let arquivo = null, texto = '', geracao = 0;
+  let arquivo = null, geracao = 0;
   const podeCompartilhar = (f) => { try { return !!navigator.canShare?.({ files: [f] }); } catch { return false; } };
   janela({
     titulo: 'Enviar para o grupo',
@@ -263,10 +251,9 @@ function enviarParaGrupo(ctx) {
       <div class="abas" id="ee-qual"><button data-q="mes" class="${escolha === 'mes' ? 'ativo' : ''}">Mês</button>${sextas.map((s) => `<button data-q="${s}" class="${escolha === s ? 'ativo' : ''}" title="Só a sexta ${dd(s)}">${dd(s)}</button>`).join('')}</div>
       <div class="ee-previa" id="ee-previa"><div class="boot"><span class="spin"></span></div></div>
       <div class="ee-acoes">
-        <button class="btn primary" id="ee-compartilhar" hidden>${icon('whats')} Compartilhar</button>
+        <button class="btn primary" id="ee-compartilhar" hidden>${icon('whats')} Mandar no WhatsApp</button>
         <button class="btn" id="ee-baixar">Baixar imagem</button>
         <button class="btn" id="ee-copiar" hidden>Copiar imagem</button>
-        <button class="btn" id="ee-texto">Copiar texto</button>
       </div>
       <p class="hint" id="ee-dica"></p>
     </div>`,
@@ -277,8 +264,6 @@ function enviarParaGrupo(ctx) {
         const minha = ++geracao;
         const datas = escolha === 'mes' ? sextas : [escolha];
         const sx = montarEscala(ctx, datas);
-        const titulo = escolha === 'mes' ? nomeMes(mes) : `Sexta, ${diaMes(escolha)}`;
-        texto = textoWhats(m, titulo, sx);
         const cv = await desenharEscala({ ministerio: m.nome, cor: m.cor, subtitulo: escolha === 'mes' ? nomeMes(mes) : `Sexta-feira, ${dd(escolha)}`,
           sextas: sx, rodape: `Atualizada em ${dd(isoLocal(new Date()))}` });
         const blob = await new Promise((ok) => cv.toBlob(ok, 'image/png'));
@@ -292,7 +277,7 @@ function enviarParaGrupo(ctx) {
         bCopiar.hidden = comp || !(window.ClipboardItem && navigator.clipboard?.write);
         j.querySelector('#ee-baixar').classList.toggle('primary', !comp);
         j.querySelector('#ee-dica').textContent = comp
-          ? 'Toque em "Compartilhar" e escolha o grupo no WhatsApp.'
+          ? 'Abre a lista de compartilhar do aparelho: escolha o WhatsApp e depois o grupo. A imagem já vai junto.'
           : 'Baixe ou copie a imagem e cole no grupo do WhatsApp (no WhatsApp Web, Ctrl+V cola a imagem).';
       };
       j.querySelector('#ee-qual').addEventListener('click', (e) => {
@@ -300,10 +285,7 @@ function enviarParaGrupo(ctx) {
         escolha = b.dataset.q; previa.classList.add('gerando'); gerar().catch(avisoErro).finally(() => previa.classList.remove('gerando'));
       });
       bComp.addEventListener('click', async () => {
-        try { await navigator.share({ files: [arquivo], text: texto }); } catch (e) {
-          if (e?.name === 'AbortError') return;
-          try { await navigator.share({ files: [arquivo] }); } catch (e2) { if (e2?.name !== 'AbortError') avisoErro(e2); }
-        }
+        try { await navigator.share({ files: [arquivo] }); } catch (e) { if (e?.name !== 'AbortError') avisoErro(e); }
       });
       j.querySelector('#ee-baixar').addEventListener('click', () => {
         if (!arquivo) return;
@@ -314,10 +296,6 @@ function enviarParaGrupo(ctx) {
       bCopiar.addEventListener('click', async () => {
         try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': arquivo })]); aviso('Imagem copiada. Cole no grupo do WhatsApp.'); }
         catch { aviso('Não deu para copiar a imagem neste navegador. Use "Baixar imagem".', 'erro'); }
-      });
-      j.querySelector('#ee-texto').addEventListener('click', async () => {
-        try { await navigator.clipboard.writeText(texto); aviso('Texto copiado. Cole no grupo do ministério.'); }
-        catch { window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, '_blank', 'noopener'); }
       });
       gerar().catch(avisoErro);
     },

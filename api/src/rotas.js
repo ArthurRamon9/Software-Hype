@@ -46,6 +46,7 @@ const PERMISSAO_DA_ROTA = {
   'POST /agenda/:id/cancelar':        'aprovado',
   'GET /financeiro':                  'financeiro.ver',
   'POST /financeiro':                 'financeiro.editar',
+  'PUT /financeiro/categorias':      'financeiro.editar',
   'PUT /financeiro/:id':              'financeiro.editar',
   'DELETE /financeiro/:id':           'acessos.gerenciar',   // apagar lançamento: só administrador (os outros corrigem editando)
   'GET /documentos':                  'aprovado',   // cada um vê os dos seus ministérios (a regra está na rota)
@@ -1039,7 +1040,7 @@ rota('GET', '/agenda', async ({ query: q, usuario }) => {
   });
   const ministerios = ehGestor(usuario) ? await query('SELECT id, nome, cor FROM dbo.ministerios WHERE cd_status = 1 ORDER BY nome')
     : (usuario.ministerios || []).filter((m) => m.lider);
-  return { reunioes, posso_criar: ministerios.map((m) => ({ id: m.id, nome: m.nome })) };
+  return { reunioes, posso_criar: ministerios.map((m) => ({ id: m.id, nome: m.nome })), email_ativo: !!(process.env.SMTP_USER && process.env.SMTP_PASS) };
 });
 
 rota('GET', '/agenda/membros/:id', async ({ params, usuario }) => {
@@ -1140,7 +1141,7 @@ rota('GET', '/escalas', async ({ query: q, usuario }) => {
 
 rota('GET', '/escalas/minhas', async ({ usuario }) => {
   if (!usuario.pessoa_id) return { vinculado: false, itens: [] };
-  const itens = await query(`SELECT CONVERT(CHAR(10), i.data, 126) AS data, i.funcao, m.nome AS ministerio, m.cor
+  const itens = await query(`SELECT CONVERT(CHAR(10), i.data, 126) AS data, i.funcao, i.ministerio_id, m.nome AS ministerio, m.cor
     FROM dbo.escala_itens i JOIN dbo.ministerios m ON m.id = i.ministerio_id
     WHERE i.pessoa_id = @eu AND i.data >= DATEADD(DAY, -1, CAST(DATEADD(HOUR, -3, SYSUTCDATETIME()) AS DATE)) ORDER BY i.data, m.nome`, { eu: usuario.pessoa_id });
   return { vinculado: true, itens };
@@ -1312,11 +1313,37 @@ function dadosLancamento(b) {
 }
 rota('GET', '/financeiro', async ({ query: q }) => {
   const ano = /^\d{4}$/.test(q.ano || '') ? Number(q.ano) : Number(hojeBrasil().slice(0, 4));
-  const [lancamentos, anos] = await query(`
+  const [lancamentos, anos, categorias] = await query(`
     SELECT f.id, f.tipo, CONVERT(CHAR(10), f.data, 126) AS data, f.descricao, f.categoria, CAST(f.valor AS FLOAT) AS valor, u.nome AS criado_por_nome
       FROM dbo.fin_lancamentos f LEFT JOIN dbo.usuarios u ON u.id = f.criado_por WHERE f.ano = @ano ORDER BY f.data DESC, f.id DESC;
-    SELECT DISTINCT ano FROM dbo.fin_lancamentos ORDER BY ano DESC;`, { ano }, { todos: true });
-  return { ano, lancamentos, anos: anos.map((a) => a.ano) };
+    SELECT DISTINCT ano FROM dbo.fin_lancamentos ORDER BY ano DESC;
+    SELECT id, nome FROM dbo.fin_categorias ORDER BY ordem, nome;`, { ano }, { todos: true });
+  return { ano, lancamentos, anos: anos.map((a) => a.ano), categorias };
+});
+// Lista de categorias (como as funções da escala): grava tudo de uma vez.
+// Renomear atualiza os lançamentos que usavam o nome antigo; tirar da lista não mexe nos lançamentos.
+rota('PUT', '/financeiro/categorias', async ({ body, usuario, ip }) => {
+  const lista = Array.isArray(body.categorias) ? body.categorias.slice(0, 60) : [];
+  const vistos = new Set(); const cats = [];
+  for (const c of lista) {
+    const nome = txt(c?.nome, 60); if (!nome) continue;
+    const k = nome.toLowerCase(); if (vistos.has(k)) throw new HttpError(400, `A categoria "${nome}" está repetida.`);
+    vistos.add(k); cats.push({ id: Number.isInteger(c.id) ? c.id : null, nome, ordem: cats.length + 1 });
+  }
+  await query(`
+    SET XACT_ABORT ON; BEGIN TRAN;
+    DECLARE @n TABLE (id INT NULL, nome NVARCHAR(60), ordem INT);
+    INSERT INTO @n SELECT id, nome, ordem FROM OPENJSON(@json) WITH (id INT, nome NVARCHAR(60), ordem INT);
+    UPDATE f SET categoria = n.nome FROM dbo.fin_lancamentos f
+      JOIN dbo.fin_categorias c ON c.nome = f.categoria JOIN @n n ON n.id = c.id WHERE c.nome <> n.nome;
+    DELETE c FROM dbo.fin_categorias c WHERE NOT EXISTS (SELECT 1 FROM @n n WHERE n.id = c.id);
+    UPDATE c SET nome = CONCAT(N'~', c.id) FROM dbo.fin_categorias c JOIN @n n ON n.id = c.id WHERE c.nome <> n.nome;
+    UPDATE c SET nome = n.nome, ordem = n.ordem FROM dbo.fin_categorias c JOIN @n n ON n.id = c.id;
+    INSERT INTO dbo.fin_categorias (nome, ordem) SELECT n.nome, n.ordem FROM @n n
+      WHERE NOT EXISTS (SELECT 1 FROM dbo.fin_categorias c WHERE c.id = n.id);
+    COMMIT;`, { json: JSON.stringify(cats) });
+  await seg.registrar('financeiro_categorias', { usuario, ip, detalhe: cats.map((c) => c.nome).join(', ').slice(0, 400) });
+  return { ok: true };
 });
 rota('POST', '/financeiro', async ({ body, usuario, ip }) => {
   const d = dadosLancamento(body);

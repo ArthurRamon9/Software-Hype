@@ -25,7 +25,7 @@ const lerValor = (t) => {
 
 export async function render(conteudo) {
   ano = ano || new Date().getFullYear();
-  const { lancamentos, anos } = await api('GET', `/financeiro?ano=${ano}`);
+  const { lancamentos, anos, categorias: cadastradas = [] } = await api('GET', `/financeiro?ano=${ano}`);
   const podeEditar = pode('financeiro.editar'), podeApagar = pode('acessos.gerenciar');
   const recarregar = () => render(conteudo).catch(avisoErro);
   const soma = (t) => lancamentos.filter((l) => l.tipo === t).reduce((s, l) => s + l.valor, 0);
@@ -33,7 +33,8 @@ export async function render(conteudo) {
   const saldo = verba + entradas - gastos;
   const usado = verba + entradas > 0 ? Math.min(100, Math.round((gastos / (verba + entradas)) * 100)) : 0;
   const anosLista = [...new Set([...anos, new Date().getFullYear(), ano])].sort((a, b) => b - a);
-  const categorias = [...new Set(lancamentos.map((l) => l.categoria).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  const nomesCad = cadastradas.map((c) => c.nome);
+  const categorias = [...new Set([...nomesCad, ...lancamentos.map((l) => l.categoria).filter(Boolean)])];
   // Gastos por categoria (para ver para onde o dinheiro foi)
   const porCat = Object.entries(lancamentos.filter((l) => l.tipo === 'despesa').reduce((m, l) => { const k = l.categoria || 'Sem categoria'; m[k] = (m[k] || 0) + l.valor; return m; }, {}))
     .sort((a, b) => b[1] - a[1]);
@@ -43,6 +44,7 @@ export async function render(conteudo) {
     <div class="cabecalho"><div><h1>Financeiro</h1><p class="sub">A verba do ano, o que entrou e o que foi gasto. O saldo se atualiza a cada lançamento.</p></div>
       <div class="acoes">
         <select class="input" id="fin-ano" style="width:auto" aria-label="Ano">${anosLista.map((a) => `<option value="${a}" ${a === ano ? 'selected' : ''}>${a}</option>`).join('')}</select>
+        ${podeEditar ? '<button class="btn" id="fin-cats">Categorias</button>' : ''}
         <button class="btn" id="fin-planilha">Baixar planilha</button>
         ${podeEditar ? `<button class="btn primary" id="fin-novo">${icon('plus')} Novo lançamento</button>` : ''}
       </div></div>
@@ -101,10 +103,11 @@ export async function render(conteudo) {
     if (ordem.col === b.dataset.ordem) ordem.dir *= -1; else { ordem.col = b.dataset.ordem; ordem.dir = -1; }
     pintar();
   }));
-  $('#fin-novo')?.addEventListener('click', () => editar(null, categorias, recarregar, podeApagar));
+  $('#fin-novo')?.addEventListener('click', () => editar(null, nomesCad, recarregar, podeApagar));
+  $('#fin-cats')?.addEventListener('click', () => editarCategorias(cadastradas, recarregar));
   $('#fin-linhas').addEventListener('click', (e) => {
     const tr = e.target.closest('tr[data-id]'); if (!tr || !podeEditar) return;
-    editar(lancamentos.find((x) => x.id === Number(tr.dataset.id)), categorias, recarregar, podeApagar);
+    editar(lancamentos.find((x) => x.id === Number(tr.dataset.id)), nomesCad, recarregar, podeApagar);
   });
   $('#fin-planilha').addEventListener('click', () => baixarXLSX(`financeiro-hype-${ano}`, [
     { nome: 'Resumo', semFiltro: true, linhas: [[`Financeiro ${ano}`, 'Valor'], ['Verba', verba], ['Entradas', entradas], ['Gastos', gastos], ['Saldo', saldo]] },
@@ -128,8 +131,8 @@ function editar(l, categorias, depois, podeApagar) {
         <div class="field"><label for="ff-valor">Valor (R$) *</label><input class="input" id="ff-valor" inputmode="decimal" placeholder="0,00" value="${l ? l.valor.toFixed(2).replace('.', ',') : ''}" required></div>
         <div class="field"><label for="ff-data">Data *</label><input class="input" id="ff-data" type="date" required value="${l?.data || hojeISO()}"></div>
         <div class="field full"><label for="ff-desc">Descrição *</label><input class="input" id="ff-desc" maxlength="200" required value="${esc(l?.descricao || '')}" placeholder="Ex.: Lanche da sexta"></div>
-        <div class="field full"><label for="ff-cat">Categoria</label><input class="input" id="ff-cat" maxlength="60" list="ff-cats" value="${esc(l?.categoria || '')}" placeholder="Ex.: Lanche, Decoração, Evento">
-          <datalist id="ff-cats">${categorias.map((c) => `<option value="${esc(c)}">`).join('')}</datalist></div>
+        <div class="field full"><label for="ff-cat">Categoria</label><select class="input" id="ff-cat"><option value="">Sem categoria</option>${[...categorias, ...(l?.categoria && !categorias.includes(l.categoria) ? [l.categoria] : [])].map((c) => `<option ${l?.categoria === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
+          ${categorias.length ? '' : '<span class="hint">Nenhuma categoria ainda. Crie em "Categorias", ao lado de "Baixar planilha".</span>'}</div>
       </div>
       <div class="janela-acoes rodape-acoes">
         ${!novo && podeApagar ? `<button type="button" class="link-btn danger com-icone" id="ff-apagar">${icon('lixeira')}Apagar</button>` : '<span></span>'}
@@ -162,6 +165,47 @@ function editar(l, categorias, depois, podeApagar) {
       j.querySelector('#ff-apagar')?.addEventListener('click', async () => {
         if (!(await confirmar(`Apagar "${l.descricao}" (${real(l.valor)})? Fica registrado nas atividades.`, { botao: 'Apagar', perigo: true }))) return;
         try { await api('DELETE', `/financeiro/${l.id}`); aviso('Lançamento apagado.'); fechar(); depois(); } catch (err) { avisoErro(err); }
+      });
+    },
+  });
+}
+
+// Categorias do financeiro: igual às funções da escala. Só grava quando clica em Salvar.
+function editarCategorias(cadastradas, depois) {
+  let linhas = cadastradas.map((c) => ({ id: c.id, nome: c.nome }));
+  janela({
+    titulo: 'Categorias do financeiro',
+    corpo: `<form id="fc-form" style="display:grid;gap:12px">
+      <p class="hint">Aparecem para escolher no lançamento (ex.: Lanche, Decoração, Evento). Renomear corrige os lançamentos antigos; tirar da lista não apaga nenhum lançamento.</p>
+      <div id="fc-lista" class="fn-lista"></div>
+      <button type="button" class="btn sm fn-add" id="fc-add">${icon('plus')} Adicionar categoria</button>
+      <div class="janela-acoes rodape-acoes"><span class="muted small" id="fc-total"></span>
+        <div class="dir-acoes"><button type="button" class="btn" data-fechar>Cancelar</button><button class="btn primary">Salvar</button></div></div></form>`,
+    aoAbrir: (j, fechar) => {
+      const box = j.querySelector('#fc-lista');
+      const ler = () => { linhas = [...box.querySelectorAll('.fc-linha')].map((l) => ({ id: l.dataset.id ? Number(l.dataset.id) : null, nome: l.querySelector('input').value })); };
+      const pintar = (focar) => {
+        box.innerHTML = linhas.map((c) => `<div class="fc-linha" ${c.id ? `data-id="${c.id}"` : ''}>
+          <input class="input" value="${esc(c.nome)}" maxlength="60" placeholder="Ex.: Lanche" aria-label="Nome da categoria">
+          <button type="button" class="btn-icone fc-tirar" title="Tirar esta categoria" aria-label="Tirar esta categoria">${icon('lixeira')}</button></div>`).join('')
+          || '<p class="muted small fn-vazio">Nenhuma categoria.</p>';
+        j.querySelector('#fc-total').textContent = linhas.length ? `${linhas.length} categoria${linhas.length === 1 ? '' : 's'}` : '';
+        if (focar) box.querySelector('.fc-linha:last-child input')?.focus();
+      };
+      pintar();
+      j.querySelector('#fc-add').addEventListener('click', () => { ler(); linhas.push({ id: null, nome: '' }); j.alterou = true; pintar(true); });
+      box.addEventListener('click', (e) => {
+        const b = e.target.closest('.fc-tirar'); if (!b) return;
+        ler(); linhas.splice([...box.querySelectorAll('.fc-linha')].indexOf(b.closest('.fc-linha')), 1); j.alterou = true; pintar();
+      });
+      box.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches('.fc-linha input')) { e.preventDefault(); j.querySelector('#fc-add').click(); } });
+      if (!linhas.length) j.querySelector('#fc-add').click();
+      j.querySelector('#fc-form').addEventListener('submit', async (e) => {
+        e.preventDefault(); ler();
+        const categorias = linhas.filter((c) => c.nome.trim());
+        await ocupado(e.submitter, async () => {
+          try { await api('PUT', '/financeiro/categorias', { categorias }); aviso('Categorias salvas.'); fechar(); depois(); } catch (err) { avisoErro(err); }
+        });
       });
     },
   });
