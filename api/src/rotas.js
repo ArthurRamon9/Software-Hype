@@ -1329,7 +1329,9 @@ rota('GET', '/financeiro', async ({ query: q }) => {
     SELECT f.id, f.tipo, CONVERT(CHAR(10), f.data, 126) AS data, f.descricao, f.categoria, CAST(f.valor AS FLOAT) AS valor, u.nome AS criado_por_nome
       FROM dbo.fin_lancamentos f LEFT JOIN dbo.usuarios u ON u.id = f.criado_por WHERE f.ano = @ano ORDER BY f.data DESC, f.id DESC;
     SELECT DISTINCT ano FROM dbo.fin_lancamentos ORDER BY ano DESC;
-    SELECT id, nome FROM dbo.fin_categorias ORDER BY ordem, nome;`, { ano }, { todos: true });
+    -- Se o banco ainda não recebeu o 01_estrutura.sql da v7, o financeiro abre do mesmo jeito (só sem a lista de categorias)
+    IF OBJECT_ID('dbo.fin_categorias') IS NOT NULL SELECT id, nome FROM dbo.fin_categorias ORDER BY ordem, nome;
+    ELSE SELECT CAST(NULL AS INT) AS id, CAST(NULL AS NVARCHAR(60)) AS nome WHERE 1 = 0;`, { ano }, { todos: true });
   return { ano, lancamentos, anos: anos.map((a) => a.ano), categorias };
 });
 // Lista de categorias (como as funções da escala): grava tudo de uma vez.
