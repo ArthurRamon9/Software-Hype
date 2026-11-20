@@ -92,7 +92,8 @@ export function janela({ titulo, corpo, larga = false, aoAbrir, aoFechar, avisar
   const noTopo = () => [...document.querySelectorAll('.fundo')].pop() === fundo;
   const tecla = (e) => { if (e.key === 'Escape' && noTopo()) { e.stopPropagation(); tentarFechar(); } };
   fundo.addEventListener('mousedown', (e) => { if (e.target === fundo) tentarFechar(); });
-  $$('[data-fechar]', fundo).forEach((b) => b.addEventListener('click', tentarFechar));
+  // Qualquer botão com data-fechar fecha, mesmo os que a janela desenha depois
+  fundo.addEventListener('click', (e) => { if (e.target.closest('[data-fechar]')) tentarFechar(); });
   document.addEventListener('keydown', tecla);
   document.body.appendChild(fundo);
   aoAbrir?.(j, fechar);
