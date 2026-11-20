@@ -803,8 +803,6 @@ a.marca, a.marca:hover { text-decoration: none; color: inherit; }
 .esc-dia.prox { border-color: var(--accent); }
 .esc-dia h3 { margin: 0; padding: 10px 14px; background: var(--sunken); border-bottom: 1px solid var(--line); }
 .esc-bloco .fn { display: block; padding: 6px 14px; font-size: 11.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; background: color-mix(in srgb, var(--c) 14%, var(--surface)); }
-.fn-lista { display: grid; gap: 8px; }
-.fn-lista > div { display: flex; gap: 8px; }
 .perfil-conta { display: flex; align-items: center; gap: 14px; min-width: 0; }
 .perfil-conta .foto.g { width: 52px; height: 52px; font-size: 17px; }
 /* "GESTÃO DO / HYPE" da tela de entrada, no estilo do Instagram: condensado, inclinado, com as sombras ciano e vermelha */
@@ -998,10 +996,11 @@ tr.clicavel:hover td { background: var(--sunken); }
 @media (max-width: 520px) { .rodape-acoes { flex-wrap: wrap; } .rodape-acoes .dir-acoes { width: 100%; justify-content: flex-end; } }
 
 /* Funções da escala com quantidade */
-.fn-cab, .fn-linha { display: grid; grid-template-columns: 1fr 92px 38px; gap: 8px; align-items: center; }
+.fn-cab, .fn-linha { display: grid; grid-template-columns: minmax(0, 1fr) 80px 38px; gap: 8px; align-items: center; }
 .fn-cab { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: -4px; }
 .fn-lista { display: grid; gap: 8px; }
-.fn-vagas { text-align: center; }
+.fn-linha .fn-vagas { width: 80px; min-width: 0; text-align: center; padding-left: 8px; padding-right: 8px; -moz-appearance: textfield; }
+.fn-vagas::-webkit-inner-spin-button, .fn-vagas::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 .fn-add { justify-self: start; }
 .fn-vazio { padding: 6px 0; }
 .cel-esc li.vaga { color: var(--muted); font-style: italic; font-size: 13px; opacity: .7; }
@@ -1055,5 +1054,25 @@ details.anterior[open] summary { margin-bottom: 8px; }
 .pasta span { color: var(--muted); font-size: 12.5px; }
 .pasta.geral { --c: var(--accent); background: var(--accent-soft); }
 .pasta .btn-icone { width: 34px; height: 34px; }
+.pasta .cresce { flex: 1; }
+a.pasta { color: inherit; text-decoration: none; cursor: pointer; transition: border-color .15s, background .15s, transform .15s; }
+a.pasta:hover { border-color: var(--c, var(--accent)); background: color-mix(in srgb, var(--c, var(--accent)) 8%, var(--surface)); transform: translateY(-1px); }
+a.pasta.geral:hover { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); }
+a.pasta:focus-visible { outline: 2px solid var(--c, var(--accent)); outline-offset: 2px; }
+.pasta .pasta-seta { display: grid; place-items: center; color: var(--muted); flex: none; transition: color .15s, transform .15s; }
+.pasta .pasta-seta svg.i { width: 16px; height: 16px; }
+a.pasta:hover .pasta-seta { color: var(--c, var(--accent)); transform: translate(1px, -1px); }
+.pasta.sem-link { opacity: .65; }
 .doc-tipo { display: inline-block; margin-left: 8px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 .doc-assunto { max-width: 360px; }
+
+/* Enviar a escala para o grupo (imagem + texto) */
+.enviar-escala { display: grid; gap: 14px; }
+.enviar-escala .abas { max-width: 100%; overflow-x: auto; justify-self: start; }
+.ee-previa { display: grid; place-items: center; min-height: 260px; max-height: 58vh; overflow: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--sunken); padding: 12px; transition: opacity .15s; }
+.ee-previa.gerando { opacity: .5; }
+.ee-previa img { display: block; width: 100%; max-width: 520px; height: auto; border-radius: 8px; }
+.ee-acoes { display: flex; flex-wrap: wrap; gap: 8px; }
+.enviar-escala .hint { margin: -4px 0 0; }
+@media (max-width: 520px) { .ee-acoes .btn { flex: 1 1 calc(50% - 4px); justify-content: center; } .ee-previa { max-height: 50vh; } }
+.ee-acoes .btn[hidden] { display: none; }

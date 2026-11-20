@@ -33,10 +33,17 @@ export async function render(conteudo) {
     <section class="painel">
       <div class="painel-topo"><h2>Pastas no Drive</h2><span class="sub">Abra para ver ou enviar arquivos direto no Google Drive</span></div>
       <div class="painel-corpo"><div class="pastas">
-        ${geral || dados.pode_pasta_geral ? `<div class="pasta geral">${icon('pasta')}<div class="cresce"><b>Geral do Hype</b><span>${geral ? 'Supervisão e todos os ministérios' : 'Ainda sem link'}</span></div>
-          ${geral ? abrir(geral, 'Abrir a pasta geral no Drive') : ''}${dados.pode_pasta_geral ? `<button class="btn-icone" id="pasta-geral" title="${geral ? 'Trocar o link' : 'Colocar o link'} da pasta geral">${icon('lapis')}</button>` : ''}</div>` : ''}
-        ${ministerios.map((m) => `<div class="pasta" style="--c:${esc(m.cor)}">${icon('pasta')}<div class="cresce"><b>${esc(m.nome)}</b><span>${m.drive_url ? (() => { const n = documentos.filter((d) => d.ministerio_id === m.id).length; return n ? `${n} documento${n === 1 ? '' : 's'} em destaque` : 'Pasta ligada'; })() : 'Pasta ainda não ligada'}</span></div>
-          ${m.drive_url ? abrir(m.drive_url, `Abrir a pasta da ${esc(m.nome)} no Drive`) : ''}</div>`).join('') || '<p class="muted">Você ainda não está em nenhum ministério.</p>'}
+        ${geral || dados.pode_pasta_geral ? (() => {
+          const miolo = `${icon('pasta')}<div class="cresce"><b>Geral do Hype</b><span>${geral ? 'Supervisão e todos os ministérios' : 'Ainda sem link'}</span></div>`;
+          const lapis = dados.pode_pasta_geral ? `<button type="button" class="btn-icone" id="pasta-geral" title="${geral ? 'Trocar o link' : 'Colocar o link'} da pasta geral">${icon('lapis')}</button>` : '';
+          return geral
+            ? `<a class="pasta geral link" href="${esc(geral)}" target="_blank" rel="noopener" title="Abrir a pasta geral no Drive">${miolo}${lapis}<span class="pasta-seta">${icon('externo')}</span></a>`
+            : `<div class="pasta geral sem-link">${miolo}${lapis}</div>`; })() : ''}
+        ${ministerios.map((m) => { const n = documentos.filter((d) => d.ministerio_id === m.id).length;
+          const miolo = `${icon('pasta')}<div class="cresce"><b>${esc(m.nome)}</b><span>${m.drive_url ? (n ? `${n} documento${n === 1 ? '' : 's'} em destaque` : 'Abrir no Drive') : 'Pasta ainda não ligada'}</span></div>`;
+          return m.drive_url
+            ? `<a class="pasta link" style="--c:${esc(m.cor)}" href="${esc(m.drive_url)}" target="_blank" rel="noopener" title="Abrir a pasta da ${esc(m.nome)} no Drive">${miolo}<span class="pasta-seta">${icon('externo')}</span></a>`
+            : `<div class="pasta sem-link" style="--c:${esc(m.cor)}">${miolo}</div>`; }).join('') || '<p class="muted">Você ainda não está em nenhum ministério.</p>'}
       </div>
       <p class="hint" style="margin-top:12px">${ministerios.some((m) => !m.drive_url) ? 'Para ligar a pasta de um ministério: Ministérios → Editar → "Pasta no Google Drive". ' : ''}Quem não tiver acesso à pasta no Drive pode pedir por lá mesmo, ao abrir.</p></div>
     </section>
@@ -77,7 +84,7 @@ export async function render(conteudo) {
     const d = documentos.find((x) => x.id === Number(tr.dataset.id));
     if (podeMexer(d)) editar(d, dados, recarregar);
   });
-  $('#pasta-geral')?.addEventListener('click', () => janela({
+  $('#pasta-geral')?.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); janela({
     titulo: 'Pasta geral no Drive',
     corpo: `<form id="fg" style="display:grid;gap:12px"><div class="field"><label for="fg-url">Link da pasta</label><input class="input" id="fg-url" value="${esc(geral || '')}" placeholder="https://drive.google.com/drive/folders/..."></div>
       <p class="hint">No Drive: botão direito na pasta → Compartilhar → Copiar link. Deixe vazio para tirar.</p>
@@ -86,7 +93,7 @@ export async function render(conteudo) {
       e.preventDefault();
       await ocupado(e.submitter, async () => { try { await api('PUT', '/documentos/pasta-geral', { url: j.querySelector('#fg-url').value }); aviso('Pasta geral salva.'); fechar(); recarregar(); } catch (err) { avisoErro(err); } });
     }),
-  }));
+  }); });
 }
 
 function editar(d, dados, depois) {

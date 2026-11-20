@@ -5,6 +5,7 @@
 import { api, sessao, pode as podeGeral } from '../api.js';
 import { esc, $, icon, aviso, avisoErro, janela, confirmar, isoLocal, semAcento, ocupado } from '../ui.js';
 import { baixarXLSX } from '../xlsx.js';
+import { desenharEscala } from '../escala-imagem.js';
 
 let mes = null;              // 'AAAA-MM'
 let minSel = null;           // ministério aberto
@@ -112,7 +113,7 @@ export async function render(conteudo) {
         <div><h2><i></i>${esc(m.nome)}</h2><span class="muted small">${pode ? 'Você monta esta escala. Toque numa sexta para escolher quem serve; salva na hora.' : 'Só o líder do ministério altera esta escala.'}</span></div>
         <div class="acoes">
           ${pode ? '<button class="btn sm" id="funcoes">Funções</button>' : ''}
-          ${pode ? `<button class="btn sm" id="texto">${icon('whats')} Texto para o grupo</button>` : ''}
+          <button class="btn sm" id="texto">${icon('whats')} Enviar para o grupo</button>
           ${pode || podeBaixar ? '<button class="btn sm" id="planilha">Baixar planilha</button>' : ''}
         </div>
       </div>
@@ -134,6 +135,8 @@ export async function render(conteudo) {
         return Array.from({ length: n }, (_, k) => [k === 0 ? (b.rot || 'Escalados') : '', ...cols.map((c) => c[k] || '')]);
       })],
   }]));
+  // Enviar para o grupo: imagem da escala (no estilo do Hype) e o texto organizado para o WhatsApp
+  $('#texto').addEventListener('click', () => enviarParaGrupo({ m, sextas, blocos, naCelula, prox }));
   if (!pode) return;
 
   // Escolher quem serve numa sexta (e função)
@@ -224,13 +227,99 @@ export async function render(conteudo) {
     });
   });
 
-  // Texto pronto para colar no grupo do WhatsApp do ministério
-  $('#texto').addEventListener('click', async () => {
-    const t = [`*Escala ${m.nome} · ${nomeMes(mes)}*`, ...sextas.map((s) => {
-      const l = blocos.map((b) => { const p = naCelula(s, b.f).map((i) => curto(i.nome)); return b.rot ? `_${b.rot}_: ${p.length ? p.join(', ') : 'A definir'}` : (p.length ? p.join(', ') : 'A definir'); });
-      return `\n*Sexta ${diaMes(s)}*\n${l.join('\n')}`;
-    })].join('\n');
-    try { await navigator.clipboard.writeText(t); aviso('Texto copiado. Cole no grupo do ministério.'); } catch {}
-    window.open(`https://wa.me/?text=${encodeURIComponent(t)}`, '_blank', 'noopener');
+}
+
+const dd = (iso) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+function montarEscala({ m, blocos, naCelula, prox }, datas) {
+  return datas.map((s) => ({ iso: s, data: dd(s), prox: s === prox,
+    blocos: blocos.map((b) => ({ rot: b.rot, vagas: b.vagas || 0, nomes: naCelula(s, b.f).map((i) => curto(i.nome)) })) }));
+}
+function textoWhats(m, titulo, sx) {
+  const l = [`*ESCALA · ${m.nome.toUpperCase()}*`, `_${titulo}_`];
+  for (const s of sx) {
+    l.push('', `*Sexta, ${s.data}*${s.prox ? ' (próxima)' : ''}`);
+    for (const b of s.blocos) {
+      if (b.rot) l.push(`*${b.rot}*`);
+      b.nomes.forEach((n) => l.push(`• ${n}`));
+      const faltam = Math.max(0, b.vagas - b.nomes.length);
+      if (faltam) l.push(`• _${faltam === 1 ? '1 vaga em aberto' : `${faltam} vagas em aberto`}_`);
+      if (!b.nomes.length && !faltam) l.push('• _A definir_');
+    }
+  }
+  return l.join('\n');
+}
+
+function enviarParaGrupo(ctx) {
+  const { m, sextas, prox } = ctx;
+  const nomeArq = (sufixo) => `escala-${semAcento(m.nome).replace(/\s+/g, '-').toLowerCase()}-${sufixo}.png`;
+  let escolha = sextas.includes(prox) ? prox : 'mes';
+  let arquivo = null, texto = '', geracao = 0;
+  const podeCompartilhar = (f) => { try { return !!navigator.canShare?.({ files: [f] }); } catch { return false; } };
+  janela({
+    titulo: 'Enviar para o grupo',
+    larga: true,
+    avisarAoSair: false,
+    corpo: `<div class="enviar-escala">
+      <div class="abas" id="ee-qual"><button data-q="mes" class="${escolha === 'mes' ? 'ativo' : ''}">Mês</button>${sextas.map((s) => `<button data-q="${s}" class="${escolha === s ? 'ativo' : ''}" title="Só a sexta ${dd(s)}">${dd(s)}</button>`).join('')}</div>
+      <div class="ee-previa" id="ee-previa"><div class="boot"><span class="spin"></span></div></div>
+      <div class="ee-acoes">
+        <button class="btn primary" id="ee-compartilhar" hidden>${icon('whats')} Compartilhar</button>
+        <button class="btn" id="ee-baixar">Baixar imagem</button>
+        <button class="btn" id="ee-copiar" hidden>Copiar imagem</button>
+        <button class="btn" id="ee-texto">Copiar texto</button>
+      </div>
+      <p class="hint" id="ee-dica"></p>
+    </div>`,
+    aoAbrir: (j) => {
+      const previa = j.querySelector('#ee-previa');
+      const bComp = j.querySelector('#ee-compartilhar'), bCopiar = j.querySelector('#ee-copiar');
+      const gerar = async () => {
+        const minha = ++geracao;
+        const datas = escolha === 'mes' ? sextas : [escolha];
+        const sx = montarEscala(ctx, datas);
+        const titulo = escolha === 'mes' ? nomeMes(mes) : `Sexta, ${diaMes(escolha)}`;
+        texto = textoWhats(m, titulo, sx);
+        const cv = await desenharEscala({ ministerio: m.nome, cor: m.cor, subtitulo: escolha === 'mes' ? nomeMes(mes) : `Sexta-feira, ${dd(escolha)}`,
+          sextas: sx, rodape: `Atualizada em ${dd(isoLocal(new Date()))}` });
+        const blob = await new Promise((ok) => cv.toBlob(ok, 'image/png'));
+        if (minha !== geracao || !blob) return;
+        arquivo = new File([blob], nomeArq(escolha === 'mes' ? mes : escolha), { type: 'image/png' });
+        const url = URL.createObjectURL(blob);
+        previa.innerHTML = `<img src="${url}" alt="Imagem da escala ${esc(m.nome)}">`;
+        previa.querySelector('img').addEventListener('load', () => URL.revokeObjectURL(url), { once: true });
+        const comp = podeCompartilhar(arquivo);
+        bComp.hidden = !comp;
+        bCopiar.hidden = comp || !(window.ClipboardItem && navigator.clipboard?.write);
+        j.querySelector('#ee-baixar').classList.toggle('primary', !comp);
+        j.querySelector('#ee-dica').textContent = comp
+          ? 'Toque em "Compartilhar" e escolha o grupo no WhatsApp.'
+          : 'Baixe ou copie a imagem e cole no grupo do WhatsApp (no WhatsApp Web, Ctrl+V cola a imagem).';
+      };
+      j.querySelector('#ee-qual').addEventListener('click', (e) => {
+        const b = e.target.closest('button[data-q]'); if (!b || b.dataset.q === escolha) return;
+        escolha = b.dataset.q; previa.classList.add('gerando'); gerar().catch(avisoErro).finally(() => previa.classList.remove('gerando'));
+      });
+      bComp.addEventListener('click', async () => {
+        try { await navigator.share({ files: [arquivo], text: texto }); } catch (e) {
+          if (e?.name === 'AbortError') return;
+          try { await navigator.share({ files: [arquivo] }); } catch (e2) { if (e2?.name !== 'AbortError') avisoErro(e2); }
+        }
+      });
+      j.querySelector('#ee-baixar').addEventListener('click', () => {
+        if (!arquivo) return;
+        const a = document.createElement('a'); a.href = URL.createObjectURL(arquivo); a.download = arquivo.name;
+        document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+        aviso('Imagem baixada. Agora é só mandar no grupo.');
+      });
+      bCopiar.addEventListener('click', async () => {
+        try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': arquivo })]); aviso('Imagem copiada. Cole no grupo do WhatsApp.'); }
+        catch { aviso('Não deu para copiar a imagem neste navegador. Use "Baixar imagem".', 'erro'); }
+      });
+      j.querySelector('#ee-texto').addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(texto); aviso('Texto copiado. Cole no grupo do ministério.'); }
+        catch { window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, '_blank', 'noopener'); }
+      });
+      gerar().catch(avisoErro);
+    },
   });
 }
