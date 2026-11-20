@@ -13,7 +13,8 @@ function getPool() {
     const o = pool.config.options || {};
     // Respeita o TrustServerCertificate que vier na connection string do painel
     pool.config.options = { ...o, useUTC: true, encrypt: true, trustServerCertificate: process.env.SQL_TRUST_CERT === '1' || o.trustServerCertificate === true };
-    pool.config.pool = { max: 5, min: 0, idleTimeoutMillis: 30000 };
+    // Uma conexão fica aberta e parada até 5 min: abrir outra com o banco na Europa custa várias idas (criptografia + login)
+    pool.config.pool = { max: 5, min: 1, idleTimeoutMillis: 300000 };
     // O Netlify encerra a função em ~10 s: a conexão precisa desistir antes disso
     pool.config.connectionTimeout = 6000;
     pool.config.requestTimeout = 8000;

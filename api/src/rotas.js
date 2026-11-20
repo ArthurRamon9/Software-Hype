@@ -103,15 +103,15 @@ const emailAdmin = () => String(process.env.ADMIN_EMAIL || '').trim().toLowerCas
 // ------------------------------------------------------------------ AUTENTICAÇÃO
 rota('POST', '/auth/login', async ({ body, ip, definirCookie }) => {
   const email = txt(body.email, 200)?.toLowerCase() || '';
-  await seg.conferirLimite(email, ip);
-  const u = emailValido(email) ? await umaLinha('SELECT id, nome, email, senha_hash, cd_status, versao_sessao FROM dbo.usuarios WHERE email = @email', { email }) : null;
+  // Limite de tentativas e busca da conta ao mesmo tempo (o banco fica longe)
+  const [, u] = await Promise.all([seg.conferirLimite(email, ip),
+    emailValido(email) ? umaLinha('SELECT id, nome, email, senha_hash, cd_status, versao_sessao FROM dbo.usuarios WHERE email = @email', { email }) : null]);
   const confere = await seg.conferirSenha(body.senha, u?.senha_hash);   // sempre roda o bcrypt (mesmo tempo com ou sem usuário)
   if (!u || !confere) {
     await seg.registrar('login_falhou', { email, ip, usuario: u ? { id: u.id, nome: u.nome } : null });
     throw new HttpError(401, 'E-mail ou senha incorretos.');
   }
-  await query('UPDATE dbo.usuarios SET dt_ultimo_login = SYSUTCDATETIME() WHERE id = @id', { id: u.id });
-  await seg.registrar('login', { usuario: u, email, ip });
+  await Promise.all([query('UPDATE dbo.usuarios SET dt_ultimo_login = SYSUTCDATETIME() WHERE id = @id', { id: u.id }), seg.registrar('login', { usuario: u, email, ip })]);
   definirCookie(seg.cookieSessao(u));
   return { ok: true };
 }, 'publico');
@@ -379,7 +379,7 @@ rota('GET', '/acessos/atividades', async () => query(`
 
 rota('GET', '/contadores', async ({ usuario }) => {
   // Pastoral: casos em aberto (de todos, ou só os seus). Integração: quem distribui vê os visitantes esperando contato; a equipe, os seus casos.
-  const r = await umaLinha(`
+  const contas = umaLinha(`
     SELECT CASE WHEN @past = 1 THEN (SELECT COUNT(*) FROM dbo.pastoral_casos WHERE area = 'pastoral' AND status <> 'concluido' AND responsavel_pessoa_id = @eu) ELSE 0 END AS pastoral,
            CASE WHEN @integ = 1 THEN (SELECT COUNT(*) FROM dbo.pastoral_casos WHERE area = 'integracao' AND status <> 'concluido' AND responsavel_pessoa_id = @eu) ELSE 0 END AS integracao,
            CASE WHEN @adm = 1 THEN (SELECT COUNT(*) FROM dbo.usuarios WHERE cd_status = 0) ELSE 0 END AS pendentes`,
@@ -388,7 +388,7 @@ rota('GET', '/contadores', async ({ usuario }) => {
   // Quem distribui vê no menu quantos esperam alguém (sem acompanhamento); a equipe vê os que estão com ela
   const semResp = (area) => umaLinha(`SELECT COUNT(*) AS n FROM dbo.pastoral_casos c JOIN dbo.pessoas p ON p.id = c.pessoa_id
     WHERE c.area = @area AND c.status <> 'concluido' AND c.responsavel_pessoa_id IS NULL AND p.cd_status = 1`, { area }).then((x) => x.n);
-  const [past, integ] = await Promise.all([
+  const [r, past, integ] = await Promise.all([contas,
     pode(usuario, 'pastoral.ver') && designa(usuario, 'pastoral') ? Promise.all([calcularAlertas(), semResp('pastoral')]).then(([a, n]) => a.length + n) : null,
     pode(usuario, 'integracao.ver') && designa(usuario, 'integracao') ? Promise.all([visitantesSemContato(), semResp('integracao')]).then(([a, n]) => a.length + n) : null]);
   if (past !== null) r.pastoral = past;
@@ -437,13 +437,12 @@ rota('GET', '/ministerios/:id/pessoas', async ({ params }) => query(`
   WHERE p.cd_status = 1 ORDER BY p.nome`, { id: params.id === '0' ? 0 : int(params.id) }));   // 0 = ministério novo
 rota('PUT', '/ministerios/:id/pessoas', async ({ params, body, usuario, ip }) => {
   const id = int(params.id);
-  const m = await umaLinha('SELECT nome FROM dbo.ministerios WHERE id = @id', { id });
-  if (!m) throw new HttpError(404, 'Ministério não encontrado.');
   const pessoas = (Array.isArray(body.pessoas) ? body.pessoas : []).map(Number).filter(Number.isInteger).slice(0, 2000);
   const lideres = (Array.isArray(body.lideres) ? body.lideres : []).map(Number).filter((x) => pessoas.includes(x));
-  // quem liderava antes e deixou de liderar (para tirar de "Líderes de equipe" se não lidera mais nada)
-  const lideresAntes = (await query('SELECT pessoa_id FROM dbo.pessoa_ministerio WHERE ministerio_id = @id AND lider = 1', { id }))
-    .map((x) => x.pessoa_id).filter((x) => !lideres.includes(x));
+  // o ministério e quem liderava antes (para tirar de "Líderes de equipe" se não lidera mais nada), numa ida só
+  const [[m], antes] = await query('SELECT nome FROM dbo.ministerios WHERE id = @id; SELECT pessoa_id FROM dbo.pessoa_ministerio WHERE ministerio_id = @id AND lider = 1;', { id }, { todos: true });
+  if (!m) throw new HttpError(404, 'Ministério não encontrado.');
+  const lideresAntes = antes.map((x) => x.pessoa_id).filter((x) => !lideres.includes(x));
   await query(`
     SET XACT_ABORT ON; BEGIN TRAN;
     DELETE pm FROM dbo.pessoa_ministerio pm JOIN dbo.pessoas p ON p.id = pm.pessoa_id WHERE pm.ministerio_id = @id AND p.cd_status = 1;
@@ -471,14 +470,17 @@ rota('PUT', '/ministerios/:id/pessoas', async ({ params, body, usuario, ip }) =>
 const ids = (s) => (s ? String(s).split(',').map(Number) : []);
 
 rota('GET', '/pessoas', async () => {
+  // Presenças e ministérios somados de uma vez (e não pessoa por pessoa): bem mais leve para o banco
   const rows = await query(`
+    WITH pres AS (SELECT pr.pessoa_id, MAX(e.data) AS ultima, COUNT(*) AS n
+                    FROM dbo.presencas pr JOIN dbo.encontros e ON e.id = pr.encontro_id WHERE pr.presente = 1 GROUP BY pr.pessoa_id),
+         mins AS (SELECT pessoa_id, STRING_AGG(CAST(ministerio_id AS VARCHAR(10)), ',') AS ministerios FROM dbo.pessoa_ministerio GROUP BY pessoa_id)
     SELECT p.id, p.nome, p.referencia, p.tipo, p.data_nascimento, p.telefone, p.email, p.instagram, p.batizado, p.data_cadastro, p.cd_status,
            p.endereco, p.como_conheceu, p.grupo_cultivo, p.integrado_por,
            CONVERT(VARCHAR(30), f.dt_atualizacao, 126) AS foto_v,
-           (SELECT MAX(e.data) FROM dbo.presencas pr JOIN dbo.encontros e ON e.id = pr.encontro_id WHERE pr.pessoa_id = p.id AND pr.presente = 1) AS ultima_presenca,
-           (SELECT COUNT(*) FROM dbo.presencas pr WHERE pr.pessoa_id = p.id AND pr.presente = 1) AS presencas,
-           (SELECT STRING_AGG(CAST(pm.ministerio_id AS VARCHAR(10)), ',') FROM dbo.pessoa_ministerio pm WHERE pm.pessoa_id = p.id) AS ministerios
+           pres.ultima AS ultima_presenca, ISNULL(pres.n, 0) AS presencas, mins.ministerios
     FROM dbo.pessoas p LEFT JOIN dbo.pessoas_foto f ON f.pessoa_id = p.id
+      LEFT JOIN pres ON pres.pessoa_id = p.id LEFT JOIN mins ON mins.pessoa_id = p.id
     ORDER BY p.nome`);
   rows.forEach((r) => { r.ministerios = ids(r.ministerios); });
   return rows;
@@ -701,8 +703,11 @@ rota('POST', '/presenca', async ({ body, usuario, ip }) => {
       (SELECT COUNT(*) FROM dbo.presencas WHERE encontro_id = @eid AND presente = 1) AS presentes,
       (SELECT COUNT(*) FROM dbo.presencas WHERE encontro_id = @eid AND presente = 0) AS ausentes;`,
   { data, tema: txt(body.tema, 200), mudaTema: body.tema === undefined ? 0 : 1, uid: usuario.id, json: JSON.stringify(regs), remover: JSON.stringify(remover) });
-  await seg.registrar('chamada_salva', { usuario, ip, detalhe: `${data}: agora ${r.presentes} presentes, ${r.ausentes} ausentes (${regs.length} marcações neste envio)` });
-  return { encontro_id: r.id, presentes: r.presentes, ausentes: r.ausentes, alertas: pode(usuario, 'pastoral.ver') ? await calcularAlertas() : [] };
+  // Auditoria e alertas da Pastoral ao mesmo tempo (cada espera em fila é uma ida ao banco)
+  const [, alertas] = await Promise.all([
+    seg.registrar('chamada_salva', { usuario, ip, detalhe: `${data}: agora ${r.presentes} presentes, ${r.ausentes} ausentes (${regs.length} marcações neste envio)` }),
+    pode(usuario, 'pastoral.ver') ? calcularAlertas() : []]);
+  return { encontro_id: r.id, presentes: r.presentes, ausentes: r.ausentes, alertas };
 });
 
 rota('GET', '/encontros', async () => query(`
@@ -1026,7 +1031,7 @@ const horaValida = (h) => (/^([01]\d|2[0-3]):[0-5]\d$/.test(h || '') ? h : null)
 // ---------- Agenda ----------
 rota('GET', '/agenda', async ({ query: q, usuario }) => {
   const anteriores = q.periodo === 'anteriores';
-  const [reunioes, pessoas] = await query(`
+  const [reunioes, pessoas, minsGestor] = await query(`
     SELECT r.id, r.ministerio_id, m.nome AS ministerio, m.cor, r.titulo, CONVERT(VARCHAR(19), r.inicio, 126) AS inicio, CONVERT(VARCHAR(19), r.fim, 126) AS fim,
            r.local, r.descricao, r.cancelada, r.sequencia
       FROM dbo.reunioes r JOIN dbo.ministerios m ON m.id = r.ministerio_id
@@ -1035,14 +1040,17 @@ rota('GET', '/agenda', async ({ query: q, usuario }) => {
        AND ((@ant = 0 AND r.fim >= DATEADD(HOUR, -3, SYSUTCDATETIME())) OR (@ant = 1 AND r.fim < DATEADD(HOUR, -3, SYSUTCDATETIME())))
      ORDER BY CASE WHEN @ant = 1 THEN NULL ELSE r.inicio END, r.inicio DESC;
     SELECT rp.reuniao_id, p.id, p.nome, CASE WHEN p.email LIKE '%_@_%._%' THEN 1 ELSE 0 END AS tem_email, CONVERT(VARCHAR(19), rp.dt_convite, 126) AS dt_convite
-      FROM dbo.reuniao_pessoa rp JOIN dbo.pessoas p ON p.id = rp.pessoa_id;`,
+      FROM dbo.reuniao_pessoa rp JOIN dbo.pessoas p ON p.id = rp.pessoa_id
+     WHERE EXISTS (SELECT 1 FROM dbo.reunioes r2 WHERE r2.id = rp.reuniao_id
+       AND ((@ant = 0 AND r2.fim >= DATEADD(HOUR, -3, SYSUTCDATETIME())) OR (@ant = 1 AND r2.fim < DATEADD(HOUR, -3, SYSUTCDATETIME()))));
+    SELECT id, nome, cor FROM dbo.ministerios WHERE cd_status = 1 AND @todos = 1 ORDER BY nome;`,
   { todos: ehGestor(usuario) ? 1 : 0, mins: JSON.stringify(meusMinisterios(usuario)), eu: euPessoa(usuario), ant: anteriores ? 1 : 0 }, { todos: true });
   reunioes.forEach((r) => {
     r.pessoas = pessoas.filter((p) => p.reuniao_id === r.id).map(({ reuniao_id, ...p }) => p);
     r.pode_editar = lideraMinisterio(usuario, r.ministerio_id);
     r.eu_participo = r.pessoas.some((p) => p.id === usuario.pessoa_id);
   });
-  const ministerios = ehGestor(usuario) ? await query('SELECT id, nome, cor FROM dbo.ministerios WHERE cd_status = 1 ORDER BY nome')
+  const ministerios = ehGestor(usuario) ? minsGestor
     : (usuario.ministerios || []).filter((m) => m.lider);
   return { reunioes, posso_criar: ministerios.map((m) => ({ id: m.id, nome: m.nome })), email_ativo: !!(process.env.SMTP_USER && process.env.SMTP_PASS) };
 });
@@ -1376,14 +1384,17 @@ rota('GET', '/painel', async ({ usuario }) => {
   const verPessoas = pode(usuario, 'pessoas.ver');
   const verPresenca = pode(usuario, 'relatorios.ver') || pode(usuario, 'presenca.marcar');
   const verPastoral = pode(usuario, 'pastoral.ver');
-  const [[pessoas, encontros, casos, meus], alertas] = await Promise.all([query(`
+  // Tudo ao mesmo tempo: o banco fica longe, e cada espera em fila custa uma ida
+  const [[pessoas, encontros, casos, meus], alertas, semContato] = await Promise.all([query(`
     WITH ult8 AS (SELECT TOP 8 e.id FROM dbo.encontros e
-                   WHERE EXISTS (SELECT 1 FROM dbo.presencas x WHERE x.encontro_id = e.id AND x.presente = 1) ORDER BY e.data DESC)
+                   WHERE EXISTS (SELECT 1 FROM dbo.presencas x WHERE x.encontro_id = e.id AND x.presente = 1) ORDER BY e.data DESC),
+         pres AS (SELECT pr.pessoa_id, MAX(e.data) AS ultima, MIN(e.data) AS primeira, SUM(CASE WHEN u.id IS NULL THEN 0 ELSE 1 END) AS v8
+                    FROM dbo.presencas pr JOIN dbo.encontros e ON e.id = pr.encontro_id LEFT JOIN ult8 u ON u.id = pr.encontro_id
+                   WHERE pr.presente = 1 AND @vp = 1 GROUP BY pr.pessoa_id)
     SELECT p.id, p.nome, p.referencia, p.tipo, p.data_nascimento, p.data_cadastro, p.telefone, CONVERT(VARCHAR(30), f.dt_atualizacao, 126) AS foto_v,
-           (SELECT MAX(e.data) FROM dbo.presencas pr2 JOIN dbo.encontros e ON e.id = pr2.encontro_id WHERE pr2.pessoa_id = p.id AND pr2.presente = 1) AS ultima_presenca,
-           (SELECT MIN(e.data) FROM dbo.presencas pr JOIN dbo.encontros e ON e.id = pr.encontro_id WHERE pr.pessoa_id = p.id AND pr.presente = 1) AS primeira_presenca,
-           (SELECT COUNT(*) FROM dbo.presencas pr3 JOIN ult8 ON ult8.id = pr3.encontro_id WHERE pr3.pessoa_id = p.id AND pr3.presente = 1) AS vezes_ult8
-      FROM dbo.pessoas p LEFT JOIN dbo.pessoas_foto f ON f.pessoa_id = p.id WHERE p.cd_status = 1 AND @vp = 1;
+           pres.ultima AS ultima_presenca, pres.primeira AS primeira_presenca, ISNULL(pres.v8, 0) AS vezes_ult8
+      FROM dbo.pessoas p LEFT JOIN dbo.pessoas_foto f ON f.pessoa_id = p.id LEFT JOIN pres ON pres.pessoa_id = p.id
+     WHERE p.cd_status = 1 AND @vp = 1;
     SELECT TOP 12 encontro_id AS id, data, tema, presentes AS total, membros_presentes AS membros, visitantes_presentes AS visitantes
       FROM dbo.vw_resumo_encontros WHERE @ve = 1 AND presentes > 0 ORDER BY data DESC;
     SELECT COUNT(*) AS abertos FROM dbo.pastoral_casos WHERE area = 'pastoral' AND status <> 'concluido' AND @vc = 1 AND (@ptodos = 1 OR responsavel_pessoa_id = @eu);
@@ -1393,9 +1404,10 @@ rota('GET', '/painel', async ({ usuario }) => {
      ORDER BY c.dt_abertura DESC;`,
   { vp: verPessoas ? 1 : 0, ve: verPresenca ? 1 : 0, vc: verPastoral ? 1 : 0, vi: pode(usuario, 'integracao.ver') ? 1 : 0,
     ptodos: veTodos(usuario, 'pastoral') ? 1 : 0, eu: euPessoa(usuario) }, { todos: true }),
-  verPastoral && designa(usuario, 'pastoral') ? calcularAlertas() : null]);
+  verPastoral && designa(usuario, 'pastoral') ? calcularAlertas() : null,
+  pode(usuario, 'integracao.ver') && designa(usuario, 'integracao') ? visitantesSemContato() : null]);
   return {
-    integracao: pode(usuario, 'integracao.ver') && designa(usuario, 'integracao') ? (await visitantesSemContato()).length : null,
+    integracao: semContato ? semContato.length : null,
     pessoas: verPessoas ? pessoas : null,
     encontros: verPresenca ? encontros : null,
     casosAbertos: verPastoral ? casos[0].abertos : null,
@@ -1420,6 +1432,7 @@ rota('GET', '/relatorios', async ({ query: q }) => {
 });
 
 // ------------------------------------------------------------------ DESPACHO
+const MUDA_SESSAO = /^\/(auth|acessos|ministerios|pessoas)(\/|$)/;
 async function despachar({ metodo, caminho, query: q = {}, body = {}, cookie, csrf, ip, origem }) {
   for (const r of rotas) {
     if (r.metodo !== metodo) continue;
@@ -1427,11 +1440,11 @@ async function despachar({ metodo, caminho, query: q = {}, body = {}, cookie, cs
     if (!m) continue;
     // Proteção contra CSRF: toda escrita precisa do cabeçalho X-Hype (outro site não consegue enviá-lo)
     if (metodo !== 'GET' && csrf !== '1') throw new HttpError(403, 'Requisição recusada.');
-    if (metodo !== 'GET') seg.esquecerSessoes();   // gravação pode mudar grupos, bloqueio, ministérios: confere de novo no banco
     const params = Object.fromEntries(r.nomes.map((n, i) => [n, decodeURIComponent(m[i + 1])]));
     let usuario = null;
     if (r.acesso !== 'publico') {
-      usuario = await seg.usuarioDaSessao(cookie);
+      // Gravação confere a sessão no banco na hora (bloqueio ou grupo tirado valem já); consulta usa a lembrança de 20 s
+      usuario = await seg.usuarioDaSessao(cookie, { fresco: metodo !== 'GET' });
       if (!usuario) throw new HttpError(401, 'Sua sessão expirou. Entre novamente.');
       if (r.acesso !== 'logado') {
         if (usuario.cd_status !== 1) throw new HttpError(403, 'Seu acesso ainda não foi liberado.');
@@ -1445,7 +1458,9 @@ async function despachar({ metodo, caminho, query: q = {}, body = {}, cookie, cs
     let cookieResposta = null;
     let corpo;
     try { corpo = await r.fn({ params, query: q, body: body || {}, usuario, origem, ip, definirCookie: (c) => { cookieResposta = c; } }); }
-    finally { if (metodo !== 'GET') seg.esquecerSessoes(); }   // e de novo depois de gravar (senha trocada, bloqueio...)
+    // Gravação que pode mudar a sessão de alguém (senha, grupos, bloqueio, ministérios e líderes): esquece todas as lembranças.
+    // As outras (chamada, escala, financeiro...) não mexem em quem pode o quê, e a próxima tela não precisa ir ao banco só por isso.
+    finally { if (metodo !== 'GET' && MUDA_SESSAO.test(caminho)) seg.esquecerSessoes(); }
     return { corpo, cookie: cookieResposta };
   }
   throw new HttpError(404, 'Rota não encontrada.');

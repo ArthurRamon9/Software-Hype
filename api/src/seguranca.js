@@ -82,11 +82,12 @@ const LEMBRAR_MS = 20000;
 const lembrados = new Map();
 let geracaoSessoes = 0;   // muda a cada gravação: uma busca que começou antes dela não é guardada
 const esquecerSessoes = () => { lembrados.clear(); geracaoSessoes++; };
-async function usuarioDaSessao(cabecalhoCookie) {
+// fresco = true: confere no banco agora (toda gravação faz isso, para valer na hora um bloqueio ou grupo tirado)
+async function usuarioDaSessao(cabecalhoCookie, { fresco = false } = {}) {
   const token = lerCookie(cabecalhoCookie);
   if (!token) return null;
   const lembrado = lembrados.get(token);
-  if (lembrado && lembrado.ate > Date.now()) return lembrado.u;
+  if (!fresco && lembrado && lembrado.ate > Date.now()) return lembrado.u;
   const geracao = geracaoSessoes;
   const u = await usuarioDaSessaoNoBanco(token);
   if (u && geracao === geracaoSessoes) {
