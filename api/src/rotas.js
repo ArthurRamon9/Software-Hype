@@ -164,7 +164,11 @@ rota('POST', '/auth/esqueci', async ({ body, origem, ip }) => {
       await query(`UPDATE dbo.usuarios_reset_senha SET dt_uso = SYSUTCDATETIME() WHERE usuario_id = @id AND dt_uso IS NULL;
         INSERT INTO dbo.usuarios_reset_senha (usuario_id, token_hash, dt_expira) VALUES (@id, @hash, DATEADD(HOUR, 1, SYSUTCDATETIME()))`,
       { id: u.id, hash: seg.sha256(token) });
-      await emailRedefinirSenha(u.email, u.nome, `${origem}#/nova-senha?token=${token}`);
+      try { await emailRedefinirSenha(u.email, u.nome, `${origem}#/nova-senha?token=${token}`); }
+      catch (e) {
+        console.error('[email] redefinir senha:', e.message);
+        throw new HttpError(503, 'Não foi possível enviar o e-mail agora. Tente de novo em alguns minutos ou peça a um administrador para trocar a sua senha.');
+      }
     }
   }
   return { ok: true };   // mesma resposta exista ou não a conta

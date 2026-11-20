@@ -11,7 +11,7 @@ let graficos = [];
 
 const fimMes = (ym) => { const [y, m] = ym.split('-').map(Number); return isoLocal(new Date(y, m, 0)); };
 const mesAnterior = (ym) => { const [y, m] = ym.split('-').map(Number); return isoLocal(new Date(y, m - 2, 1)).slice(0, 7); };
-const nomeMes = (ym) => parseISO(ym + '-01').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+const nomeMes = (ym) => parseISO(ym + '-01').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }).replace(/^./, (c) => c.toUpperCase());
 // O servidor manda o período enxuto; aqui volta ao formato completo que as contas usam
 const periodo = async (ini, fim) => {
   const r = await api('GET', `/relatorios?ini=${ini}&fim=${fim}`);

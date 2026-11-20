@@ -4,7 +4,7 @@ import { api, sessao, urlFoto } from '../api.js';
 import { esc, aviso, avisoErro, ocupado, janela, confirmar, fmtData, foto, semAcento, filtrarPorNome, icon } from '../ui.js';
 import { atualizarContadores } from '../app.js';
 
-let aba = 'usuarios';
+let aba = sessionStorage.getItem('hype_acessos_aba') || 'usuarios';   // lembra a aba se a página recarregar
 
 const ACOES = {
   login: 'Entrou', login_falhou: 'Tentativa de login falhou', conta_criada: 'Conta criada', esqueci_senha: 'Pediu nova senha',
@@ -69,7 +69,7 @@ export async function render(conteudo) {
   const desenharAbas = () => {
     const n = pendentes().length;
     conteudo.querySelector('#abas').innerHTML = `<button data-aba="usuarios">Usuários${n ? ` (${n} aguardando)` : ''}</button><button data-aba="grupos">Grupos</button><button data-aba="atividades">Atividades</button>`;
-    conteudo.querySelectorAll('#abas button').forEach((b) => b.addEventListener('click', () => { aba = b.dataset.aba; mostrar(); }));
+    conteudo.querySelectorAll('#abas button').forEach((b) => b.addEventListener('click', () => { aba = b.dataset.aba; sessionStorage.setItem('hype_acessos_aba', aba); mostrar(); }));
   };
   desenharAbas();
 

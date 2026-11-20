@@ -17,6 +17,10 @@ import * as escalas from './pages/escalas.js';
 import * as financeiro from './pages/financeiro.js';
 import * as documentos from './pages/documentos.js';
 
+// Sem zoom de pinça no celular (o Safari do iPhone ignora o user-scalable=no do index.html)
+['gesturestart', 'gesturechange'].forEach((t) => document.addEventListener(t, (e) => e.preventDefault(), { passive: false }));
+document.addEventListener('touchmove', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+
 const app = document.getElementById('app');
 
 const PUBLICAS = {

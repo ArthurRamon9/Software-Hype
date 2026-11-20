@@ -175,8 +175,22 @@ function enfeitarData(inp) {
     if (e.key === 'Enter' && popAberto?.ancora === caixa) { e.preventDefault(); fecharPop(); }
   });
 
-  let mesCal = null; let pop = null;
+  let mesCal = null; let pop = null; let modo = 'dias'; let anoIni = 0;
+  // Tocar em "Mês de Ano" abre a escolha do ano e depois do mês (data de nascimento sem dezenas de toques)
+  const anoMin = () => Number((inp.min || '1920').slice(0, 4));
+  const anoMax = () => Number((inp.max || `${new Date().getFullYear() + 5}`).slice(0, 4));
+  const desenharAnos = () => {
+    const anos = []; for (let a = anoIni; a < anoIni + 20; a++) anos.push(a);
+    pop.innerHTML = `<div class="cal-topo"><button type="button" data-pa="-20" aria-label="Anos anteriores" ${anoIni <= anoMin() ? 'disabled' : ''}>‹</button><b>Escolha o ano</b><button type="button" data-pa="20" aria-label="Próximos anos" ${anoIni + 19 >= anoMax() ? 'disabled' : ''}>›</button></div>
+      <div class="grade-meses grade-anos">${anos.map((a) => `<button type="button" data-ano="${a}" class="${a === mesCal.getFullYear() ? 'atual' : ''}" ${a < anoMin() || a > anoMax() ? 'disabled' : ''}>${a}</button>`).join('')}</div>`;
+  };
+  const desenharMeses = () => {
+    const y = mesCal.getFullYear();
+    pop.innerHTML = `<div class="cal-topo"><button type="button" data-ir="anos" aria-label="Trocar o ano">‹</button><button type="button" class="cal-titulo" data-ir="anos">${y}</button><span style="width:32px"></span></div>
+      <div class="grade-meses">${MESES.map((m, i) => { const ini = `${y}-${z(i + 1)}-01`, fimM = isoDe(new Date(y, i + 1, 0, 12)); const fora = (inp.max && ini > inp.max) || (inp.min && fimM < inp.min); return `<button type="button" data-mes="${i}" class="${i === mesCal.getMonth() ? 'atual' : ''}" ${fora ? 'disabled' : ''}>${m.slice(0, 3)}</button>`; }).join('')}</div>`;
+  };
   const desenharCal = (foco) => {
+    modo = 'dias';
     const base = foco ? new Date(`${foco}T12:00:00`) : mesCal;
     mesCal = new Date(base.getFullYear(), base.getMonth(), 1, 12);
     const hoje = isoDe(new Date());
@@ -184,7 +198,7 @@ function enfeitarData(inp) {
     const dias = [];
     for (let i = 0; i < 42; i++) { const d = new Date(ini); d.setDate(ini.getDate() + i); dias.push(d); }
     const ultimaSemana = dias.slice(35).every((d) => d.getMonth() !== mesCal.getMonth()) ? 35 : 42;
-    pop.innerHTML = `<div class="cal-topo"><button type="button" data-n="-1" aria-label="Mês anterior">‹</button><b>${MESES[mesCal.getMonth()]} de ${mesCal.getFullYear()}</b><button type="button" data-n="1" aria-label="Próximo mês">›</button></div>
+    pop.innerHTML = `<div class="cal-topo"><button type="button" data-n="-1" aria-label="Mês anterior">‹</button><button type="button" class="cal-titulo" data-ir="anos" title="Escolher o ano e o mês">${MESES[mesCal.getMonth()]} de ${mesCal.getFullYear()}</button><button type="button" data-n="1" aria-label="Próximo mês">›</button></div>
       <div class="cal-grade">${['D', 'S', 'T', 'Q', 'Q', 'S', 'S'].map((l, i) => `<span class="cal-sem ${i === 5 ? 'sexta' : ''}">${l}</span>`).join('')}
       ${dias.slice(0, ultimaSemana).map((d) => { const iso = isoDe(d); return `<button type="button" data-d="${iso}" class="${d.getMonth() !== mesCal.getMonth() ? 'fora' : ''} ${iso === hoje ? 'hoje' : ''} ${iso === inp.value ? 'atual' : ''} ${d.getDay() === 5 ? 'sexta' : ''}" ${dentroDosLimites(iso) ? '' : 'disabled'}>${d.getDate()}</button>`; }).join('')}</div>
       <div class="cal-pe">${dentroDosLimites(hoje) ? '<button type="button" data-d="hoje">Hoje</button>' : '<span></span>'}${!inp.required && inp.value ? '<button type="button" data-d="">Limpar</button>' : ''}</div>`;
@@ -198,6 +212,10 @@ function enfeitarData(inp) {
     pop.addEventListener('mousedown', (e) => e.preventDefault());   // não tira o foco do campo
     pop.addEventListener('click', (e) => {
       const n = e.target.closest('[data-n]'); if (n) { mesCal.setMonth(mesCal.getMonth() + Number(n.dataset.n)); desenharCal(); return; }
+      if (e.target.closest('[data-ir="anos"]')) { modo = 'anos'; anoIni = Math.max(anoMin(), Math.min(anoMax() - 19, mesCal.getFullYear() - 10)); desenharAnos(); return; }
+      const pa = e.target.closest('[data-pa]'); if (pa && !pa.disabled) { anoIni += Number(pa.dataset.pa); desenharAnos(); return; }
+      const ya = e.target.closest('[data-ano]'); if (ya && !ya.disabled) { mesCal.setFullYear(Number(ya.dataset.ano)); modo = 'meses'; desenharMeses(); return; }
+      const mm = e.target.closest('[data-mes]'); if (mm && !mm.disabled) { mesCal.setMonth(Number(mm.dataset.mes)); desenharCal(); return; }
       const d = e.target.closest('[data-d]'); if (!d || d.disabled) return;
       definir(d.dataset.d === 'hoje' ? isoDe(new Date()) : d.dataset.d);
       fecharPop(); txt.focus();

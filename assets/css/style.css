@@ -60,6 +60,11 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); }
 body { line-height: 1.45; min-height: 100vh; -webkit-text-size-adjust: 100%; }
+/* Sem zoom no celular: nada de toque duplo para aumentar, e campos com 16px (o iPhone aumenta a tela sozinho em campo com letra menor) */
+html { touch-action: manipulation; }
+@media (pointer: coarse), (max-width: 760px) {
+  input:not([type=checkbox]):not([type=radio]), select, textarea, .input { font-size: 16px !important; }
+}
 a { color: var(--accent-ink); text-decoration: none; }
 a:hover { text-decoration: underline; }
 h1, h2, h3 { margin: 0; line-height: 1.2; font-family: var(--titulo); letter-spacing: -.01em; }
@@ -178,6 +183,11 @@ select.input { padding-right: 6px; }
 .cabecalho { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 22px; }
 .cabecalho .sub { color: var(--muted); margin-top: 4px; }
 .cabecalho .acoes { display: flex; gap: 8px; align-items: center; }
+/* No celular os botões do topo quebram linha em vez de empurrar a página para o lado */
+@media (max-width: 760px) {
+  .cabecalho .acoes { flex-wrap: wrap; width: 100%; }
+  .cabecalho .acoes > .btn.primary { order: -1; flex: 1 1 100%; justify-content: center; }
+}
 .voltar { display: inline-flex; gap: 6px; font-size: 13px; color: var(--muted); margin-bottom: 8px; }
 .voltar:hover { color: var(--ink); text-decoration: none; }
 
@@ -587,7 +597,7 @@ a.linha:hover { background: var(--sunken); }
 @media (max-width: 720px) {
   /* Topo compacto no celular: data e contadores mais apertados, mais nomes na tela */
   .chamada-topo { padding: 10px 12px; gap: 8px; }
-  .chamada-topo .data .input { width: 140px; }
+  .chamada-topo .data .input { width: 164px; }
   .chamada-topo .dia-semana { display: none; }
   .contagem span { font-size: 12px; padding: 3px 8px; }
   .chamada + .barra-salvar, .barra-salvar { padding: 10px 12px; }
@@ -1085,3 +1095,15 @@ a.pasta:hover .pasta-seta { color: var(--c, var(--accent)); transform: translate
 .ee-acoes .btn[hidden] { display: none; }
 .fc-linha { display: grid; grid-template-columns: minmax(0, 1fr) 38px; gap: 8px; align-items: center; }
 .janela:focus { outline: none; }
+/* Calendário: o título abre a escolha do ano e do mês */
+.cal-topo .cal-titulo { width: auto; height: 32px; padding: 0 10px; font-size: 14.5px; font-weight: 700; color: var(--ink); }
+.cal-topo .cal-titulo:hover { color: var(--accent); }
+.cal-topo button:disabled { opacity: .3; cursor: default; background: none; }
+.grade-anos { grid-template-columns: repeat(4, 1fr); }
+/* Celular: etiquetas (grupos, situação) quebram linha dentro da tabela em vez de cortar */
+@media (max-width: 760px) { .tabela td .tag { white-space: normal; text-align: left; line-height: 1.25; } }
+/* Colunas e abas nunca empurram a página para o lado em celular pequeno */
+.colunas > * { min-width: 0; }
+.filtros .abas { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.filtros .abas::-webkit-scrollbar { display: none; }
+@media (max-width: 400px) { .abas > button { padding-left: 11px; padding-right: 11px; } }
