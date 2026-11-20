@@ -4,6 +4,15 @@ import { api, sessao, urlFoto } from '../api.js';
 import { esc, aviso, avisoErro, ocupado, janela, confirmar, fmtData, foto, semAcento, filtrarPorNome, icon } from '../ui.js';
 import { atualizarContadores } from '../app.js';
 
+// "8 pessoas · Damaris, Érika, Leo e mais 5": com 20+ contas a lista inteira ficaria enorme (a completa fica no Editar)
+function quemEsta(lista) {
+  if (!lista.length) return '<span class="muted">Ninguém ainda</span>';
+  const p1 = (u) => u.nome.trim().split(/\s+/)[0];
+  const repetido = (u) => lista.filter((x) => p1(x) === p1(u)).length > 1;
+  const nomes = lista.map((u) => (repetido(u) ? u.nome.trim().split(/\s+/).slice(0, 2).join(' ') : p1(u)));
+  const mostra = nomes.slice(0, 3).join(', ') + (nomes.length > 3 ? ` e mais ${nomes.length - 3}` : '');
+  return `<span title="${esc(lista.map((u) => u.nome).join(', '))}"><b>${lista.length} pessoa${lista.length === 1 ? '' : 's'}</b><span class="muted"> · ${esc(mostra)}</span></span>`;
+}
 let aba = sessionStorage.getItem('hype_acessos_aba') || 'usuarios';   // lembra a aba se a página recarregar
 
 const ACOES = {
@@ -167,8 +176,9 @@ export async function render(conteudo) {
       ${g.sistema ? '<p class="msg aviso">O grupo Administradores sempre tem todas as permissões. Aqui você só escolhe quem faz parte dele.</p>' : `
       <div class="field"><label for="gn">Nome *</label><input class="input" id="gn" value="${esc(g.nome)}" required></div>
       <div class="field"><label for="gd">Descrição</label><input class="input" id="gd" value="${esc(g.descricao || '')}"></div>`}
-      <div class="field"><span class="label">Quem está no grupo</span>
-        ${ativos().length ? `<div class="lista-check">${ativos().map((u) => `<label class="check opcao"><input type="checkbox" name="m" value="${u.id}" ${g.id && u.grupos.includes(g.id) ? 'checked' : ''}>
+      <div class="field"><span class="label">Quem está no grupo <span class="muted small" id="gm-conta"></span></span>
+        ${ativos().length > 8 ? '<input class="input busca" id="gm-busca" type="search" placeholder="Buscar pelo nome" autocomplete="off" style="margin-bottom:8px">' : ''}
+        ${ativos().length ? `<div class="lista-check" id="gm-lista">${ativos().map((u) => `<label class="check opcao" data-nome="${esc(u.nome)}"><input type="checkbox" name="m" value="${u.id}" ${g.id && u.grupos.includes(g.id) ? 'checked' : ''}>
           <span><b>${esc(u.nome)}${u.id === sessao.usuario.id ? ' <span class="muted small">(você)</span>' : ''}</b><small>${esc(u.email)}</small></span></label>`).join('')}</div>` : '<p class="hint">Nenhuma conta ativa ainda.</p>'}
         <span class="hint">Para alguém aparecer aqui, a pessoa cria a conta no site (botão "Criar conta" na tela de entrada) e você libera na aba Usuários.</span></div>
       ${g.sistema ? '' : `<div class="field"><span class="label">O que o grupo pode fazer</span>
@@ -178,6 +188,10 @@ export async function render(conteudo) {
         <div style="display:flex;gap:8px"><button type="button" class="btn" data-fechar>Cancelar</button><button class="btn primary">Salvar</button></div>
       </div></form>`,
     aoAbrir: (j, fechar) => {
+      const gmConta = () => { const c = j.querySelectorAll('#gm-lista input:checked').length; j.querySelector('#gm-conta').textContent = c ? `· ${c} marcada${c === 1 ? '' : 's'}` : ''; };
+      gmConta(); j.querySelector('#gm-lista')?.addEventListener('change', gmConta);
+      const gmBusca = j.querySelector('#gm-busca');
+      gmBusca?.addEventListener('input', () => { const b = semAcento(gmBusca.value); j.querySelectorAll('#gm-lista label').forEach((l) => { l.hidden = !!b && !semAcento(l.dataset.nome).includes(b); }); });
       j.querySelector('#fg').addEventListener('submit', async (e) => {
         e.preventDefault();
         const membros = [...j.querySelectorAll('input[name=m]:checked')].map((c) => Number(c.value));
@@ -245,7 +259,7 @@ export async function render(conteudo) {
           <tbody>${grupos.map((g) => `<tr class="clicavel" data-grupo="${g.id}">
             <td><b style="font-weight:500">${esc(g.nome)}</b><div class="muted small">${esc(g.descricao || '')}</div></td>
             <td class="small">${g.sistema ? 'Todas' : permissoes.filter((p) => g.permissoes.includes(p.codigo)).map((p) => esc(p.descricao)).join('<br>') || '<span class="muted">Nenhuma</span>'}</td>
-            <td class="small">${ativos().filter((u) => u.grupos.includes(g.id)).map((u) => esc(u.nome)).join('<br>') || '<span class="muted">Ninguém ainda</span>'}</td>
+            <td class="small quem-esta">${quemEsta(ativos().filter((u) => u.grupos.includes(g.id)))}</td>
             <td class="dir"><button class="link-btn">Editar</button></td></tr>`).join('')}</tbody>
         </table></div></section>`;
       corpo.querySelector('#novo-grupo').addEventListener('click', () => editarGrupo());

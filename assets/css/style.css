@@ -228,7 +228,9 @@ details.dados summary { cursor: pointer; color: var(--muted); }
 .ola h1 { font-size: 30px; }
 .ola p { color: var(--muted); margin-top: 4px; }
 .destaque { background: var(--night); color: #fff; border-radius: 14px; padding: 24px 26px; display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap; position: relative; overflow: hidden; margin-bottom: 18px; }
-.destaque::after { content: 'hype'; position: absolute; right: -10px; bottom: -42px; font-family: var(--titulo); font-weight: 800; font-size: 150px; letter-spacing: -.05em; color: rgba(255,255,255,.045); pointer-events: none; line-height: 1; }
+/* O H oficial do Hype, grande, inclinado e bem apagado, saindo pela borda do quadro */
+.destaque::after { content: ''; position: absolute; right: 250px; top: 50%; width: 84px; height: 112px; background: url('../img/h-hype.svg') no-repeat center / contain; opacity: .2; transform: translateY(-50%) rotate(-8deg); pointer-events: none; }
+@media (max-width: 760px) { .destaque::after { right: 16px; top: 14px; width: 38px; height: 50px; transform: rotate(-8deg); opacity: .22; } }
 .destaque .quando { font-size: 12px; text-transform: uppercase; letter-spacing: .1em; color: var(--accent); font-weight: 700; }
 .destaque h2 { font-size: 26px; font-weight: 700; margin-top: 6px; }
 .destaque p { color: #bdb9ae; margin-top: 6px; max-width: 520px; }
@@ -1107,3 +1109,4 @@ a.pasta:hover .pasta-seta { color: var(--c, var(--accent)); transform: translate
 .filtros .abas { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
 .filtros .abas::-webkit-scrollbar { display: none; }
 @media (max-width: 400px) { .abas > button { padding-left: 11px; padding-right: 11px; } }
+.quem-esta { min-width: 160px; max-width: 240px; }

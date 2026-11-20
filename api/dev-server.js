@@ -15,7 +15,11 @@ const TIPOS = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '
 const PORTA = Number(process.env.PORT || 4280);
 // Mesmos cabeçalhos de segurança do site publicado (arquivo _headers do Netlify)
 const CABECALHOS_SITE = Object.fromEntries(fs.readFileSync(path.join(RAIZ, '_headers'), 'utf8').split('\n')
-  .filter((l) => /^\s+\S+:/.test(l)).map((l) => { const i = l.indexOf(':'); return [l.slice(0, i).trim(), l.slice(i + 1).trim()]; }));
+  .filter((l) => /^\s+\S+:/.test(l)).map((l) => { const i = l.indexOf(':'); return [l.slice(0, i).trim(), l.slice(i + 1).trim()]; })
+  // O "guardar por 1 ano" do _headers vale só para fontes e bibliotecas no Netlify. No teste local o navegador
+  // confere sempre se o arquivo mudou: assim nunca aparece uma versão antiga depois de trocar o código.
+  .filter(([k]) => k.toLowerCase() !== 'cache-control'));
+CABECALHOS_SITE['Cache-Control'] = 'no-cache';
 
 http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);

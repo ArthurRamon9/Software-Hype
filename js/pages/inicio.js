@@ -83,7 +83,7 @@ export async function render(conteudo) {
       </div></section>` : '';
 
   const blocoFaltando = alertas ? `<section class="painel">
-      <div class="painel-topo"><h2>Sentindo falta</h2><span class="sub">Quem começou a faltar primeiro, para o contato ser rápido</span></div>
+      <div class="painel-topo"><h2>Sentindo falta</h2></div>
       <div class="painel-corpo">
         ${alertas.length ? `<div class="lista">${[...alertas].sort((x, y) => x.faltas - y.faltas || x.pessoa.nome.localeCompare(y.pessoa.nome)).slice(0, 6).map((a) => link(a.pessoa.id, `${foto(a.pessoa.nome, urlFoto(a.pessoa.id, a.pessoa.foto_v))}
             <div class="cresce">${esc(a.pessoa.nome)}<span>${a.faltas} Hypes sem vir${a.ultimaPresenca ? ` · veio em ${fmtData(a.ultimaPresenca)}` : ''}</span></div>`)).join('')}</div>
