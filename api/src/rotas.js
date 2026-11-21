@@ -715,7 +715,8 @@ rota('POST', '/presenca', async ({ body, usuario, ip }) => {
   // Auditoria e alertas da Pastoral ao mesmo tempo (cada espera em fila é uma ida ao banco)
   const [, alertas] = await Promise.all([
     seg.registrar('chamada_salva', { usuario, ip, detalhe: `${data}: agora ${r.presentes} presentes, ${r.ausentes} ausentes (${regs.length} marcações neste envio)` }),
-    pode(usuario, 'pastoral.ver') ? calcularAlertas() : []]);
+    pode(usuario, 'pastoral.ver') ? calcularAlertas() : [],
+    query(SQL_VOLTOU_SOZINHO)]);
   return { encontro_id: r.id, presentes: r.presentes, ausentes: r.ausentes, alertas };
 });
 
@@ -842,6 +843,18 @@ const DESFECHOS = {
   integracao: { integrado: 'Está vindo e se enturmando', sem_retorno: 'Não deu retorno', nao_voltou: 'Não voltou mais', outro: 'Outro motivo' },
 };
 rota('GET', '/acompanhamentos/desfechos', async () => DESFECHOS, 'aprovado');
+// Pastoral: quem estava na lista sem responsável e veio a um Hype depois de o caso ser aberto sai da lista sozinho
+// (conclui como "Voltou para o Hype", fica no histórico; se voltar a faltar, o alerta das faltas traz de volta)
+const SQL_VOLTOU_SOZINHO = `
+  DECLARE @voltaram TABLE (id INT);
+  UPDATE c SET status = 'concluido', dt_conclusao = SYSUTCDATETIME(), desfecho = 'voltou'
+  OUTPUT inserted.id INTO @voltaram
+  FROM dbo.pastoral_casos c
+  WHERE c.area = 'pastoral' AND c.status <> 'concluido' AND c.responsavel_pessoa_id IS NULL
+    AND EXISTS (SELECT 1 FROM dbo.presencas pr JOIN dbo.encontros e ON e.id = pr.encontro_id
+                 WHERE pr.pessoa_id = c.pessoa_id AND pr.presente = 1 AND e.data > CAST(DATEADD(HOUR, -3, c.dt_abertura) AS DATE));
+  INSERT INTO dbo.pastoral_registros (caso_id, texto, autor_nome)
+  SELECT id, N'Concluído: Voltou para o Hype (veio a um Hype e ainda estava sem responsável).', N'Sistema' FROM @voltaram;`;
 
 function rotasDeAcompanhamento(area) {
   const ver = `${area}.ver`, editar = `${area}.editar`;
@@ -868,7 +881,8 @@ function rotasDeAcompanhamento(area) {
     const todos = veTodos(usuario, area), distribui = designa(usuario, area);
     const [alertas, casos, equipe] = await Promise.all([
       distribui ? (area === 'pastoral' ? calcularAlertas() : visitantesSemContato()) : [],
-      query(`SELECT TOP 800 ${SQL_CASO} ${SQL_CASO_FROM}
+      query(`${area === 'pastoral' ? SQL_VOLTOU_SOZINHO : ''}
+        SELECT TOP 800 ${SQL_CASO} ${SQL_CASO_FROM}
         WHERE c.area = @area AND p.cd_status = 1 AND (@todos = 1 OR (c.responsavel_pessoa_id = @eu AND c.status <> 'concluido'))
         ORDER BY CASE c.status WHEN 'aberto' THEN 0 WHEN 'em_andamento' THEN 1 ELSE 2 END, c.dt_abertura DESC`,
       { area, todos: todos ? 1 : 0, eu: euPessoa(usuario) }),
