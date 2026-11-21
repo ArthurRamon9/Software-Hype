@@ -313,6 +313,12 @@ async function renderArea(conteudo, area) {
   // Só está "em acompanhamento" quem tem responsável. Os abertos sem ninguém voltam para a lista de espera.
   const semResp = todos.filter((c) => c.status !== 'concluido' && !c.responsavel_pessoa_id);
   const casos = todos.filter((c) => c.status === 'concluido' || c.responsavel_pessoa_id);
+  // Quem só cuida dos seus e ainda não recebeu ninguém: um recado em vez da tabela vazia
+  if (!gestor && !poder.designar && !casos.some((c) => c.status !== 'concluido')) {
+    conteudo.innerHTML = `<div class="cabecalho"><div><h1>${cfg.titulo}</h1><p class="sub">${cfg.subMeus}</p></div></div>
+      <div class="painel vazio"><b>Nenhum acompanhamento com você ainda</b>Quando o líder da ${cfg.titulo} passar alguém para você, a pessoa aparece aqui, com o WhatsApp e o histórico dos contatos.</div>`;
+    return;
+  }
   const espera = poder.designar ? [
     ...alertas.map((a) => (area === 'pastoral'
       ? { chave: `p${a.pessoa.id}`, pessoa: a.pessoa, nome: a.pessoa.nome, faltas: a.faltas, ultima: a.ultimaPresenca, lider: a.lider, motivo: `${a.faltas} faltas seguidas` }
