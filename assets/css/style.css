@@ -1130,3 +1130,11 @@ a.pasta:hover .pasta-seta { color: var(--c, var(--accent)); transform: translate
 @media (max-width: 640px) {
   .sug { flex-direction: column; gap: 10px; padding: 12px 14px; }
 }
+
+/* Título do painel seguido direto de tabela ou da faixa de seleção: respiro entre eles (antes ficava colado) */
+.painel-topo + .tabela-wrap, .painel-topo + .barra-massa, .painel-topo + .barra-massa.hidden + .tabela-wrap { margin-top: 14px; }
+.painel-topo + .barra-massa { border-top: 1px solid var(--line); }
+/* Ações da linha: o botão do WhatsApp na mesma altura do "Designar" (as linhas ficam todas iguais) */
+.acoes-linha .btn-icone { width: 30px; height: 30px; border-radius: 8px; vertical-align: middle; }
+.acoes-linha .btn-icone svg.i { width: 16px; height: 16px; }
+.acoes-linha .btn { vertical-align: middle; }
