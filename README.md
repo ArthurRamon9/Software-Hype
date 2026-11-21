@@ -142,6 +142,9 @@ Os arquivos (PDF, Word, Excel, apresentações) ficam no Google Drive, nas pasta
 ## Financeiro
 Verba do ano, despesas e entradas (ofertas, doações). O saldo é verba + entradas − despesas. Gastos por categoria e planilha com gráfico.
 
+## Sugestões
+Qualquer pessoa com acesso manda ideias, melhorias ou avisa de algo com erro (menu **Sugestões**). Todos veem as sugestões dos outros, para não repetir e acompanhar o que vem por aí; a recusada só aparece para quem sugeriu. Quem tem `sugestoes.gerenciar` (administradores) aceita ou recusa com um recado. O que foi aceito vai para a **Sprint** (a fazer → fazendo → feita), e dá para baixar tudo em planilha. Quem sugeriu pode corrigir ou apagar a sua enquanto ninguém respondeu. O menu mostra quantas novas esperam resposta (v9 do `01_estrutura.sql`).
+
 ## Campos de data, hora e listas
 `js/campos.js` troca a aparência dos campos do navegador (listas de escolha, data, hora e mês) pela do Hype, em todo o site e sozinho.
 O campo original continua escondido guardando o valor, então o resto do código não muda. Para manter um campo do jeito do navegador: `data-nativo`.

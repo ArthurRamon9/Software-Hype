@@ -1110,3 +1110,23 @@ a.pasta:hover .pasta-seta { color: var(--c, var(--accent)); transform: translate
 .filtros .abas::-webkit-scrollbar { display: none; }
 @media (max-width: 400px) { .abas > button { padding-left: 11px; padding-right: 11px; } }
 .quem-esta { min-width: 160px; max-width: 240px; }
+
+/* Sugestões */
+.sug-lista { display: flex; flex-direction: column; }
+.sug { display: flex; gap: 14px; align-items: flex-start; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+.sug:last-child { border-bottom: 0; }
+.sug.clicavel { cursor: pointer; transition: background .1s; }
+.sug.clicavel:hover { background: var(--sunken); }
+.sug-corpo { flex: 1; min-width: 0; display: grid; gap: 6px; }
+.sug-topo b { font-size: 15px; overflow-wrap: anywhere; }
+.sug-detalhe { margin: 0; color: var(--ink-2); font-size: 14px; white-space: pre-line; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.sug-pe { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.sug-tipo.t-ideia { background: var(--accent-soft); color: var(--accent-ink); }
+.sug-tipo.t-problema { background: var(--bad-soft); color: var(--bad); }
+.sug-resposta { border-left: 3px solid var(--accent); background: var(--sunken); padding: 7px 10px; border-radius: 0 6px 6px 0; font-size: 13.5px; overflow-wrap: anywhere; }
+.sug-resposta b { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-bottom: 2px; }
+.sug-acoes { display: flex; gap: 6px; flex: none; }
+.abas .sug-n { margin-left: 6px; font-size: 12px; color: var(--muted); font-weight: 600; }
+@media (max-width: 640px) {
+  .sug { flex-direction: column; gap: 10px; padding: 12px 14px; }
+}

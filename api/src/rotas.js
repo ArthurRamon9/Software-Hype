@@ -49,6 +49,11 @@ const PERMISSAO_DA_ROTA = {
   'PUT /financeiro/categorias':      'financeiro.editar',
   'PUT /financeiro/:id':              'financeiro.editar',
   'DELETE /financeiro/:id':           ['financeiro.excluir', 'acessos.gerenciar'],   // apagar lançamento: quem tem a permissão (Administração) ou administrador
+  // Sugestões: qualquer conta liberada sugere; aceitar, recusar e mexer na fila é de quem tem sugestoes.gerenciar (regra na rota)
+  'GET /sugestoes':                   'aprovado',
+  'POST /sugestoes':                  'aprovado',
+  'PUT /sugestoes/:id':               'aprovado',   // quem sugeriu corrige enquanto está nova; quem gerencia muda tudo
+  'DELETE /sugestoes/:id':            'aprovado',   // quem sugeriu apaga enquanto está nova; quem gerencia apaga qualquer uma
   'GET /documentos':                  'aprovado',   // cada um vê os dos seus ministérios (a regra está na rota)
   'POST /documentos':                 'aprovado',   // líder do ministério, quem tem documentos.gerenciar ou administrador
   'PUT /documentos/:id':              'aprovado',
@@ -388,9 +393,13 @@ rota('GET', '/contadores', async ({ usuario }) => {
   // Quem distribui vê no menu quantos esperam alguém (sem acompanhamento); a equipe vê os que estão com ela
   const semResp = (area) => umaLinha(`SELECT COUNT(*) AS n FROM dbo.pastoral_casos c JOIN dbo.pessoas p ON p.id = c.pessoa_id
     WHERE c.area = @area AND c.status <> 'concluido' AND c.responsavel_pessoa_id IS NULL AND p.cd_status = 1`, { area }).then((x) => x.n);
-  const [r, past, integ] = await Promise.all([contas,
+  // Quem gerencia as sugestões vê quantas novas esperam resposta (se o banco ainda não tem a tabela, fica 0)
+  const sugNovas = gerenciaSugestoes(usuario)
+    ? umaLinha("SELECT COUNT(*) AS n FROM dbo.sugestoes WHERE status = 'nova'").then((x) => x.n, () => 0) : 0;
+  const [r, past, integ, sugestoes] = await Promise.all([contas,
     pode(usuario, 'pastoral.ver') && designa(usuario, 'pastoral') ? Promise.all([calcularAlertas(), semResp('pastoral')]).then(([a, n]) => a.length + n) : null,
-    pode(usuario, 'integracao.ver') && designa(usuario, 'integracao') ? Promise.all([visitantesSemContato(), semResp('integracao')]).then(([a, n]) => a.length + n) : null]);
+    pode(usuario, 'integracao.ver') && designa(usuario, 'integracao') ? Promise.all([visitantesSemContato(), semResp('integracao')]).then(([a, n]) => a.length + n) : null, sugNovas]);
+  r.sugestoes = sugestoes;
   if (past !== null) r.pastoral = past;
   if (integ !== null) r.integracao = integ;
   return r;
@@ -1377,6 +1386,75 @@ rota('PUT', '/financeiro/:id', async ({ params, body, usuario, ip }) => {
 rota('DELETE', '/financeiro/:id', async ({ params, usuario, ip }) => {
   const r = await umaLinha('DELETE FROM dbo.fin_lancamentos OUTPUT deleted.descricao, CAST(deleted.valor AS FLOAT) AS valor WHERE id = @id', { id: int(params.id) });
   if (r) await seg.registrar('financeiro_apagado', { usuario, ip, detalhe: `${params.id}: ${r.descricao} R$ ${r.valor}` });
+  return { ok: true };
+});
+
+// ------------------------------------------------------------------ SUGESTÕES
+// Qualquer conta liberada manda ideias e melhorias para o site. Quem tem sugestoes.gerenciar aceita ou recusa;
+// o que foi aceito vira a fila de trabalho (aceita = a fazer -> fazendo -> feita).
+const SUG_TIPOS = ['ideia', 'melhoria', 'problema'];
+const SUG_STATUS = ['nova', 'aceita', 'fazendo', 'feita', 'recusada'];
+const gerenciaSugestoes = (u) => pode(u, 'sugestoes.gerenciar');
+function dadosSugestao(body) {
+  const titulo = txt(body.titulo, 150), detalhe = txt(body.detalhe, 2000);
+  if (!titulo || titulo.length < 3) throw new HttpError(400, 'Escreva a sugestão em poucas palavras (pelo menos 3 letras).');
+  const tipo = SUG_TIPOS.includes(body.tipo) ? body.tipo : 'melhoria';
+  return { titulo, detalhe, tipo };
+}
+rota('GET', '/sugestoes', async ({ usuario }) => {
+  const gerencia = gerenciaSugestoes(usuario);
+  // Todos veem as sugestões de todos (para não repetir e acompanhar o que vem por aí); recusada, só quem sugeriu e quem gerencia
+  const itens = await query(`
+    SELECT s.id, s.titulo, s.detalhe, s.tipo, s.status, s.resposta, s.dt_criacao, s.dt_status,
+           u.nome AS autor, CASE WHEN s.criado_por = @eu THEN 1 ELSE 0 END AS minha
+      FROM dbo.sugestoes s LEFT JOIN dbo.usuarios u ON u.id = s.criado_por
+     WHERE s.status <> 'recusada' OR s.criado_por = @eu OR @ger = 1
+     ORDER BY s.dt_criacao DESC, s.id DESC`, { eu: usuario.id, ger: gerencia ? 1 : 0 });
+  return { itens: itens.map((i) => ({ ...i, minha: !!i.minha })), gerencia };
+});
+rota('POST', '/sugestoes', async ({ body, usuario, ip }) => {
+  const d = dadosSugestao(body);
+  // Freio contra enxurrada (ou robô): até 15 sugestões por conta em 24 horas
+  const n = await umaLinha('SELECT COUNT(*) AS n FROM dbo.sugestoes WHERE criado_por = @eu AND dt_criacao > DATEADD(HOUR, -24, SYSUTCDATETIME())', { eu: usuario.id });
+  if (n.n >= 15) throw new HttpError(429, 'Você já mandou muitas sugestões hoje. Tente de novo amanhã.');
+  const r = await umaLinha(`INSERT INTO dbo.sugestoes (titulo, detalhe, tipo, criado_por) OUTPUT inserted.id VALUES (@titulo, @detalhe, @tipo, @eu)`, { ...d, eu: usuario.id });
+  await seg.registrar('sugestao_enviada', { usuario, ip, detalhe: d.titulo });
+  return { id: r.id };
+});
+rota('PUT', '/sugestoes/:id', async ({ params, body, usuario, ip }) => {
+  const id = int(params.id);
+  const atual = await umaLinha('SELECT criado_por, status, resposta FROM dbo.sugestoes WHERE id = @id', { id });
+  if (!atual) throw new HttpError(404, 'Sugestão não encontrada.');
+  const gerencia = gerenciaSugestoes(usuario);
+  if (!gerencia && !(atual.criado_por === usuario.id && atual.status === 'nova'))
+    throw new HttpError(403, 'Só dá para corrigir a sua sugestão enquanto ela ainda não foi respondida.');
+  // Só o status (botões rápidos de quem gerencia) ou o texto também
+  const soStatus = body.titulo === undefined;
+  const d = soStatus ? null : dadosSugestao(body);
+  let status = atual.status, resposta = atual.resposta;
+  if (gerencia) {
+    if (body.status !== undefined) {
+      if (!SUG_STATUS.includes(body.status)) throw new HttpError(400, 'Situação inválida.');
+      status = body.status;
+    }
+    if (body.resposta !== undefined) resposta = txt(body.resposta, 500);
+  }
+  if (soStatus && status === atual.status && resposta === atual.resposta) return { ok: true };
+  await query(`UPDATE dbo.sugestoes SET
+      titulo = COALESCE(@titulo, titulo), detalhe = CASE WHEN @soStatus = 1 THEN detalhe ELSE @detalhe END, tipo = COALESCE(@tipo, tipo),
+      dt_status = CASE WHEN status <> @status THEN SYSUTCDATETIME() ELSE dt_status END, status = @status, resposta = @resposta
+    WHERE id = @id`, { id, titulo: d?.titulo || null, detalhe: d?.detalhe || null, tipo: d?.tipo || null, soStatus: soStatus ? 1 : 0, status, resposta });
+  await seg.registrar('sugestao_alterada', { usuario, ip, detalhe: `${id}: ${status}${d ? ` · ${d.titulo}` : ''}`.slice(0, 400) });
+  return { ok: true };
+});
+rota('DELETE', '/sugestoes/:id', async ({ params, usuario, ip }) => {
+  const id = int(params.id);
+  const atual = await umaLinha('SELECT criado_por, status, titulo FROM dbo.sugestoes WHERE id = @id', { id });
+  if (!atual) return { ok: true };
+  if (!gerenciaSugestoes(usuario) && !(atual.criado_por === usuario.id && atual.status === 'nova'))
+    throw new HttpError(403, 'Só dá para apagar a sua sugestão enquanto ela ainda não foi respondida.');
+  await query('DELETE FROM dbo.sugestoes WHERE id = @id', { id });
+  await seg.registrar('sugestao_apagada', { usuario, ip, detalhe: atual.titulo });
   return { ok: true };
 });
 

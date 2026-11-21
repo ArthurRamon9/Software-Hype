@@ -16,6 +16,7 @@ import * as agenda from './pages/agenda.js';
 import * as escalas from './pages/escalas.js';
 import * as financeiro from './pages/financeiro.js';
 import * as documentos from './pages/documentos.js';
+import * as sugestoes from './pages/sugestoes.js';
 
 // Sem zoom de pinça no celular (o Safari do iPhone ignora o user-scalable=no do index.html)
 ['gesturestart', 'gesturechange'].forEach((t) => document.addEventListener(t, (e) => e.preventDefault(), { passive: false }));
@@ -47,6 +48,7 @@ const PRIVADAS = [
   ['/escalas', escalas.render],
   ['/financeiro', financeiro.render, ['financeiro.ver']],
   ['/documentos', documentos.render],
+  ['/sugestoes', sugestoes.render],
   ['/conta', acesso.minhaConta],
 ];
 
@@ -55,7 +57,7 @@ const proximaSextaMes = () => { const d = new Date(); d.setHours(12); while (d.g
 const BUSCA_DA_TELA = {
   '/': () => ['/painel'], '/pessoas': () => ['/pessoas', '/ministerios'], '/integracao': () => ['/integracao'], '/pastoral': () => ['/pastoral'],
   '/relatorios': () => ['/encontros'], '/escalas': () => [`/escalas?mes=${proximaSextaMes()}`, '/escalas/minhas'], '/agenda': () => ['/agenda?periodo=proximas'],
-  '/ministerios': () => ['/ministerios'], '/acessos': () => ['/acessos'], '/financeiro': () => [`/financeiro?ano=${new Date().getFullYear()}`], '/documentos': () => ['/documentos'],
+  '/ministerios': () => ['/ministerios'], '/acessos': () => ['/acessos'], '/financeiro': () => [`/financeiro?ano=${new Date().getFullYear()}`], '/documentos': () => ['/documentos'], '/sugestoes': () => ['/sugestoes'],
 };
 const MENU = [
   { href: '/', rotulo: 'Início', ic: 'inicio', mob: true },
@@ -68,12 +70,13 @@ const MENU = [
   { href: '/agenda', rotulo: 'Agenda', ic: 'agenda', mob: true },
   { href: '/documentos', rotulo: 'Documentos', ic: 'documentos' },
   { href: '/financeiro', rotulo: 'Financeiro', ic: 'financeiro', perm: ['financeiro.ver'] },
+  { href: '/sugestoes', rotulo: 'Sugestões', ic: 'sugestoes', cont: 'sugestoes' },
   { grupo: 'Cadastros', perm: ['pessoas.ver', 'ministerios.editar', 'acessos.gerenciar'] },
   { href: '/ministerios', rotulo: 'Ministérios', ic: 'ministerios', perm: ['pessoas.ver', 'ministerios.editar'] },
   { href: '/acessos', rotulo: 'Acessos', ic: 'acessos', cont: 'pendentes', perm: ['acessos.gerenciar'] },
 ];
 const permitido = (perms) => !perms || podeAlgum(...perms);
-const contadores = { pastoral: 0, pendentes: 0, integracao: 0 };
+const contadores = { pastoral: 0, pendentes: 0, integracao: 0, sugestoes: 0 };
 
 export const navegar = (c) => { location.hash = '#' + c; };
 export const caminhoAtual = () => location.hash.replace(/^#/, '').split('?')[0] || '/';

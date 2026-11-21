@@ -23,6 +23,7 @@ const ACOES = {
   chamada_salva: 'Salvou chamada', pessoas_importadas: 'Importou planilha', casos_concluidos: 'Concluiu acompanhamentos', casos_designados: 'Designou acompanhamentos',
   casos_enviados: 'Enviou ao responsável', chamada_excluida: 'Apagou chamada', caso_excluido: 'Apagou acompanhamento', ver_como: 'Ver como',
   reuniao_salva: 'Salvou reunião', reuniao_cancelada: 'Cancelou reunião', escala_salva: 'Salvou escala',
+  sugestao_enviada: 'Enviou sugestão', sugestao_alterada: 'Alterou sugestão', sugestao_apagada: 'Apagou sugestão',
 };
 const dataHora = (iso) => new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
 

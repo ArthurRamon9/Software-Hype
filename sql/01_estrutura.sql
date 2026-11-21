@@ -255,6 +255,7 @@ USING (VALUES
     ('financeiro.editar',  N'Lançar e corrigir verba, despesas e entradas', 71),
     ('financeiro.excluir', N'Apagar lançamentos do financeiro', 72),
     ('documentos.gerenciar', N'Documentos: adicionar e corrigir links do Drive de todos os ministérios', 80),
+    ('sugestoes.gerenciar', N'Sugestões: aceitar, recusar e organizar a fila de trabalho do site', 90),
     ('acessos.gerenciar',  N'Liberar usuários, gerenciar grupos e ver o registro de atividades', 60)
 ) AS s (codigo, descricao, ordem) ON t.codigo = s.codigo
 WHEN MATCHED THEN UPDATE SET descricao = s.descricao, ordem = s.ordem
@@ -658,4 +659,27 @@ BEGIN
      WHERE nome = N'Administração' AND descricao = N'Cadastra pessoas, faz a chamada, cuida dos ministérios, vê e baixa relatórios e cuida do financeiro. Não apaga nada';
     INSERT INTO dbo.sementes (chave) VALUES (N'v8:financeiro_excluir');
 END
+GO
+
+/* =========================================================================
+   v9: Sugestões. Qualquer conta liberada sugere ideias e melhorias para o site;
+   quem tem sugestoes.gerenciar (administradores) aceita ou recusa, e o que foi
+   aceito vira a fila de trabalho (a fazer -> fazendo -> feita).
+   ========================================================================= */
+IF OBJECT_ID('dbo.sugestoes') IS NULL
+CREATE TABLE dbo.sugestoes (
+    id          INT IDENTITY(1,1) CONSTRAINT pk_sugestoes PRIMARY KEY,
+    titulo      NVARCHAR(150)  NOT NULL,
+    detalhe     NVARCHAR(2000) NULL,
+    tipo        VARCHAR(20)    NOT NULL CONSTRAINT df_sug_tipo DEFAULT 'melhoria'
+                CONSTRAINT ck_sug_tipo CHECK (tipo IN ('ideia', 'melhoria', 'problema')),
+    status      VARCHAR(20)    NOT NULL CONSTRAINT df_sug_status DEFAULT 'nova'
+                CONSTRAINT ck_sug_status CHECK (status IN ('nova', 'aceita', 'fazendo', 'feita', 'recusada')),
+    resposta    NVARCHAR(500)  NULL,      -- recado de quem cuida do site para quem sugeriu
+    criado_por  INT NULL CONSTRAINT fk_sug_usuario REFERENCES dbo.usuarios(id) ON DELETE SET NULL,
+    dt_criacao  DATETIME2(0) NOT NULL CONSTRAINT df_sug_criacao DEFAULT SYSUTCDATETIME(),
+    dt_status   DATETIME2(0) NULL         -- quando o status mudou pela última vez
+);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'ix_sugestoes_status')
+    CREATE INDEX ix_sugestoes_status ON dbo.sugestoes (status, dt_criacao);
 GO
