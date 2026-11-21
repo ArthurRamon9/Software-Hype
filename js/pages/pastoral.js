@@ -365,7 +365,7 @@ async function renderArea(conteudo, area) {
         ${gestor ? `<div class="abas" id="abas-casos"><button data-f="ativos" class="${!concluidos ? 'ativo' : ''}">Em andamento (${casos.filter((c) => c.status !== 'concluido').length})</button>
           <button data-f="concluidos" class="${concluidos ? 'ativo' : ''}">Concluídos (${casos.filter((c) => c.status === 'concluido').length})</button></div>` : `<span class="muted small">${casos.length} com você</span>`}
       </div>
-      <div class="filtros" id="linha-filtros">
+      <div class="filtros" id="linha-filtros"${!gestor && casos.filter((c) => c.status !== 'concluido').length <= 8 ? ' style="display:none"' : ''}>
         <input class="input busca" id="busca-caso" type="search" placeholder="Buscar nome" value="${esc(f.busca)}">
         <button class="btn so-mobile" id="mostrar-filtros" type="button">Filtros</button>
         <div class="filtros-extra" id="filtros-extra">
@@ -395,15 +395,15 @@ async function renderArea(conteudo, area) {
         ${podeExcluir ? `<button class="btn sm danger" id="massa-excluir">${icon('lixeira')} Excluir</button>` : ''}
         <button class="link-btn small" id="massa-limpar">Cancelar seleção</button>
       </div>
-      <div class="tabela-wrap rolagem so-computador"><table class="tabela tabela-larga${temSel ? ' com-sel' : ''}">
+      <div class="tabela-wrap rolagem so-computador${gestor ? '' : ' hidden'}"><table class="tabela tabela-larga${temSel ? ' com-sel' : ''}">
         <thead><tr>
           ${temSel ? '<th class="sel"><input type="checkbox" id="sel-todos" aria-label="Selecionar todos"></th>' : ''}
           ${th('pessoa', 'Pessoa', 'fixa')}${concluidos ? th('desfecho', 'Como terminou') : th('situacao', 'Situação')}${th('faltas', 'Hypes sem vir', 'dir')}${gestor ? th('responsavel', ROTULO_RESP[area]) : ''}${th('motivo', 'Motivo')}
           ${th('contatos', 'Contatos', 'dir')}${concluidos ? th('conclusao', 'Concluído em') : th('ultimo_contato', 'Último contato')}${th('aberto', 'Aberto em')}<th class="dir">Ações</th></tr></thead>
         <tbody id="casos"></tbody>
       </table></div>
-      <div class="cartoes-casos so-mobile" id="cartoes"></div>
-      <div class="filtros" style="border-top:1px solid var(--line);border-bottom:0"><span class="muted small" id="total-casos"></span></div>
+      <div class="cartoes-casos${gestor ? ' so-mobile' : ' meus'}" id="cartoes"></div>
+      <div class="filtros${gestor ? '' : ' hidden'}" style="border-top:1px solid var(--line);border-bottom:0"><span class="muted small" id="total-casos"></span></div>
     </section>
     ${blocoEspera}`;
 
@@ -450,7 +450,7 @@ async function renderArea(conteudo, area) {
     $('#cartoes').innerHTML = l.length ? l.map((c) => `<div class="cartao-caso ${c.sem_retorno ? 'sem-retorno' : ''}" data-caso="${c.id}">
         <div class="topo-cartao">${foto(c.pessoa_nome, urlFoto(c.pessoa_id, c.foto_v))}<div class="cresce"><b>${esc(c.pessoa_nome)}</b>${c.pessoa_referencia ? `<span>${esc(c.pessoa_referencia)}</span>` : ''}</div>
           <span class="small">${situacao(c)}</span></div>
-        <div class="info-cartao">${ultimaVez({ ultima_presenca: c.ultima_presenca })}${gestor ? `<span>${ROTULO_RESP[area]}: ${resp(c)}</span>` : ''}<span>${c.contatos} contato${c.contatos === 1 ? '' : 's'}${c.ultimo_registro ? ` · último ${haQuanto(c.ultimo_registro)}` : ''}</span></div>
+        <div class="info-cartao">${c.motivo ? `<span>${esc(c.motivo)}</span>` : ''}${ultimaVez({ ultima_presenca: c.ultima_presenca })}${gestor ? `<span>${ROTULO_RESP[area]}: ${resp(c)}</span>` : ''}<span>${c.contatos} contato${c.contatos === 1 ? '' : 's'}${c.ultimo_registro ? ` · último ${haQuanto(c.ultimo_registro)}` : ''}</span></div>
         <div class="acoes-cartao">${botoesLinha(c)}<button class="btn sm primary" data-abrir="${c.id}">${podeEditar && c.status !== 'concluido' ? 'Registrar contato' : 'Abrir'}</button></div>
       </div>`).join('') : '<div class="vazio">Nada por aqui.</div>';
     const n = selecionados.size;

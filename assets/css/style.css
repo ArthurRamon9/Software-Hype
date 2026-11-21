@@ -1138,3 +1138,12 @@ a.pasta:hover .pasta-seta { color: var(--c, var(--accent)); transform: translate
 .acoes-linha .btn-icone { width: 30px; height: 30px; border-radius: 8px; vertical-align: middle; }
 .acoes-linha .btn-icone svg.i { width: 16px; height: 16px; }
 .acoes-linha .btn { vertical-align: middle; }
+/* Pastoral/Integração de quem só cuida dos seus: cartões simples também no computador (sem a tabela larga) */
+.cartoes-casos.meus { display: grid; }
+@media (min-width: 721px) {
+  .cartoes-casos.meus .cartao-caso { grid-template-columns: minmax(360px, 1.2fr) 1.6fr 250px; align-items: center; gap: 20px; padding: 14px 18px; }
+  .cartoes-casos.meus .topo-cartao .cresce { min-width: 160px; }
+  .cartoes-casos.meus .topo-cartao > .small { flex: none; white-space: nowrap; }
+  .cartoes-casos.meus .cartao-caso:last-child { border-bottom: 0; }
+  .cartoes-casos.meus .info-cartao { padding-left: 0; }
+}
