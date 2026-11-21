@@ -1138,12 +1138,24 @@ a.pasta:hover .pasta-seta { color: var(--c, var(--accent)); transform: translate
 .acoes-linha .btn-icone { width: 30px; height: 30px; border-radius: 8px; vertical-align: middle; }
 .acoes-linha .btn-icone svg.i { width: 16px; height: 16px; }
 .acoes-linha .btn { vertical-align: middle; }
-/* Pastoral/Integração de quem só cuida dos seus: cartões simples também no computador (sem a tabela larga) */
+/* Cartões dos acompanhamentos: nome, situação, uma linha de detalhes e botões grandes (celular e quem só cuida dos seus) */
+.cartao-caso { padding: 14px 16px; gap: 10px; }
+.cartao-caso .topo-cartao b { font-size: 15.5px; line-height: 1.25; }
+.cartao-caso .info-cartao { display: grid; gap: 4px; padding-left: 46px; }
+.situ-cartao { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 13.5px; color: var(--ink); }
+.resp-cartao { color: var(--ink-2); }
+.meta-cartao { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 7px; font-size: 12.5px; color: var(--muted); }
+.meta-cartao .sep { font-style: normal; opacity: .6; }
+.meta-cartao .freq { gap: 5px; }
+.meta-cartao .freq i { width: 6px; height: 6px; }
+.acoes-cartao { display: flex; gap: 8px; }
+.acoes-cartao .btn { flex: 1; justify-content: center; height: 38px; }
+.acoes-cartao .btn-icone { flex: none; }
+.btn.zap-txt { color: var(--accent); gap: 7px; }
+.btn.zap-txt svg.i { width: 17px; height: 17px; }
 .cartoes-casos.meus { display: grid; }
 @media (min-width: 721px) {
-  .cartoes-casos.meus .cartao-caso { grid-template-columns: minmax(360px, 1.2fr) 1.6fr 250px; align-items: center; gap: 20px; padding: 14px 18px; }
-  .cartoes-casos.meus .topo-cartao .cresce { min-width: 160px; }
-  .cartoes-casos.meus .topo-cartao > .small { flex: none; white-space: nowrap; }
+  .cartoes-casos.meus .cartao-caso { grid-template-columns: minmax(260px, 1fr) 1.4fr 300px; align-items: center; gap: 20px; padding: 14px 18px; }
   .cartoes-casos.meus .cartao-caso:last-child { border-bottom: 0; }
   .cartoes-casos.meus .info-cartao { padding-left: 0; }
 }

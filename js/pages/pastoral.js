@@ -447,12 +447,17 @@ async function renderArea(conteudo, area) {
         <td class="muted small" style="white-space:nowrap">${fmtData(c.dt_abertura)}</td>
         <td class="dir acoes-linha">${botoesLinha(c)}</td>
       </tr>`).join('') : `<tr><td colspan="10" class="vazio">${concluidos ? 'Nenhum acompanhamento concluído.' : gestor ? 'Ninguém em acompanhamento. Designe alguém da lista abaixo.' : 'Nenhum acompanhamento com você agora.'}</td></tr>`;
-    $('#cartoes').innerHTML = l.length ? l.map((c) => `<div class="cartao-caso ${c.sem_retorno ? 'sem-retorno' : ''}" data-caso="${c.id}">
-        <div class="topo-cartao">${foto(c.pessoa_nome, urlFoto(c.pessoa_id, c.foto_v))}<div class="cresce"><b>${esc(c.pessoa_nome)}</b>${c.pessoa_referencia ? `<span>${esc(c.pessoa_referencia)}</span>` : ''}</div>
-          <span class="small">${situacao(c)}</span></div>
-        <div class="info-cartao">${c.motivo ? `<span>${esc(c.motivo)}</span>` : ''}${ultimaVez({ ultima_presenca: c.ultima_presenca })}${gestor ? `<span>${ROTULO_RESP[area]}: ${resp(c)}</span>` : ''}<span>${c.contatos} contato${c.contatos === 1 ? '' : 's'}${c.ultimo_registro ? ` · último ${haQuanto(c.ultimo_registro)}` : ''}</span></div>
-        <div class="acoes-cartao">${botoesLinha(c)}<button class="btn sm primary" data-abrir="${c.id}">${podeEditar && c.status !== 'concluido' ? 'Registrar contato' : 'Abrir'}</button></div>
-      </div>`).join('') : '<div class="vazio">Nada por aqui.</div>';
+    // Cartões (celular, e no computador de quem só cuida dos seus): nome, situação, uma linha de detalhes e os botões grandes
+    const sep = '<i class="sep">·</i>';
+    $('#cartoes').innerHTML = l.length ? l.map((c) => { const tel = linkWhats(c.pessoa_telefone, cfg.msg(c.pessoa_nome.split(' ')[0])); return `<div class="cartao-caso ${c.sem_retorno ? 'sem-retorno' : ''}" data-caso="${c.id}">
+        <div class="topo-cartao">${foto(c.pessoa_nome, urlFoto(c.pessoa_id, c.foto_v))}<div class="cresce"><b>${esc(c.pessoa_nome)}</b>${c.pessoa_referencia ? `<span>${esc(c.pessoa_referencia)}</span>` : ''}</div></div>
+        <div class="info-cartao">
+          <div class="situ-cartao"><span>${situacao(c)}</span>${gestor ? `<span class="resp-cartao">${ROTULO_RESP[area]}: ${resp(c)}</span>` : ''}</div>
+          <div class="meta-cartao">${[c.motivo ? `<span>${esc(c.motivo)}</span>` : '', ultimaVez({ ultima_presenca: c.ultima_presenca }),
+            `<span>${c.contatos ? `${c.contatos} contato${c.contatos === 1 ? '' : 's'}${c.ultimo_registro ? `, último ${haQuanto(c.ultimo_registro)}` : ''}` : 'Nenhum contato ainda'}</span>`].filter(Boolean).join(sep)}</div>
+        </div>
+        <div class="acoes-cartao">${tel ? `<a class="btn zap-txt" href="${tel}" target="_blank" rel="noopener" data-nao-abrir>${icon('zap')}WhatsApp</a>` : ''}${botoesLinha(c).replace(/<a class="btn-icone zap"[\s\S]*?<\/a>/, '')}<button class="btn primary" data-abrir="${c.id}">${podeEditar && c.status !== 'concluido' ? 'Registrar contato' : 'Abrir'}</button></div>
+      </div>`; }).join('') : '<div class="vazio">Nada por aqui.</div>';
     const n = selecionados.size;
     const linha = $('#linha-filtros');
     if (n > 0 && !linha.classList.contains('hidden')) $('#massa').style.minHeight = `${Math.min(linha.offsetHeight, 72)}px`;
