@@ -47,7 +47,7 @@ export async function render(conteudo) {
   };
 
   conteudo.innerHTML = `
-    <div class="cabecalho"><div><h1>Agenda</h1><p class="sub">${meusMins.length ? `Reuniões dos seus ministérios: ${esc(meusMins.join(', '))}.` : 'Reuniões dos ministérios do Hype.'}</p></div>
+    <div class="cabecalho"><div><h1>Agenda</h1><p class="sub">${meusMins.length ? `Reuniões dos seus ministérios: ${esc(meusMins.join(', '))}.` : 'Reuniões dos ministérios do Hype.'}${possoCriar.length ? '' : ' Quem marca reuniões é o líder do ministério (marcado como líder em Ministérios).'}</p></div>
       <div class="acoes">${possoCriar.length ? '<button class="btn primary" id="nova">Nova reunião</button>' : ''}</div></div>
     ${!sessao.usuario.pessoa_id && !possoCriar.length ? '<p class="msg aviso" style="margin-bottom:14px">Sua conta ainda não está ligada ao seu cadastro do Hype, então ainda não dá para saber quais são os seus ministérios. Peça a um administrador para ligar.</p>' : ''}
     ${possoCriar.length && !emailAtivo ? '<p class="msg aviso" style="margin-bottom:14px">O e-mail do site não está ligado aqui, então os convites não saem. No site publicado (com o e-mail configurado na Netlify) eles chegam no e-mail e entram sozinhos no Google Agenda de cada participante.</p>' : ''}

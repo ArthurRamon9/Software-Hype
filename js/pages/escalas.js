@@ -38,8 +38,8 @@ export async function render(conteudo) {
   const recarregar = () => render(conteudo).catch(avisoErro);
   const nomeMin = (id) => dados.ministerios.find((m) => m.id === id)?.nome || 'outro ministério';
 
-  // Ministérios que aparecem nas abas: os que têm escala ou funções, e os que eu monto
-  const temEscala = (m) => m.funcoes.length || dados.itens.some((i) => i.ministerio_id === m.id);
+  // Ministérios que aparecem nas abas: os que têm alguém escalado no mês (só funções criadas não contam) e os que eu monto
+  const temEscala = (m) => dados.itens.some((i) => i.ministerio_id === m.id);
   const abas = dados.ministerios.filter((m) => temEscala(m) || m.pode_editar);
   if (!abas.some((m) => m.id === minSel)) {
     minSel = (abas.find((m) => m.pode_editar) || abas.find((m) => meus.has(m.id)) || abas[0])?.id || null;

@@ -26,7 +26,7 @@ const lerValor = (t) => {
 export async function render(conteudo) {
   ano = ano || new Date().getFullYear();
   const { lancamentos, anos, categorias: cadastradas = [] } = await api('GET', `/financeiro?ano=${ano}`);
-  const podeEditar = pode('financeiro.editar'), podeApagar = pode('acessos.gerenciar');
+  const podeEditar = pode('financeiro.editar'), podeApagar = pode('financeiro.excluir') || pode('acessos.gerenciar');
   const recarregar = () => render(conteudo).catch(avisoErro);
   const soma = (t) => lancamentos.filter((l) => l.tipo === t).reduce((s, l) => s + l.valor, 0);
   const verba = soma('verba'), entradas = soma('entrada'), gastos = soma('despesa');

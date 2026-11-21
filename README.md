@@ -128,7 +128,7 @@ Várias pessoas podem fazer a chamada ao mesmo tempo, cada uma no seu celular: c
 | Grupo | O que faz |
 |---|---|
 | Administradores | Tudo, inclusive apagar e "Ver como" |
-| Administração | Cadastro, chamada, ministérios, relatórios, baixar/importar planilhas e financeiro. Não apaga nada |
+| Administração | Cadastro, chamada, ministérios, relatórios, baixar/importar planilhas e financeiro (apaga lançamentos do financeiro; fora isso, não apaga nada) |
 | Cadastro e chamada | Cadastra/atualiza pessoas e faz a chamada (cadastra o visitante na hora). Não apaga nem baixa |
 | Pastoral / Integração | Vê e registra os acompanhamentos que estão com a pessoa |
 | Líderes de equipe | Vê pessoas e relatórios |
@@ -151,7 +151,7 @@ O campo original continua escondido guardando o valor, então o resto do código
   um e-mail por pessoa. Mudou o horário ou cancelou, a agenda deles atualiza sozinha. Cada um vê as reuniões dos seus ministérios.
 - **Escalas:** uma tabela por ministério, no jeito da planilha: colunas = sextas do mês, um bloco por função (Entrada, Saída...) com os nomes um embaixo do outro.
   Funções são criadas pelo próprio líder; sem funções, a escala é só a lista de quem serve.
-  Todos veem as escalas de todos os ministérios; só o líder (ou administrador) altera a do seu. O sistema avisa quando alguém está em dois ministérios na mesma sexta.
+  Todos veem as escalas de todos os ministérios que já têm alguém escalado no mês (só funções criadas não contam); só o líder (ou administrador) altera a do seu. O sistema avisa quando alguém está em dois ministérios na mesma sexta.
   No topo aparecem as próximas sextas em que a pessoa serve. Dá para copiar o texto para o grupo do WhatsApp e baixar em planilha.
 
 ## Aparência

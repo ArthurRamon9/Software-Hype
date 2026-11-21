@@ -253,6 +253,7 @@ USING (VALUES
     ('relatorios.exportar', N'Baixar e importar planilhas e imprimir relatórios', 41),
     ('financeiro.ver',     N'Ver o financeiro (verba, despesas e entradas)', 70),
     ('financeiro.editar',  N'Lançar e corrigir verba, despesas e entradas', 71),
+    ('financeiro.excluir', N'Apagar lançamentos do financeiro', 72),
     ('documentos.gerenciar', N'Documentos: adicionar e corrigir links do Drive de todos os ministérios', 80),
     ('acessos.gerenciar',  N'Liberar usuários, gerenciar grupos e ver o registro de atividades', 60)
 ) AS s (codigo, descricao, ordem) ON t.codigo = s.codigo
@@ -641,5 +642,20 @@ BEGIN
       FROM (SELECT DISTINCT LTRIM(RTRIM(categoria)) AS categoria FROM dbo.fin_lancamentos WHERE categoria IS NOT NULL AND LTRIM(RTRIM(categoria)) <> N'') c
      WHERE NOT EXISTS (SELECT 1 FROM dbo.fin_categorias x WHERE x.nome = c.categoria);
     INSERT INTO dbo.sementes (chave) VALUES (N'v7:fin_categorias');
+END
+GO
+
+/* =========================================================================
+   v8: a Administração passa a poder apagar lançamentos do financeiro
+   (antes só administrador). Dá para tirar no grupo, em Acessos.
+   ========================================================================= */
+IF NOT EXISTS (SELECT 1 FROM dbo.sementes WHERE chave = N'v8:financeiro_excluir')
+BEGIN
+    INSERT INTO dbo.grupo_permissao (grupo_id, permissao)
+    SELECT g.id, 'financeiro.excluir' FROM dbo.grupos g WHERE g.nome = N'Administração'
+      AND NOT EXISTS (SELECT 1 FROM dbo.grupo_permissao x WHERE x.grupo_id = g.id AND x.permissao = 'financeiro.excluir');
+    UPDATE dbo.grupos SET descricao = N'Cadastra pessoas, faz a chamada, cuida dos ministérios, vê e baixa relatórios e cuida do financeiro (inclusive apagar lançamentos)'
+     WHERE nome = N'Administração' AND descricao = N'Cadastra pessoas, faz a chamada, cuida dos ministérios, vê e baixa relatórios e cuida do financeiro. Não apaga nada';
+    INSERT INTO dbo.sementes (chave) VALUES (N'v8:financeiro_excluir');
 END
 GO

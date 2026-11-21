@@ -48,7 +48,7 @@ const PERMISSAO_DA_ROTA = {
   'POST /financeiro':                 'financeiro.editar',
   'PUT /financeiro/categorias':      'financeiro.editar',
   'PUT /financeiro/:id':              'financeiro.editar',
-  'DELETE /financeiro/:id':           'acessos.gerenciar',   // apagar lançamento: só administrador (os outros corrigem editando)
+  'DELETE /financeiro/:id':           ['financeiro.excluir', 'acessos.gerenciar'],   // apagar lançamento: quem tem a permissão (Administração) ou administrador
   'GET /documentos':                  'aprovado',   // cada um vê os dos seus ministérios (a regra está na rota)
   'POST /documentos':                 'aprovado',   // líder do ministério, quem tem documentos.gerenciar ou administrador
   'PUT /documentos/:id':              'aprovado',
