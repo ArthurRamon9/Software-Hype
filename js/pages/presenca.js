@@ -55,7 +55,7 @@ async function desenhar(conteudo, manter = {}) {
       </div>
       <div class="chamada" id="chamada"></div>
       <div class="barra-salvar">
-        <button class="btn" id="resto" ${futura ? 'disabled' : ''} title="Quem não foi marcado entra como falta">${icon('xis')}<span id="resto-txt">Marcar quem falta como ausente</span></button>
+        <button class="btn" id="resto" ${futura ? 'disabled' : ''} title="Quem não foi marcado entra como falta">${icon('xis')}<span>Marcar restantes como ausentes</span></button>
         <button class="btn primary" id="salvar" ${futura ? 'disabled' : ''}>Salvar chamada</button>
       </div>
     </div>
@@ -67,7 +67,6 @@ async function desenhar(conteudo, manter = {}) {
     const resto = lista.filter((x) => esperado(x) && !marca.has(x.id)).length;
     $('#contagem').innerHTML = `<span class="p">${p} presente${p === 1 ? '' : 's'}</span><span class="f">${f} ausente${f === 1 ? '' : 's'}</span>${resto ? `<span>${resto} sem marcar</span>` : ''}`;
     $('#resto').hidden = !resto;
-    $('#resto-txt').textContent = `Marcar ${resto === 1 ? 'o 1 que falta' : `os ${resto} que faltam`} como ausente${resto === 1 ? '' : 's'}`;
   };
   const linha = (p) => {
     const v = marca.get(p.id), j = just.get(p.id);
