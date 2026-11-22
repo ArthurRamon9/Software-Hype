@@ -177,6 +177,9 @@ async function editar(conteudo, r, possoCriar, reunioes = []) {
             const res = await api(novo ? 'POST' : 'PUT', novo ? '/agenda' : `/agenda/${r.id}`, corpo);
             fechar(); render(conteudo).catch(avisoErro);
             const nomeMin = (novo ? possoCriar.find((m) => m.id === mid)?.nome : r.ministerio) || '';
+            // Ao editar, só oferece avisar o grupo se mudou o dia, o horário ou o local
+            const mudouQuando = novo || r.inicio.slice(0, 16) !== `${corpo.data}T${corpo.hora_inicio}` || (corpo.hora_fim && r.fim.slice(11, 16) !== corpo.hora_fim) || (r.local || '') !== corpo.local.trim();
+            if (!mudouQuando) return aviso(`Reunião salva${corpo.enviar ? `: convite enviado a ${res.enviados}` : ''}.`);
             avisarNoGrupo({ titulo: corpo.titulo.trim(), ministerio: nomeMin, inicio: `${corpo.data}T${corpo.hora_inicio}:00`,
               fim: corpo.hora_fim ? `${corpo.data}T${corpo.hora_fim}:00` : '', local: corpo.local.trim(), descricao: corpo.descricao.trim() },
             `${novo ? 'Reunião criada' : 'Reunião salva'}${corpo.enviar ? `: convite enviado a ${res.enviados}` : ''}`);
