@@ -22,7 +22,7 @@ export async function render(conteudo) {
       <tbody>${lista.map((m) => `<tr class="${m.cd_status ? '' : 'inativo'} ${pode('ministerios.editar') ? 'clicavel' : ''}" data-linha="${m.id}">
         <td><span class="ponto" style="background:${esc(m.cor)};margin-right:8px"></span>${esc(m.nome)}${m.cd_status ? '' : ' <span class="tag">inativo</span>'}</td>
         <td class="some-mobile muted">${m.lideres ? `Líder: ${esc(m.lideres)}` : esc(m.descricao || '')}</td>
-        <td class="dir num">${m.pessoas ? `<button class="link-btn" data-ver="${m.id}" title="Ver essas pessoas">${m.pessoas}</button>` : '<span class="muted">0</span>'}</td>
+        <td class="dir num">${m.pessoas && pode('pessoas.ver') ? `<button class="link-btn" data-ver="${m.id}" title="Ver essas pessoas">${m.pessoas}</button>` : `<span class="${m.pessoas ? '' : 'muted'}">${m.pessoas || 0}</span>`}</td>
         <td class="dir">${pode('ministerios.editar') ? `<button class="link-btn" data-editar="${m.id}">Editar</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="4" class="vazio">Nenhum ministério.</td></tr>'}</tbody>
     </table></div></div>`;
 

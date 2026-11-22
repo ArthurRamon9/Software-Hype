@@ -683,3 +683,72 @@ CREATE TABLE dbo.sugestoes (
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'ix_sugestoes_status')
     CREATE INDEX ix_sugestoes_status ON dbo.sugestoes (status, dt_criacao);
 GO
+
+/* =========================================================================
+   v10: participação nas escalas, quantidade/estoque e nota fiscal no financeiro,
+   grupo Financeiro (só quem cuida do dinheiro vê o financeiro).
+   ========================================================================= */
+-- Escala: como cada um serviu (2 = participou, 1 = mais ou menos, 0 = não participou; vazio = não marcado)
+IF COL_LENGTH('dbo.escala_itens', 'participou') IS NULL
+    ALTER TABLE dbo.escala_itens ADD participou TINYINT NULL CONSTRAINT ck_ei_participou CHECK (participou IN (0, 1, 2));
+GO
+-- Financeiro: quantidade comprada (ex.: 5 kg de arroz) e o item do estoque
+IF COL_LENGTH('dbo.fin_lancamentos', 'quantidade') IS NULL
+    ALTER TABLE dbo.fin_lancamentos ADD quantidade DECIMAL(10, 2) NULL, unidade NVARCHAR(12) NULL;
+GO
+IF OBJECT_ID('dbo.fin_itens') IS NULL
+CREATE TABLE dbo.fin_itens (
+    id          INT IDENTITY(1,1) CONSTRAINT pk_fin_itens PRIMARY KEY,
+    nome        NVARCHAR(80) NOT NULL CONSTRAINT uq_fin_itens_nome UNIQUE,
+    unidade     NVARCHAR(12) NULL,              -- kg, un, pct, L, cx...
+    minimo      DECIMAL(10, 2) NULL,            -- abaixo disso aparece o aviso "Comprar"
+    cd_status   TINYINT NOT NULL CONSTRAINT df_fin_itens_status DEFAULT 1,
+    dt_criacao  DATETIME2(0) NOT NULL CONSTRAINT df_fin_itens_criacao DEFAULT SYSUTCDATETIME()
+);
+-- Movimentos do estoque: positivo entra (compra, doação), negativo sai (usado numa sexta)
+IF OBJECT_ID('dbo.fin_estoque') IS NULL
+CREATE TABLE dbo.fin_estoque (
+    id             INT IDENTITY(1,1) CONSTRAINT pk_fin_estoque PRIMARY KEY,
+    item_id        INT NOT NULL CONSTRAINT fk_fe_item REFERENCES dbo.fin_itens(id) ON DELETE CASCADE,
+    data           DATE NOT NULL,
+    quantidade     DECIMAL(10, 2) NOT NULL CONSTRAINT ck_fe_qtd CHECK (quantidade <> 0),
+    lancamento_id  INT NULL CONSTRAINT fk_fe_lancamento REFERENCES dbo.fin_lancamentos(id) ON DELETE CASCADE,  -- a compra que trouxe
+    obs            NVARCHAR(200) NULL,
+    criado_por     INT NULL,
+    dt_criacao     DATETIME2(0) NOT NULL CONSTRAINT df_fe_criacao DEFAULT SYSUTCDATETIME()
+);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'ix_fin_estoque_item')
+    CREATE INDEX ix_fin_estoque_item ON dbo.fin_estoque (item_id, data);
+GO
+-- Nota fiscal do lançamento (opcional): foto reduzida no celular (JPEG) ou PDF, até 1 MB
+IF OBJECT_ID('dbo.fin_notas') IS NULL
+CREATE TABLE dbo.fin_notas (
+    lancamento_id  INT NOT NULL CONSTRAINT pk_fin_notas PRIMARY KEY
+                   CONSTRAINT fk_fn_lancamento REFERENCES dbo.fin_lancamentos(id) ON DELETE CASCADE,
+    tipo           VARCHAR(40) NOT NULL CONSTRAINT ck_fn_tipo CHECK (tipo IN ('image/jpeg', 'application/pdf')),
+    nome           NVARCHAR(150) NULL,
+    tamanho        INT NOT NULL,
+    dados          VARBINARY(MAX) NOT NULL,
+    enviado_por    INT NULL,
+    dt_envio       DATETIME2(0) NOT NULL CONSTRAINT df_fn_envio DEFAULT SYSUTCDATETIME()
+);
+GO
+-- Grupo Financeiro: o financeiro sai da Administração e fica só com quem cuida do dinheiro
+-- (depois de rodar, coloque essas pessoas no grupo Financeiro em Acessos → Grupos)
+IF NOT EXISTS (SELECT 1 FROM dbo.sementes WHERE chave = N'v10:grupo_financeiro')
+BEGIN
+    SET XACT_ABORT ON;
+    BEGIN TRAN;
+    IF NOT EXISTS (SELECT 1 FROM dbo.grupos WHERE nome = N'Financeiro')
+        INSERT INTO dbo.grupos (nome, descricao, sistema) VALUES (N'Financeiro', N'Vê e cuida do financeiro: verba, despesas, entradas, estoque e notas fiscais', 0);
+    INSERT INTO dbo.grupo_permissao (grupo_id, permissao)
+    SELECT g.id, p.codigo FROM dbo.grupos g CROSS JOIN (VALUES ('financeiro.ver'), ('financeiro.editar'), ('financeiro.excluir')) p (codigo)
+     WHERE g.nome = N'Financeiro' AND NOT EXISTS (SELECT 1 FROM dbo.grupo_permissao x WHERE x.grupo_id = g.id AND x.permissao = p.codigo);
+    DELETE gp FROM dbo.grupo_permissao gp JOIN dbo.grupos g ON g.id = gp.grupo_id
+     WHERE g.nome = N'Administração' AND gp.permissao IN ('financeiro.ver', 'financeiro.editar', 'financeiro.excluir');
+    UPDATE dbo.grupos SET descricao = N'Cadastra pessoas, faz a chamada, cuida dos ministérios e vê e baixa relatórios. O financeiro fica com o grupo Financeiro'
+     WHERE nome = N'Administração';
+    INSERT INTO dbo.sementes (chave) VALUES (N'v10:grupo_financeiro');
+    COMMIT;
+END
+GO

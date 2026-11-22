@@ -106,4 +106,16 @@ async function emailConvites(reuniao, convidados, { cancelar = false } = {}) {
   return resultados.filter((r) => r.status === 'fulfilled').length;
 }
 
-module.exports = { emailRedefinirSenha, emailNovoCadastro, emailConvites };
+// Quem acompanha alguém (Pastoral ou Integração) fica sabendo quando a pessoa veio ao Hype
+function emailVeioAoHype(para, nomeResp, pessoas, dataBR, link) {
+  const nomes = pessoas.map((p) => `<b>${esc(p.nome)}</b>${p.area === 'integracao' ? ' (Integração)' : ''}`);
+  const lista = nomes.length === 1 ? nomes[0] : `${nomes.slice(0, -1).join(', ')} e ${nomes.at(-1)}`;
+  return enviar(para, `${pessoas.length === 1 ? pessoas[0].nome : `${pessoas.length} pessoas que você acompanha`} veio ao Hype`, layout({
+    titulo: pessoas.length === 1 ? 'Veio ao Hype' : 'Vieram ao Hype',
+    paragrafos: [`Olá, ${esc(nomeResp.split(' ')[0])}.`,
+      `${lista} ${pessoas.length === 1 ? 'esteve' : 'estiveram'} no Hype na sexta ${esc(dataBR)}. ${pessoas.length === 1 ? 'Você acompanha essa pessoa' : 'Você acompanha essas pessoas'}: é uma boa hora para conversar e registrar como foi.`],
+    botao: 'Abrir no site', link,
+  }));
+}
+
+module.exports = { emailRedefinirSenha, emailNovoCadastro, emailConvites, emailVeioAoHype };

@@ -8,7 +8,7 @@
 //   'x.y' ou ['x.y','z.w'] -> precisa ter ao menos uma dessas permissões (vindas dos grupos)
 const crypto = require('crypto');
 const { query, umaLinha, HttpError } = require('./db');
-const { emailRedefinirSenha, emailNovoCadastro, emailConvites } = require('./email');
+const { emailRedefinirSenha, emailNovoCadastro, emailConvites, emailVeioAoHype } = require('./email');
 const seg = require('./seguranca');
 
 const FALTAS_ALERTA = Number(process.env.FALTAS_ALERTA || 2);
@@ -27,6 +27,7 @@ const PERMISSAO_DA_ROTA = {
   'POST /pessoas':                    ['pessoas.editar', 'presenca.marcar'],  // quem faz chamada cadastra visitante novo
   'POST /pessoas/importar':           'relatorios.exportar',   // importar em massa: só quem pode baixar/importar planilhas
   'PUT /pessoas/:id':                 'pessoas.editar',
+  'POST /pessoas/arquivar':           'pessoas.editar',
   'DELETE /pessoas/:id':              'pessoas.excluir',
   'PUT /pessoas/:id/foto':            'pessoas.editar',
   'DELETE /pessoas/:id/foto':         'pessoas.editar',
@@ -48,7 +49,14 @@ const PERMISSAO_DA_ROTA = {
   'POST /financeiro':                 'financeiro.editar',
   'PUT /financeiro/categorias':      'financeiro.editar',
   'PUT /financeiro/:id':              'financeiro.editar',
-  'DELETE /financeiro/:id':           ['financeiro.excluir', 'acessos.gerenciar'],   // apagar lançamento: quem tem a permissão (Administração) ou administrador
+  'DELETE /financeiro/:id':           ['financeiro.excluir', 'acessos.gerenciar'],   // apagar lançamento: quem tem a permissão (Financeiro) ou administrador
+  'GET /financeiro/:id/nota':         'financeiro.ver',
+  'PUT /financeiro/:id/nota':         'financeiro.editar',
+  'DELETE /financeiro/:id/nota':      'financeiro.editar',
+  'GET /financeiro/estoque/:id':      'financeiro.ver',
+  'POST /financeiro/estoque':         'financeiro.editar',
+  'PUT /financeiro/estoque/:id':      'financeiro.editar',
+  'DELETE /financeiro/estoque/mov/:id': 'financeiro.editar',
   // Sugestões: qualquer conta liberada sugere; aceitar, recusar e mexer na fila é de quem tem sugestoes.gerenciar (regra na rota)
   'GET /sugestoes':                   'aprovado',
   'POST /sugestoes':                  'aprovado',
@@ -66,6 +74,10 @@ const PERMISSAO_DA_ROTA = {
   'POST /escalas/:ministerio/funcoes': 'aprovado',
   'PUT /escalas/funcoes/:id':         'aprovado',
   'DELETE /escalas/funcoes/:id':      'aprovado',
+  'PUT /escalas/:ministerio/:data/participacao': 'aprovado',   // líder do ministério ou administrador (regra na rota)
+  'POST /escalas/:ministerio/copiar': 'aprovado',
+  'POST /escalas/:ministerio/limpar': 'aprovado',
+  'GET /escalas/relatorio':           'aprovado',   // só os ministérios que a pessoa lidera (administrador: todos)
 };
 
 // ------------------------------------------------------------------ util
@@ -406,13 +418,15 @@ rota('GET', '/contadores', async ({ usuario }) => {
 });
 
 // ------------------------------------------------------------------ MINISTÉRIOS
-rota('GET', '/ministerios', async () => query(`
+rota('GET', '/ministerios', async ({ usuario }) => (await query(`
   SELECT m.id, m.nome, m.descricao, m.cor, m.cd_status, m.drive_url,
          (SELECT COUNT(*) FROM dbo.pessoa_ministerio pm JOIN dbo.pessoas p ON p.id = pm.pessoa_id
            WHERE pm.ministerio_id = m.id AND p.cd_status = 1) AS pessoas,
          (SELECT STRING_AGG(p.nome, ', ') FROM dbo.pessoa_ministerio pm JOIN dbo.pessoas p ON p.id = pm.pessoa_id
            WHERE pm.ministerio_id = m.id AND p.cd_status = 1 AND pm.lider = 1) AS lideres
-  FROM dbo.ministerios m ORDER BY m.nome`));
+  FROM dbo.ministerios m ORDER BY m.nome`))
+  // a pasta do Drive do ministério só vai para quem pode ver os documentos dele (todo mundo vê a lista de ministérios)
+  .map((m) => (pode(usuario, 'ministerios.editar') || veTodosDocumentos(usuario) || meusMinisterios(usuario).includes(m.id) ? m : { ...m, drive_url: null })));
 
 function dadosMinisterio(b) {
   const nome = txt(b.nome, 80);
@@ -537,10 +551,14 @@ function dadosPessoa(b) {
     ministerios: JSON.stringify((Array.isArray(b.ministerios) ? b.ministerios : []).map(Number).filter(Number.isInteger)),
   };
 }
+// Mexe só no que mudou: quem continua no ministério mantém a marca de líder
+// (antes apagava tudo e regravava, e o líder perdia a marca a cada edição do cadastro).
 const SQL_MINISTERIOS = `
-  DELETE FROM dbo.pessoa_ministerio WHERE pessoa_id = @pid;
+  DELETE FROM dbo.pessoa_ministerio WHERE pessoa_id = @pid
+     AND ministerio_id NOT IN (SELECT TRY_CAST(value AS INT) FROM OPENJSON(@ministerios) WHERE TRY_CAST(value AS INT) IS NOT NULL);
   INSERT INTO dbo.pessoa_ministerio (pessoa_id, ministerio_id)
-  SELECT DISTINCT @pid, j.value FROM OPENJSON(@ministerios) j JOIN dbo.ministerios m ON m.id = j.value;`;
+  SELECT DISTINCT @pid, m.id FROM OPENJSON(@ministerios) j JOIN dbo.ministerios m ON m.id = TRY_CAST(j.value AS INT)
+   WHERE NOT EXISTS (SELECT 1 FROM dbo.pessoa_ministerio x WHERE x.pessoa_id = @pid AND x.ministerio_id = m.id);`;
 
 rota('POST', '/pessoas', async ({ body, usuario, ip }) => {
   const d = dadosPessoa(body);
@@ -629,6 +647,17 @@ rota('PUT', '/pessoas/:id', async ({ params, body, usuario, ip }) => {
   return { id: int(params.id) };
 });
 
+// Arquivar quem parou de vir (ou tirar do arquivo): sai das listas e da chamada, o histórico fica
+rota('POST', '/pessoas/arquivar', async ({ body, usuario, ip }) => {
+  const ids = [...new Set((Array.isArray(body.ids) ? body.ids : []).map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 2000);
+  if (!ids.length) throw new HttpError(400, 'Ninguém para arquivar.');
+  const arquivar = body.arquivar !== false;
+  const r = await umaLinha(`UPDATE dbo.pessoas SET cd_status = @st, dt_atualizacao = SYSUTCDATETIME() WHERE id IN (SELECT value FROM OPENJSON(@ids)) AND cd_status <> @st;
+    SELECT @@ROWCOUNT AS n;`, { st: arquivar ? 0 : 1, ids: JSON.stringify(ids) });
+  await seg.registrar(arquivar ? 'pessoas_arquivadas' : 'pessoas_desarquivadas', { usuario, ip, detalhe: `${r.n} pessoa(s)` });
+  return { alteradas: r.n };
+});
+
 rota('DELETE', '/pessoas/:id', async ({ params, usuario, ip }) => {
   const p = await umaLinha('DELETE FROM dbo.pessoas OUTPUT deleted.nome WHERE id = @id', { id: int(params.id) });
   if (p) await seg.registrar('pessoa_excluida', { usuario, ip, detalhe: `${p.nome} (id ${params.id})` });
@@ -664,8 +693,7 @@ rota('GET', '/presenca', async ({ query: q }) => {
     SELECT p.id, p.nome, p.referencia, p.tipo, p.cd_status, p.data_cadastro, CONVERT(VARCHAR(30), f.dt_atualizacao, 126) AS foto_v,
            (SELECT MAX(e.data) FROM dbo.presencas pr2 JOIN dbo.encontros e ON e.id = pr2.encontro_id WHERE pr2.pessoa_id = p.id AND pr2.presente = 1) AS ultima_presenca
       FROM dbo.pessoas p LEFT JOIN dbo.pessoas_foto f ON f.pessoa_id = p.id
-     WHERE p.cd_status = 1 OR EXISTS (SELECT 1 FROM dbo.presencas x WHERE x.encontro_id = @eid AND x.pessoa_id = p.id)
-     ORDER BY p.nome;
+     ORDER BY p.nome;   -- todos: os arquivados só aparecem na busca da chamada (e saem do arquivo se vierem)
     SELECT pessoa_id, presente, justificativa FROM dbo.presencas WHERE encontro_id = @eid;`, { data }, { todos: true });
   return { encontro: enc[0] || null, pessoas, registros };
 });
@@ -677,7 +705,37 @@ rota('GET', '/presenca', async ({ query: q }) => {
 //  - remover:   [pessoa_id]  (quem foi desmarcado neste celular)
 //  - tema:      só muda se vier no pedido (o tema que outra pessoa escreveu não some)
 // Também aceita o formato antigo { registros: [...] } (mesclando, sem apagar os outros).
-rota('POST', '/presenca', async ({ body, usuario, ip }) => {
+// Veio ao Hype quem está sendo acompanhado (com responsável): fica anotado no acompanhamento
+// e o responsável recebe um e-mail (uma vez por sexta). Só para chamadas da última semana.
+const SQL_VEIO_AO_HYPE = `
+  DECLARE @avisar TABLE (caso_id INT);
+  INSERT INTO dbo.pastoral_registros (caso_id, texto, autor_nome)
+  OUTPUT inserted.caso_id INTO @avisar
+  SELECT c.id, @texto, N'Sistema' FROM dbo.pastoral_casos c
+   WHERE c.status <> 'concluido' AND c.responsavel_pessoa_id IS NOT NULL
+     AND c.pessoa_id IN (SELECT value FROM OPENJSON(@presentes))
+     AND @data > CAST(DATEADD(HOUR, -3, c.dt_abertura) AS DATE)
+     AND EXISTS (SELECT 1 FROM dbo.presencas pr JOIN dbo.encontros e ON e.id = pr.encontro_id WHERE e.data = @data AND pr.pessoa_id = c.pessoa_id AND pr.presente = 1)
+     AND NOT EXISTS (SELECT 1 FROM dbo.pastoral_registros r WHERE r.caso_id = c.id AND r.autor_nome = N'Sistema' AND r.texto = @texto);
+  SELECT c.area, p.nome, rp.nome AS resp_nome,
+         COALESCE(u.email, CASE WHEN rp.email LIKE '%_@_%._%' THEN rp.email END) AS resp_email
+    FROM @avisar a JOIN dbo.pastoral_casos c ON c.id = a.caso_id
+    JOIN dbo.pessoas p ON p.id = c.pessoa_id JOIN dbo.pessoas rp ON rp.id = c.responsavel_pessoa_id
+    OUTER APPLY (SELECT TOP 1 x.email FROM dbo.usuarios x WHERE x.pessoa_id = rp.id AND x.cd_status = 1 ORDER BY x.id) u;`;
+async function avisarQuemAcompanha(data, presentes, origem) {
+  if (!presentes.length) return;
+  const seteDias = new Date(Date.now() - 3 * 3600000 - 7 * 86400000).toISOString().slice(0, 10);
+  if (data < seteDias) return;
+  const dataBR = `${data.slice(8, 10)}/${data.slice(5, 7)}`;
+  const linhas = await query(SQL_VEIO_AO_HYPE, { data, presentes: JSON.stringify(presentes), texto: `Veio ao Hype na sexta ${dataBR} (presença marcada na chamada).` });
+  const porEmail = new Map();
+  linhas.filter((l) => l.resp_email).forEach((l) => { const k = l.resp_email.toLowerCase(); if (!porEmail.has(k)) porEmail.set(k, { nome: l.resp_nome, email: l.resp_email, pessoas: [] }); porEmail.get(k).pessoas.push(l); });
+  const destinos = [...porEmail.values()];
+  await Promise.allSettled(destinos.map((d) => emailVeioAoHype(d.email, d.nome, d.pessoas, dataBR,
+    `${origem || ''}#/${d.pessoas.every((p) => p.area === 'integracao') ? 'integracao' : 'pastoral'}`)));
+}
+
+rota('POST', '/presenca', async ({ body, usuario, ip, origem }) => {
   const data = dataISO(body.data);
   if (!data) throw new HttpError(400, 'Informe a data.');
   if (data > hojeBrasil()) throw new HttpError(400, 'Não dá para salvar a chamada de uma data que ainda não chegou.');
@@ -707,6 +765,9 @@ rota('POST', '/presenca', async ({ body, usuario, ip }) => {
       INSERT (encontro_id, pessoa_id, presente, justificativa, marcado_por, tipo_na_data)
       VALUES (@eid, s.pessoa_id, s.presente, s.justificativa, @uid, s.tipo);
     DELETE FROM dbo.presencas WHERE encontro_id = @eid AND pessoa_id IN (SELECT value FROM OPENJSON(@remover));
+    -- arquivado que veio ao Hype sai do arquivo
+    UPDATE p SET cd_status = 1, dt_atualizacao = SYSUTCDATETIME() FROM dbo.pessoas p
+      JOIN OPENJSON(@json) WITH (pessoa_id INT, presente BIT) j ON j.pessoa_id = p.id AND j.presente = 1 WHERE p.cd_status = 0;
     COMMIT;
     SELECT @eid AS id,
       (SELECT COUNT(*) FROM dbo.presencas WHERE encontro_id = @eid AND presente = 1) AS presentes,
@@ -716,7 +777,8 @@ rota('POST', '/presenca', async ({ body, usuario, ip }) => {
   const [, alertas] = await Promise.all([
     seg.registrar('chamada_salva', { usuario, ip, detalhe: `${data}: agora ${r.presentes} presentes, ${r.ausentes} ausentes (${regs.length} marcações neste envio)` }),
     pode(usuario, 'pastoral.ver') ? calcularAlertas() : [],
-    query(SQL_VOLTOU_SOZINHO)]);
+    query(SQL_VOLTOU_SOZINHO),
+    avisarQuemAcompanha(data, regs.filter((x) => x.presente).map((x) => x.pessoa_id), origem).catch((e) => console.error('[aviso presença]', e))]);
   return { encontro_id: r.id, presentes: r.presentes, ausentes: r.ausentes, alertas };
 });
 
@@ -1066,11 +1128,14 @@ rota('GET', '/agenda', async ({ query: q, usuario }) => {
       FROM dbo.reuniao_pessoa rp JOIN dbo.pessoas p ON p.id = rp.pessoa_id
      WHERE EXISTS (SELECT 1 FROM dbo.reunioes r2 WHERE r2.id = rp.reuniao_id
        AND ((@ant = 0 AND r2.fim >= DATEADD(HOUR, -3, SYSUTCDATETIME())) OR (@ant = 1 AND r2.fim < DATEADD(HOUR, -3, SYSUTCDATETIME()))));
-    SELECT id, nome, cor FROM dbo.ministerios WHERE cd_status = 1 AND @todos = 1 ORDER BY nome;`,
-  { todos: ehGestor(usuario) ? 1 : 0, mins: JSON.stringify(meusMinisterios(usuario)), eu: euPessoa(usuario), ant: anteriores ? 1 : 0 }, { todos: true });
+    SELECT id, nome, cor FROM dbo.ministerios WHERE cd_status = 1 AND @gestor = 1 ORDER BY nome;`,
+  // Líder de qualquer ministério vê a agenda de todos (para marcar sem bater horário com as outras reuniões); altera só a do seu
+  { todos: ehGestor(usuario) || (usuario.ministerios || []).some((m) => m.lider) ? 1 : 0, gestor: ehGestor(usuario) ? 1 : 0,
+    mins: JSON.stringify(meusMinisterios(usuario)), eu: euPessoa(usuario), ant: anteriores ? 1 : 0 }, { todos: true });
   reunioes.forEach((r) => {
     r.pessoas = pessoas.filter((p) => p.reuniao_id === r.id).map(({ reuniao_id, ...p }) => p);
     r.pode_editar = lideraMinisterio(usuario, r.ministerio_id);
+    r.meu = r.pode_editar || meusMinisterios(usuario).includes(r.ministerio_id) || r.pessoas.some((p) => p.id === usuario.pessoa_id);
     r.eu_participo = r.pessoas.some((p) => p.id === usuario.pessoa_id);
   });
   const ministerios = ehGestor(usuario) ? minsGestor
@@ -1158,7 +1223,7 @@ rota('GET', '/escalas', async ({ query: q, usuario }) => {
   const [ministerios, funcoes, itens, membros] = await query(`
     SELECT m.id, m.nome, m.cor FROM dbo.ministerios m WHERE m.cd_status = 1 AND (@todos = 1 OR m.id IN (SELECT value FROM OPENJSON(@mins))) ORDER BY m.nome;
     SELECT f.id, f.ministerio_id, f.nome, f.ordem, f.vagas FROM dbo.escala_funcoes f ORDER BY f.ministerio_id, f.ordem, f.nome;
-    SELECT i.id, i.ministerio_id, CONVERT(CHAR(10), i.data, 126) AS data, i.funcao, i.pessoa_id, p.nome
+    SELECT i.id, i.ministerio_id, CONVERT(CHAR(10), i.data, 126) AS data, i.funcao, i.pessoa_id, p.nome, i.participou
       FROM dbo.escala_itens i JOIN dbo.pessoas p ON p.id = i.pessoa_id
      WHERE i.data >= DATEFROMPARTS(@ano, @mes, 1) AND i.data < DATEADD(MONTH, 1, DATEFROMPARTS(@ano, @mes, 1));
     SELECT pm.ministerio_id, p.id, p.nome, pm.lider FROM dbo.pessoa_ministerio pm JOIN dbo.pessoas p ON p.id = pm.pessoa_id WHERE p.cd_status = 1 ORDER BY p.nome;`,
@@ -1170,7 +1235,8 @@ rota('GET', '/escalas', async ({ query: q, usuario }) => {
       funcoes: funcoes.filter((f) => f.ministerio_id === m.id),
       // a lista da equipe só vai para quem monta a escala daquele ministério
       membros: lideraMinisterio(usuario, m.id) ? membros.filter((x) => x.ministerio_id === m.id).map(({ ministerio_id, ...x }) => x) : [] })),
-    itens: itens.filter((i) => ids.has(i.ministerio_id)),
+    // participação (participou, mais ou menos, não participou) só para quem monta a escala
+    itens: itens.filter((i) => ids.has(i.ministerio_id)).map((i) => (lideraMinisterio(usuario, i.ministerio_id) ? i : { ...i, participou: undefined })),
   };
 });
 
@@ -1178,7 +1244,7 @@ rota('GET', '/escalas/minhas', async ({ usuario }) => {
   if (!usuario.pessoa_id) return { vinculado: false, itens: [] };
   const itens = await query(`SELECT CONVERT(CHAR(10), i.data, 126) AS data, i.funcao, i.ministerio_id, m.nome AS ministerio, m.cor
     FROM dbo.escala_itens i JOIN dbo.ministerios m ON m.id = i.ministerio_id
-    WHERE i.pessoa_id = @eu AND i.data >= DATEADD(DAY, -1, CAST(DATEADD(HOUR, -3, SYSUTCDATETIME()) AS DATE)) ORDER BY i.data, m.nome`, { eu: usuario.pessoa_id });
+    WHERE i.pessoa_id = @eu AND i.data >= @hoje ORDER BY i.data, m.nome`, { eu: usuario.pessoa_id, hoje: hojeBrasil() });
   return { vinculado: true, itens };
 });
 
@@ -1201,11 +1267,16 @@ rota('PUT', '/escalas/:ministerio/funcoes', async ({ params, body, usuario, ip }
     UPDATE i SET funcao = l.nome FROM dbo.escala_itens i
       JOIN dbo.escala_funcoes f ON f.ministerio_id = @mid AND i.ministerio_id = @mid AND i.funcao = f.nome
       JOIN @l l ON l.id = f.id AND l.nome <> f.nome
-     WHERE i.data >= CAST(GETDATE() AS DATE);
+     WHERE i.data >= @hoje;
+    -- função apagada: quem estava nela nas próximas sextas sai da escala (as sextas que passaram ficam como estão)
+    DELETE i FROM dbo.escala_itens i
+      JOIN dbo.escala_funcoes f ON f.ministerio_id = @mid AND i.ministerio_id = @mid AND i.funcao = f.nome
+     WHERE i.data >= @hoje AND f.id NOT IN (SELECT id FROM @l WHERE id IS NOT NULL)
+       AND NOT EXISTS (SELECT 1 FROM @l l WHERE l.nome = f.nome);
     DELETE FROM dbo.escala_funcoes WHERE ministerio_id = @mid AND id NOT IN (SELECT id FROM @l WHERE id IS NOT NULL);
     UPDATE f SET nome = l.nome, ordem = l.ordem, vagas = l.vagas FROM dbo.escala_funcoes f JOIN @l l ON l.id = f.id WHERE f.ministerio_id = @mid;
     INSERT INTO dbo.escala_funcoes (ministerio_id, nome, ordem, vagas) SELECT @mid, nome, ordem, vagas FROM @l WHERE id IS NULL;
-    COMMIT;`, { mid, j: JSON.stringify(lista) });
+    COMMIT;`, { mid, j: JSON.stringify(lista), hoje: hojeBrasil() });
   await seg.registrar('escala_funcoes', { usuario, ip, detalhe: `ministério ${mid}: ${lista.map((f) => f.nome + (f.vagas ? ` (${f.vagas})` : '')).join(', ')}` });
   return { ok: true };
 });
@@ -1223,12 +1294,79 @@ rota('PUT', '/escalas/:ministerio/:data', async ({ params, body, usuario, ip }) 
     -- Dois líderes salvando a mesma sexta do mesmo ministério ao mesmo tempo: um espera o outro (nada duplica)
     DECLARE @trava NVARCHAR(100) = CONCAT(N'escala:', @mid, N':', CONVERT(CHAR(10), @data, 126));
     EXEC sp_getapplock @Resource = @trava, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 15000;
-    DELETE FROM dbo.escala_itens WHERE ministerio_id = @mid AND data = @data AND (@todas = 1 OR ISNULL(funcao, N'') = ISNULL(@funcao, N''));
+    -- só mexe no que mudou: quem continua na escala mantém a participação marcada
+    DECLARE @novos TABLE (pessoa_id INT, funcao NVARCHAR(60));
+    INSERT INTO @novos SELECT DISTINCT p.id, j.funcao FROM OPENJSON(@itens) WITH (pessoa_id INT, funcao NVARCHAR(60)) j JOIN dbo.pessoas p ON p.id = j.pessoa_id AND p.cd_status = 1;
+    DELETE i FROM dbo.escala_itens i
+     WHERE i.ministerio_id = @mid AND i.data = @data AND (@todas = 1 OR ISNULL(i.funcao, N'') = ISNULL(@funcao, N''))
+       AND NOT EXISTS (SELECT 1 FROM @novos n WHERE n.pessoa_id = i.pessoa_id AND ISNULL(n.funcao, N'') = ISNULL(i.funcao, N''));
     INSERT INTO dbo.escala_itens (ministerio_id, data, funcao, pessoa_id, criado_por)
-      SELECT DISTINCT @mid, @data, j.funcao, p.id, @uid FROM OPENJSON(@itens) WITH (pessoa_id INT, funcao NVARCHAR(60)) j JOIN dbo.pessoas p ON p.id = j.pessoa_id AND p.cd_status = 1;
+      SELECT @mid, @data, n.funcao, n.pessoa_id, @uid FROM @novos n
+       WHERE NOT EXISTS (SELECT 1 FROM dbo.escala_itens i WHERE i.ministerio_id = @mid AND i.data = @data AND i.pessoa_id = n.pessoa_id AND ISNULL(i.funcao, N'') = ISNULL(n.funcao, N''));
     COMMIT;`, { mid, data, todas: funcao === undefined ? 1 : 0, funcao: funcao ?? null, itens: JSON.stringify(funcao === undefined ? itens : itens.map((i) => ({ ...i, funcao }))), uid: usuario.id });
   await seg.registrar('escala_salva', { usuario, ip, detalhe: `ministério ${mid}, ${data}: ${itens.length} pessoa(s)${funcao ? ` em ${funcao}` : ''}` });
   return { ok: true };
+});
+
+// Participação de quem serviu: 2 = participou, 1 = mais ou menos, 0 = não participou, null = não marcado
+rota('PUT', '/escalas/:ministerio/:data/participacao', async ({ params, body, usuario, ip }) => {
+  const mid = int(params.ministerio), data = dataISO(params.data);
+  if (!data) throw new HttpError(400, 'Data inválida.');
+  precisaLiderar(usuario, mid);
+  if (data > hojeBrasil()) throw new HttpError(400, 'A participação só pode ser marcada depois da sexta.');
+  const marcas = (Array.isArray(body.marcas) ? body.marcas : []).slice(0, 300)
+    .map((x) => ({ id: int(x.id), participou: [0, 1, 2].includes(x.participou) ? x.participou : null }));
+  await query(`UPDATE i SET participou = j.participou FROM dbo.escala_itens i
+    JOIN OPENJSON(@m) WITH (id INT, participou TINYINT) j ON j.id = i.id
+    WHERE i.ministerio_id = @mid AND i.data = @data`, { mid, data, m: JSON.stringify(marcas) });
+  await seg.registrar('escala_participacao', { usuario, ip, detalhe: `ministério ${mid}, ${data}: ${marcas.filter((x) => x.participou !== null).length} marcada(s)` });
+  return { ok: true };
+});
+
+// Copiar a escala de uma sexta para outras (troca o que tinha nelas) e limpar sextas inteiras
+const datasValidas = (l) => [...new Set((Array.isArray(l) ? l : []).map((d) => dataISO(d)).filter(Boolean))].slice(0, 6);
+rota('POST', '/escalas/:ministerio/copiar', async ({ params, body, usuario, ip }) => {
+  const mid = int(params.ministerio), de = dataISO(body.de);
+  precisaLiderar(usuario, mid);
+  const para = datasValidas(body.para).filter((d) => d !== de);
+  if (!de || !para.length) throw new HttpError(400, 'Escolha de qual sexta copiar e para quais.');
+  await query(`
+    SET XACT_ABORT ON; BEGIN TRAN;
+    DELETE FROM dbo.escala_itens WHERE ministerio_id = @mid AND data IN (SELECT CAST(value AS DATE) FROM OPENJSON(@para));
+    INSERT INTO dbo.escala_itens (ministerio_id, data, funcao, pessoa_id, criado_por)
+      SELECT @mid, CAST(d.value AS DATE), i.funcao, i.pessoa_id, @uid
+        FROM OPENJSON(@para) d CROSS JOIN dbo.escala_itens i JOIN dbo.pessoas p ON p.id = i.pessoa_id AND p.cd_status = 1
+       WHERE i.ministerio_id = @mid AND i.data = @de;
+    COMMIT;`, { mid, de, para: JSON.stringify(para), uid: usuario.id });
+  await seg.registrar('escala_salva', { usuario, ip, detalhe: `ministério ${mid}: copiou ${de} para ${para.join(', ')}` });
+  return { ok: true };
+});
+rota('POST', '/escalas/:ministerio/limpar', async ({ params, body, usuario, ip }) => {
+  const mid = int(params.ministerio);
+  precisaLiderar(usuario, mid);
+  const datas = datasValidas(body.datas);
+  if (!datas.length) throw new HttpError(400, 'Escolha as sextas para limpar.');
+  await query('DELETE FROM dbo.escala_itens WHERE ministerio_id = @mid AND data IN (SELECT CAST(value AS DATE) FROM OPENJSON(@d))', { mid, d: JSON.stringify(datas) });
+  await seg.registrar('escala_salva', { usuario, ip, detalhe: `ministério ${mid}: limpou ${datas.join(', ')}` });
+  return { ok: true };
+});
+
+// Relatório de participação nas escalas: só dos ministérios que a pessoa lidera (administrador: todos)
+rota('GET', '/escalas/relatorio', async ({ query: q, usuario }) => {
+  const todos = ehGestor(usuario);
+  const mins = (usuario.ministerios || []).filter((m) => m.lider).map((m) => m.id);
+  if (!todos && !mins.length) return { meses: [], itens: [] };
+  const mes = /^\d{4}-\d{2}$/.test(q.mes || '') ? q.mes : null;
+  const [meses, itens] = await query(`
+    SELECT DISTINCT CONVERT(CHAR(7), i.data, 126) AS mes FROM dbo.escala_itens i
+     WHERE @todos = 1 OR i.ministerio_id IN (SELECT value FROM OPENJSON(@mins)) ORDER BY mes DESC;
+    SELECT i.ministerio_id, m.nome AS ministerio, m.cor, CONVERT(CHAR(10), i.data, 126) AS data, i.funcao, i.pessoa_id, p.nome, i.participou
+      FROM dbo.escala_itens i JOIN dbo.ministerios m ON m.id = i.ministerio_id JOIN dbo.pessoas p ON p.id = i.pessoa_id
+     WHERE @ini IS NOT NULL AND i.data >= CAST(@ini AS DATE) AND i.data < DATEADD(MONTH, 1, CAST(@ini AS DATE))
+       AND (@todos = 1 OR i.ministerio_id IN (SELECT value FROM OPENJSON(@mins)))
+     ORDER BY m.nome, p.nome, i.data;`,
+  { todos: todos ? 1 : 0, mins: JSON.stringify(mins), ini: mes ? `${mes}-01` : null }, { todos: true });
+  return { meses: meses.map((x) => x.mes), itens };
 });
 
 rota('POST', '/escalas/:ministerio/funcoes', async ({ params, body, usuario }) => {
@@ -1344,18 +1482,52 @@ function dadosLancamento(b) {
   const bruto = String(b.valor ?? '').trim();
   const valor = Math.round(Number(bruto.includes(',') ? bruto.replace(/\./g, '').replace(',', '.') : bruto) * 100) / 100;
   if (!Number.isFinite(valor) || valor <= 0 || valor > 10000000) throw new HttpError(400, 'Informe um valor maior que zero.');
-  return { tipo, data, ano: Number(data.slice(0, 4)), descricao, categoria: txt(b.categoria, 60), valor };
+  const qtd = numeroBR(b.quantidade);
+  if (qtd !== null && (qtd <= 0 || qtd > 100000)) throw new HttpError(400, 'Quantidade inválida.');
+  return { tipo, data, ano: Number(data.slice(0, 4)), descricao, categoria: txt(b.categoria, 60), valor,
+    quantidade: qtd, unidade: qtd === null ? null : txt(b.unidade, 12),
+    // entra no estoque (só compra): nome do item; cria o item se ainda não existir
+    item: tipo === 'despesa' && qtd !== null ? txt(b.item, 80) : null };
 }
+// "1,5" -> 1.5 · "" -> null
+function numeroBR(v) {
+  if (v === undefined || v === null || String(v).trim() === '') return null;
+  const t = String(v).trim();
+  const n = Number(t.includes(',') ? t.replace(/\./g, '').replace(',', '.') : t);
+  if (!Number.isFinite(n)) throw new HttpError(400, 'Número inválido.');
+  return Math.round(n * 100) / 100;
+}
+// Liga a compra ao estoque: o movimento de entrada acompanha o lançamento (muda junto, sai junto)
+const SQL_ESTOQUE_DO_LANCAMENTO = `
+  DELETE FROM dbo.fin_estoque WHERE lancamento_id = @lid;
+  IF @item IS NOT NULL
+  BEGIN
+    IF NOT EXISTS (SELECT 1 FROM dbo.fin_itens WHERE nome = @item) INSERT INTO dbo.fin_itens (nome, unidade) VALUES (@item, @unidade);
+    INSERT INTO dbo.fin_estoque (item_id, data, quantidade, lancamento_id, obs, criado_por)
+    SELECT id, @data, @quantidade, @lid, N'Compra: ' + @descricao, @uid FROM dbo.fin_itens WHERE nome = @item;
+    UPDATE dbo.fin_itens SET cd_status = 1, unidade = COALESCE(unidade, @unidade) WHERE nome = @item;
+  END`;
 rota('GET', '/financeiro', async ({ query: q }) => {
   const ano = /^\d{4}$/.test(q.ano || '') ? Number(q.ano) : Number(hojeBrasil().slice(0, 4));
-  const [lancamentos, anos, categorias] = await query(`
-    SELECT f.id, f.tipo, CONVERT(CHAR(10), f.data, 126) AS data, f.descricao, f.categoria, CAST(f.valor AS FLOAT) AS valor, u.nome AS criado_por_nome
-      FROM dbo.fin_lancamentos f LEFT JOIN dbo.usuarios u ON u.id = f.criado_por WHERE f.ano = @ano ORDER BY f.data DESC, f.id DESC;
+  const [lancamentos, anos, itens, categorias] = await query(`
+    SELECT f.id, f.tipo, CONVERT(CHAR(10), f.data, 126) AS data, f.descricao, f.categoria, CAST(f.valor AS FLOAT) AS valor, u.nome AS criado_por_nome,
+           CAST(f.quantidade AS FLOAT) AS quantidade, f.unidade,
+           (SELECT TOP 1 i.nome FROM dbo.fin_estoque e JOIN dbo.fin_itens i ON i.id = e.item_id WHERE e.lancamento_id = f.id) AS item,
+           n.tipo AS nota_tipo, CONVERT(VARCHAR(19), n.dt_envio, 126) AS nota_v
+      FROM dbo.fin_lancamentos f LEFT JOIN dbo.usuarios u ON u.id = f.criado_por LEFT JOIN dbo.fin_notas n ON n.lancamento_id = f.id
+     WHERE f.ano = @ano ORDER BY f.data DESC, f.id DESC;
     SELECT DISTINCT ano FROM dbo.fin_lancamentos ORDER BY ano DESC;
+    -- Estoque: quanto tem de cada item e o preço da última compra (por unidade)
+    SELECT i.id, i.nome, i.unidade, CAST(i.minimo AS FLOAT) AS minimo, i.cd_status,
+           CAST(ISNULL((SELECT SUM(e.quantidade) FROM dbo.fin_estoque e WHERE e.item_id = i.id), 0) AS FLOAT) AS saldo,
+           (SELECT MAX(e.data) FROM dbo.fin_estoque e WHERE e.item_id = i.id) AS ultimo_mov,
+           (SELECT TOP 1 CAST(f.valor / e.quantidade AS FLOAT) FROM dbo.fin_estoque e JOIN dbo.fin_lancamentos f ON f.id = e.lancamento_id
+             WHERE e.item_id = i.id AND e.quantidade > 0 ORDER BY e.data DESC, e.id DESC) AS preco_unidade
+      FROM dbo.fin_itens i ORDER BY i.nome;
     -- Se o banco ainda não recebeu o 01_estrutura.sql da v7, o financeiro abre do mesmo jeito (só sem a lista de categorias)
     IF OBJECT_ID('dbo.fin_categorias') IS NOT NULL SELECT id, nome FROM dbo.fin_categorias ORDER BY ordem, nome;
     ELSE SELECT CAST(NULL AS INT) AS id, CAST(NULL AS NVARCHAR(60)) AS nome WHERE 1 = 0;`, { ano }, { todos: true });
-  return { ano, lancamentos, anos: anos.map((a) => a.ano), categorias };
+  return { ano, lancamentos, anos: anos.map((a) => a.ano), itens, categorias };
 });
 // Lista de categorias (como as funções da escala): grava tudo de uma vez.
 // Renomear atualiza os lançamentos que usavam o nome antigo; tirar da lista não mexe nos lançamentos.
@@ -1384,15 +1556,26 @@ rota('PUT', '/financeiro/categorias', async ({ body, usuario, ip }) => {
 });
 rota('POST', '/financeiro', async ({ body, usuario, ip }) => {
   const d = dadosLancamento(body);
-  const r = await umaLinha(`INSERT INTO dbo.fin_lancamentos (ano, tipo, data, descricao, categoria, valor, criado_por) OUTPUT inserted.id
-    VALUES (@ano, @tipo, @data, @descricao, @categoria, CAST(@valor AS DECIMAL(12,2)), @uid)`, { ...d, valor: String(d.valor), uid: usuario.id });
+  const r = await umaLinha(`
+    SET XACT_ABORT ON; BEGIN TRAN;
+    INSERT INTO dbo.fin_lancamentos (ano, tipo, data, descricao, categoria, valor, quantidade, unidade, criado_por)
+    VALUES (@ano, @tipo, @data, @descricao, @categoria, CAST(@valor AS DECIMAL(12,2)), CAST(@quantidade AS DECIMAL(10,2)), @unidade, @uid);
+    DECLARE @lid INT = SCOPE_IDENTITY();
+    ${SQL_ESTOQUE_DO_LANCAMENTO}
+    COMMIT; SELECT @lid AS id;`, { ...d, valor: String(d.valor), quantidade: d.quantidade === null ? null : String(d.quantidade), uid: usuario.id });
   await seg.registrar('financeiro_lancado', { usuario, ip, detalhe: `${d.tipo}: ${d.descricao} R$ ${d.valor.toFixed(2)}` });
   return { id: r.id };
 });
 rota('PUT', '/financeiro/:id', async ({ params, body, usuario, ip }) => {
   const d = dadosLancamento(body);
-  const r = await umaLinha(`UPDATE dbo.fin_lancamentos SET ano = @ano, tipo = @tipo, data = @data, descricao = @descricao, categoria = @categoria, valor = CAST(@valor AS DECIMAL(12,2))
-    WHERE id = @id; SELECT @@ROWCOUNT AS n;`, { ...d, valor: String(d.valor), id: int(params.id) });
+  const r = await umaLinha(`
+    SET XACT_ABORT ON; BEGIN TRAN;
+    UPDATE dbo.fin_lancamentos SET ano = @ano, tipo = @tipo, data = @data, descricao = @descricao, categoria = @categoria, valor = CAST(@valor AS DECIMAL(12,2)),
+      quantidade = CAST(@quantidade AS DECIMAL(10,2)), unidade = @unidade
+    WHERE id = @id;
+    DECLARE @n INT = @@ROWCOUNT, @lid INT = @id;
+    IF @n > 0 BEGIN ${SQL_ESTOQUE_DO_LANCAMENTO} END
+    COMMIT; SELECT @n AS n;`, { ...d, valor: String(d.valor), quantidade: d.quantidade === null ? null : String(d.quantidade), id: int(params.id), uid: usuario.id });
   if (!r.n) throw new HttpError(404, 'Lançamento não encontrado.');
   await seg.registrar('financeiro_corrigido', { usuario, ip, detalhe: `${params.id}: ${d.tipo} ${d.descricao} R$ ${d.valor.toFixed(2)}` });
   return { ok: true };
@@ -1400,6 +1583,90 @@ rota('PUT', '/financeiro/:id', async ({ params, body, usuario, ip }) => {
 rota('DELETE', '/financeiro/:id', async ({ params, usuario, ip }) => {
   const r = await umaLinha('DELETE FROM dbo.fin_lancamentos OUTPUT deleted.descricao, CAST(deleted.valor AS FLOAT) AS valor WHERE id = @id', { id: int(params.id) });
   if (r) await seg.registrar('financeiro_apagado', { usuario, ip, detalhe: `${params.id}: ${r.descricao} R$ ${r.valor}` });
+  return { ok: true };
+});
+
+// ---------- Nota fiscal do lançamento (opcional): foto (JPEG reduzido no celular) ou PDF, até 1 MB ----------
+function validarNota(dataUrl) {
+  const m = /^data:(image\/jpeg|application\/pdf);base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl || '');
+  if (!m) throw new HttpError(400, 'Envie uma foto ou um PDF da nota.');
+  const buf = Buffer.from(m[2], 'base64');
+  if (buf.length < 100 || buf.length > 1024 * 1024) throw new HttpError(400, 'Arquivo inválido ou maior que 1 MB.');
+  const jpeg = buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
+  const pdf = buf.subarray(0, 5).toString('latin1') === '%PDF-';
+  if ((m[1] === 'image/jpeg' && !jpeg) || (m[1] === 'application/pdf' && !pdf)) throw new HttpError(400, 'O arquivo não é uma foto JPEG nem um PDF válido.');
+  return { tipo: m[1], buf };
+}
+rota('GET', '/financeiro/:id/nota', async ({ params }) => {
+  const n = await umaLinha('SELECT tipo, nome, dados FROM dbo.fin_notas WHERE lancamento_id = @id', { id: int(params.id) });
+  if (!n) throw new HttpError(404, 'Este lançamento não tem nota.');
+  return { $binario: n.dados, $tipo: n.tipo, $baixar: n.tipo === 'application/pdf' ? (n.nome || `nota-${params.id}.pdf`) : null };
+});
+rota('PUT', '/financeiro/:id/nota', async ({ params, body, usuario, ip }) => {
+  const id = int(params.id);
+  const { tipo, buf } = validarNota(body.arquivo);
+  const nome = txt(String(body.nome || '').replace(/[^\w .()-]/g, ''), 150);
+  const r = await umaLinha(`
+    IF NOT EXISTS (SELECT 1 FROM dbo.fin_lancamentos WHERE id = @id) SELECT 0 AS ok;
+    ELSE BEGIN
+      MERGE dbo.fin_notas AS t USING (SELECT @id AS lancamento_id) s ON t.lancamento_id = s.lancamento_id
+      WHEN MATCHED THEN UPDATE SET tipo = @tipo, nome = @nome, tamanho = @tam, dados = @dados, enviado_por = @uid, dt_envio = SYSUTCDATETIME()
+      WHEN NOT MATCHED THEN INSERT (lancamento_id, tipo, nome, tamanho, dados, enviado_por) VALUES (@id, @tipo, @nome, @tam, @dados, @uid);
+      SELECT 1 AS ok;
+    END`, { id, tipo, nome, tam: buf.length, dados: buf, uid: usuario.id });
+  if (!r.ok) throw new HttpError(404, 'Lançamento não encontrado.');
+  await seg.registrar('nota_anexada', { usuario, ip, detalhe: `lançamento ${id} (${Math.round(buf.length / 1024)} KB)` });
+  return { ok: true };
+});
+rota('DELETE', '/financeiro/:id/nota', async ({ params, usuario, ip }) => {
+  const r = await umaLinha('DELETE FROM dbo.fin_notas OUTPUT deleted.lancamento_id WHERE lancamento_id = @id', { id: int(params.id) });
+  if (r) await seg.registrar('nota_removida', { usuario, ip, detalhe: `lançamento ${params.id}` });
+  return { ok: true };
+});
+
+// ---------- Estoque (arroz, massa, refrigerante...): entra com a compra ou à mão; sai quando usa ----------
+rota('GET', '/financeiro/estoque/:id', async ({ params }) => query(`
+  SELECT e.id, CONVERT(CHAR(10), e.data, 126) AS data, CAST(e.quantidade AS FLOAT) AS quantidade, e.obs, e.lancamento_id, u.nome AS por
+    FROM dbo.fin_estoque e LEFT JOIN dbo.usuarios u ON u.id = e.criado_por
+   WHERE e.item_id = @id ORDER BY e.data DESC, e.id DESC`, { id: int(params.id) }));
+// Movimento à mão: { item_id ou nome (+ unidade) para item novo, quantidade (+ entra, − sai), data, obs }
+rota('POST', '/financeiro/estoque', async ({ body, usuario, ip }) => {
+  const qtd = numeroBR(body.quantidade) || 0;
+  const nome = body.item_id ? null : txt(body.nome, 80);
+  if (!body.item_id && !nome) throw new HttpError(400, 'Escolha o item.');
+  // item novo pode começar com zero; movimento de item que já existe precisa de quantidade
+  if ((!qtd && body.item_id) || Math.abs(qtd) > 100000) throw new HttpError(400, 'Informe a quantidade.');
+  const data = dataISO(body.data) || hojeBrasil();
+  const r = await umaLinha(`
+    SET XACT_ABORT ON; BEGIN TRAN;
+    DECLARE @iid INT = @item_id;
+    IF @iid IS NULL BEGIN
+      SET @iid = (SELECT id FROM dbo.fin_itens WHERE nome = @nome);
+      IF @iid IS NULL BEGIN INSERT INTO dbo.fin_itens (nome, unidade, minimo) VALUES (@nome, @unidade, CAST(@minimo AS DECIMAL(10,2))); SET @iid = SCOPE_IDENTITY(); END
+    END
+    IF NOT EXISTS (SELECT 1 FROM dbo.fin_itens WHERE id = @iid) BEGIN ROLLBACK; SELECT CAST(NULL AS INT) AS id; RETURN; END
+    IF CAST(@qtd AS DECIMAL(10,2)) <> 0
+      INSERT INTO dbo.fin_estoque (item_id, data, quantidade, obs, criado_por) VALUES (@iid, @data, CAST(@qtd AS DECIMAL(10,2)), @obs, @uid);
+    UPDATE dbo.fin_itens SET cd_status = 1 WHERE id = @iid;
+    COMMIT; SELECT @iid AS id;`, { item_id: body.item_id ? int(body.item_id) : null, nome, unidade: txt(body.unidade, 12), minimo: numeroBR(body.minimo) === null ? null : String(numeroBR(body.minimo)),
+    data, qtd: String(qtd), obs: txt(body.obs, 200), uid: usuario.id });
+  if (!r?.id) throw new HttpError(404, 'Item não encontrado.');
+  await seg.registrar('estoque_movido', { usuario, ip, detalhe: `item ${r.id}: ${qtd > 0 ? '+' : ''}${qtd}${body.obs ? ` (${txt(body.obs, 80)})` : ''}` });
+  return { id: r.id };
+});
+rota('PUT', '/financeiro/estoque/:id', async ({ params, body, usuario, ip }) => {
+  const nome = txt(body.nome, 80);
+  if (!nome) throw new HttpError(400, 'Informe o nome do item.');
+  const r = await umaLinha(`UPDATE dbo.fin_itens SET nome = @nome, unidade = @unidade, minimo = CAST(@minimo AS DECIMAL(10,2)), cd_status = @st WHERE id = @id; SELECT @@ROWCOUNT AS n;`,
+    { id: int(params.id), nome, unidade: txt(body.unidade, 12), minimo: numeroBR(body.minimo) === null ? null : String(numeroBR(body.minimo)), st: body.cd_status === 0 ? 0 : 1 });
+  if (!r.n) throw new HttpError(404, 'Item não encontrado.');
+  await seg.registrar('estoque_movido', { usuario, ip, detalhe: `item ${params.id} alterado: ${nome}` });
+  return { ok: true };
+});
+// Só apaga movimento feito à mão (o da compra sai junto com o lançamento)
+rota('DELETE', '/financeiro/estoque/mov/:id', async ({ params, usuario, ip }) => {
+  const r = await umaLinha('DELETE FROM dbo.fin_estoque OUTPUT deleted.item_id WHERE id = @id AND lancamento_id IS NULL', { id: int(params.id) });
+  if (r) await seg.registrar('estoque_movido', { usuario, ip, detalhe: `item ${r.item_id}: apagou um movimento` });
   return { ok: true };
 });
 

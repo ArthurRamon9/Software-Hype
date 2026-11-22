@@ -53,7 +53,7 @@ export async function lista(conteudo) {
           <option value="nohype" ${filtro.status === 'nohype' ? 'selected' : ''}>No Hype (últimos 3 meses)</option>
           <option value="afastados" ${filtro.status === 'afastados' ? 'selected' : ''}>Afastados (3+ meses sem vir)</option>
           <option value="todos" ${filtro.status === 'todos' ? 'selected' : ''}>Todo o cadastro</option>
-          <option value="inativos" ${filtro.status === 'inativos' ? 'selected' : ''}>Cadastro desativado</option>
+          <option value="inativos" ${filtro.status === 'inativos' ? 'selected' : ''}>Arquivados</option>
         </select>
         <select class="input" id="extra" aria-label="Mais filtros"><option value="">Mais filtros</option>${Object.entries(EXTRAS).map(([k, v]) => `<option value="${k}" ${filtro.extra === k ? 'selected' : ''}>${v.rotulo}</option>`).join('')}</select>
         <button class="link-btn small hidden" id="limpar-pessoas">Limpar filtros</button>
@@ -62,7 +62,8 @@ export async function lista(conteudo) {
         <thead><tr><th><button class="th-ordem" data-ordem="nome">Nome<span class="seta-ordem" data-seta="nome"></span></button></th><th><button class="th-ordem" data-ordem="tipo">Situação<span class="seta-ordem" data-seta="tipo"></span></button></th><th><button class="th-ordem" data-ordem="ultima">Última vez<span class="seta-ordem" data-seta="ultima"></span></button></th><th class="some-mobile">WhatsApp</th><th class="some-mobile">Ministérios</th></tr></thead>
         <tbody id="linhas"></tbody>
       </table></div>
-      <div class="filtros" style="border-top:1px solid var(--line);border-bottom:0"><span class="muted small" id="total"></span></div>
+      <div class="filtros" style="border-top:1px solid var(--line);border-bottom:0;justify-content:space-between"><span class="muted small" id="total"></span>
+        ${pode('pessoas.editar') ? '<button class="btn sm hidden" id="arquivar-lista"></button>' : ''}</div>
     </div>`;
 
   const porStatus = (p) => ({
@@ -93,6 +94,13 @@ export async function lista(conteudo) {
     $('#limpar-pessoas').classList.toggle('hidden', !(filtro.busca || filtro.tipo || filtro.ministerio || filtro.extra || filtro.status !== 'nohype'));
     const l = filtradas();
     $('#total').textContent = `${l.length} ${l.length === 1 ? 'pessoa' : 'pessoas'}`;
+    // Arquivar quem parou de vir (sai das listas e da chamada; volta sozinho se for marcado presente)
+    const bArq = $('#arquivar-lista');
+    if (bArq) {
+      const pode = !filtro.busca && l.length && (filtro.status === 'afastados' || filtro.status === 'inativos');
+      bArq.classList.toggle('hidden', !pode);
+      bArq.textContent = filtro.status === 'inativos' ? `Tirar ${l.length === 1 ? 'esta pessoa' : `estas ${l.length}`} do arquivo` : `Arquivar ${l.length === 1 ? 'esta pessoa' : `estas ${l.length}`}`;
+    }
     $('#linhas').innerHTML = l.length ? l.map((p) => `
       <tr class="clicavel ${p.cd_status ? '' : 'inativo'}" data-id="${p.id}">
         <td><div class="pessoa-cel">${foto(p.nome, urlFoto(p.id, p.foto_v))}<div class="nome-ref"><b>${esc(p.nome)}</b>${p.referencia ? `<span>${esc(p.referencia)}</span>` : ''}</div></div></td>
@@ -115,6 +123,15 @@ export async function lista(conteudo) {
   $('#busca').addEventListener('input', (e) => { filtro.busca = e.target.value; desenhar(); });
   $('#min').addEventListener('change', (e) => { filtro.ministerio = e.target.value; desenhar(); });
   $('#status').addEventListener('change', (e) => { filtro.status = e.target.value; desenhar(); });
+  $('#arquivar-lista')?.addEventListener('click', async (e) => {
+    const l = filtradas(), arquivar = filtro.status !== 'inativos';
+    const msg = arquivar ? `Arquivar ${l.length === 1 ? '1 pessoa' : `${l.length} pessoas`}? Saem das listas e da chamada, mas o histórico fica. Se alguém voltar, é só procurar o nome na chamada: ao marcar presente, sai do arquivo sozinho.`
+      : `Tirar ${l.length === 1 ? '1 pessoa' : `${l.length} pessoas`} do arquivo? Voltam para as listas e para a chamada.`;
+    if (!(await confirmar(msg, { botao: arquivar ? 'Arquivar' : 'Tirar do arquivo' }))) return;
+    await ocupado(e.target, async () => {
+      try { await api('POST', '/pessoas/arquivar', { ids: l.map((p) => p.id), arquivar }); aviso(arquivar ? 'Arquivadas.' : 'De volta às listas.'); lista(conteudo); } catch (err) { avisoErro(err); }
+    });
+  });
   $('#importar')?.addEventListener('click', () => abrirImportacao(() => lista(conteudo)));
   $('#exportar')?.addEventListener('click', () => baixarXLSX(`pessoas-hype-${hojeISO()}`, [{
     nome: 'Pessoas',
@@ -178,7 +195,7 @@ export async function formulario(conteudo, { id } = {}) {
         <div class="field"><label for="integrou">Quem integrou</label><input class="input" id="integrou" value="${v('integrado_por')}"></div>
         <div class="field"><label for="cad">Data do cadastro</label><input class="input" type="date" id="cad" value="${v('data_cadastro')}"></div>
         <div class="field full"><label for="conheceu">Como conheceu a igreja?</label><textarea class="input" id="conheceu" style="min-height:60px">${v('como_conheceu')}</textarea></div>
-        ${editando ? `<div class="field full"><label class="check"><input type="checkbox" id="ativo" ${p.cd_status ? 'checked' : ''}>Cadastro ativo <span class="hint">(desmarque para tirar das listas sem apagar o histórico)</span></label></div>` : ''}
+        ${editando ? `<div class="field full"><label class="check"><input type="checkbox" id="arquivado" ${p.cd_status ? '' : 'checked'}>Arquivada <span class="hint">(parou de vir: sai das listas e da chamada sem apagar o histórico; se for marcada presente, sai do arquivo sozinha)</span></label></div>` : ''}
 
         <div class="form-section">Observações</div>
         <div class="field full"><textarea class="input" id="obs" style="min-height:120px" placeholder="Como foi a conversa, pedidos de oração, informações importantes...">${v('observacoes')}</textarea></div>
@@ -212,7 +229,7 @@ export async function formulario(conteudo, { id } = {}) {
       grupo_cultivo: $('#cultivo').value, discipulado_por: $('#disc').value, batizado: $('#batizado').value || null,
       batismo_detalhe: $('#batdet').value, integrado_por: $('#integrou').value,
       como_conheceu: $('#conheceu').value, data_cadastro: $('#cad').value || hojeISO(), observacoes: $('#obs').value,
-      cd_status: editando ? ($('#ativo').checked ? 1 : 0) : 1,
+      cd_status: editando ? ($('#arquivado').checked ? 0 : 1) : 1,
       ministerios: $$('input[name=min]:checked').map((c) => Number(c.value)),
     };
     await ocupado($('#f button[type=submit]'), async () => {
@@ -258,10 +275,10 @@ export async function perfil(conteudo, { id }) {
         <div style="flex:1;min-width:0">
           <h1>${esc(p.nome)}</h1>
           ${p.referencia ? `<p class="muted" style="margin-top:2px">${esc(p.referencia)}</p>` : ''}
-          <div class="tags">${tagTipo(p.tipo)}${p.cd_status ? '' : '<span class="tag bad">Inativo</span>'}${afastado ? `<span class="tag">Afastado: ${minuscula(textoUltimaVez(ultimaVezData))} sem vir</span>` : seguidas >= 2 ? `<span class="tag warn">${seguidas} faltas seguidas</span>` : ''}${sequencia >= 3 ? `<span class="tag ok">${sequencia} sextas seguidas</span>` : ''}</div>
+          <div class="tags">${tagTipo(p.tipo)}${p.cd_status ? '' : '<span class="tag bad">Arquivada</span>'}${afastado ? `<span class="tag">Afastado: ${minuscula(textoUltimaVez(ultimaVezData))} sem vir</span>` : seguidas >= 2 ? `<span class="tag warn">${seguidas} faltas seguidas</span>` : ''}${sequencia >= 3 ? `<span class="tag ok">${sequencia} sextas seguidas</span>` : ''}</div>
         </div>
         <div class="acoes-ficha">
-          ${whats ? `<a class="btn" href="${whats}" target="_blank" rel="noopener">WhatsApp</a>` : ''}
+          ${whats ? `<a class="btn zap-txt" href="${whats}" target="_blank" rel="noopener">${icon('zap')}WhatsApp</a>` : ''}
           ${insta ? `<a class="btn" href="${insta}" target="_blank" rel="noopener">Instagram</a>` : ''}
           ${pode('pessoas.editar') ? `<a class="btn primary" href="#/pessoas/${id}/editar">Editar</a>` : ''}
         </div>

@@ -119,21 +119,29 @@ As duas áreas usam a mesma estrutura (`pastoral_casos` + `pastoral_registros`),
   O envio fica no histórico, o caso vai para "Em andamento" e, se em 7 dias ninguém registrar contato, aparece "Sem retorno".
 - A lista de acompanhamentos mostra só pessoas ativas, tem lixeira em cada linha e permite marcar várias para concluir ou excluir de uma vez.
 - **Integração** lista os visitantes que chegaram nos últimos 60 dias e ainda não tiveram contato, destacando quem chegou há menos de 48 horas.
+- **Veio ao Hype:** quando alguém que está em acompanhamento (com responsável) é marcado presente na chamada, fica anotado no acompanhamento e o responsável recebe um e-mail (uma vez por sexta; chamadas de mais de 7 dias atrás não avisam). O e-mail vai para a conta ligada ao cadastro do responsável ou, se não tiver, para o e-mail do cadastro.
+- Quem estava **sem responsável** e voltou ao Hype sai da lista sozinho (concluído como "Voltou para o Hype").
 
 ## Chamada com várias pessoas
 Várias pessoas podem fazer a chamada ao mesmo tempo, cada uma no seu celular: cada uma grava só o que marcou.
-"Restantes como falta" não apaga quem outra pessoa marcou como presente. Não dá para salvar chamada de data futura.
+"Marcar quem falta como ausente" (botão embaixo da chamada) não apaga quem outra pessoa marcou como presente. Não dá para salvar chamada de data futura.
+
+## Arquivar quem parou de vir
+Em Pessoas, filtre **Afastados** e use "Arquivar estas N" (ou marque "Arquivada" no cadastro). Arquivada sai das listas e da chamada, mas o histórico fica.
+Se voltar, é só procurar o nome na chamada: ao ser marcada presente, sai do arquivo sozinha. O filtro **Arquivados** mostra quem está guardado.
 
 ## Grupos de acesso (v5)
 | Grupo | O que faz |
 |---|---|
 | Administradores | Tudo, inclusive apagar e "Ver como" |
-| Administração | Cadastro, chamada, ministérios, relatórios, baixar/importar planilhas e financeiro (apaga lançamentos do financeiro; fora isso, não apaga nada) |
+| Administração | Cadastro, chamada, ministérios, relatórios e baixar/importar planilhas. Não apaga nada |
+| Financeiro (v10) | Vê e cuida do financeiro: verba, despesas, entradas, estoque e notas fiscais (inclusive apagar lançamentos) |
 | Cadastro e chamada | Cadastra/atualiza pessoas e faz a chamada (cadastra o visitante na hora). Não apaga nem baixa |
 | Pastoral / Integração | Vê e registra os acompanhamentos que estão com a pessoa |
 | Líderes de equipe | Vê pessoas e relatórios |
-| Equipe dos ministérios | Quem só serve (Cozinha, Mídias...): Início, escalas, agenda e relatórios |
+| Equipe dos ministérios | Hoje só acrescenta os Relatórios (pode apagar o grupo se não quiser isso) |
 
+Toda conta liberada já vê, sem grupo nenhum: Início, Escalas, Agenda, Documentos, Ministérios (só olhar) e Sugestões.
 O líder de cada ministério (marcado em Ministérios) distribui os acompanhamentos da sua área, monta escalas e marca reuniões.
 
 ## Documentos
@@ -141,6 +149,11 @@ Os arquivos (PDF, Word, Excel, apresentações) ficam no Google Drive, nas pasta
 
 ## Financeiro
 Verba do ano, despesas e entradas (ofertas, doações). O saldo é verba + entradas − despesas. Gastos por categoria e planilha com gráfico.
+Só o grupo **Financeiro** (e administradores) vê (v10).
+- **Quantidade:** o lançamento pode ter quantidade e unidade (ex.: 5 kg). Numa compra, marque "Entra no estoque" e diga o item: soma no estoque sozinho.
+- **Estoque:** aba ao lado de "Dinheiro". Mostra quanto tem de cada item, o preço da última compra por unidade e avisa o que está acabando (abaixo do mínimo).
+  "Usar" tira do estoque, "Entrou" soma o que chegou sem compra (doação), e "Contei e tem" acerta com o que tem de verdade. Corrigir ou apagar a compra corrige o estoque junto.
+- **Nota fiscal (opcional):** anexe a foto ou o PDF da nota no lançamento. A foto é reduzida no próprio celular (até 1 MB) e fica no banco (`fin_notas`), como as fotos das pessoas.
 
 ## Sugestões
 Qualquer pessoa com acesso manda ideias, melhorias ou avisa de algo com erro (menu **Sugestões**). Todos veem as sugestões dos outros, para não repetir e acompanhar o que vem por aí; a recusada só aparece para quem sugeriu. Quem tem `sugestoes.gerenciar` (administradores) aceita ou recusa com um recado. O que foi aceito vai para a **Sprint** (a fazer → fazendo → feita), e dá para baixar tudo em planilha. Quem sugeriu pode corrigir ou apagar a sua enquanto ninguém respondeu. O menu mostra quantas novas esperam resposta (v9 do `01_estrutura.sql`).
@@ -151,11 +164,18 @@ O campo original continua escondido guardando o valor, então o resto do código
 
 ## Agenda e Escalas
 - **Agenda:** o líder marca a reunião do ministério e o convite chega no Google Agenda (ou iPhone/Outlook) de quem tem e-mail no cadastro,
-  um e-mail por pessoa. Mudou o horário ou cancelou, a agenda deles atualiza sozinha. Cada um vê as reuniões dos seus ministérios.
+  um e-mail por pessoa. Mudou o horário ou cancelou, a agenda deles atualiza sozinha. Cada um vê as reuniões dos seus ministérios;
+  **líderes veem as de todos** (para não marcar no mesmo horário: o formulário avisa se já tem reunião naquela hora) e alteram só as do seu.
+  Depois de criar, o botão **Avisar no WhatsApp** abre o WhatsApp com a mensagem pronta para escolher o grupo do ministério.
 - **Escalas:** uma tabela por ministério, no jeito da planilha: colunas = sextas do mês, um bloco por função (Entrada, Saída...) com os nomes um embaixo do outro.
   Funções são criadas pelo próprio líder; sem funções, a escala é só a lista de quem serve.
   Todos veem as escalas de todos os ministérios que já têm alguém escalado no mês (só funções criadas não contam); só o líder (ou administrador) altera a do seu. O sistema avisa quando alguém está em dois ministérios na mesma sexta.
-  No topo aparecem as próximas sextas em que a pessoa serve. Dá para copiar o texto para o grupo do WhatsApp e baixar em planilha.
+  No topo aparecem as próximas sextas em que a pessoa serve (a que passou some).
+  **Enviar para o grupo:** no computador copia a imagem e abre o WhatsApp Web (é só escolher o grupo e Ctrl+V); no celular abre o compartilhar com a imagem.
+  **Montar:** em cada sexta, uma janela com a equipe e as funções lado a lado para escolher todo mundo de uma vez.
+  **Copiar ou limpar:** copia uma sexta para outras do mês, ou tira todo mundo das sextas escolhidas. Tirar uma função tira quem estava nela nas próximas sextas.
+  **Participação:** depois da sexta, o líder marca quem participou, mais ou menos ou não participou (só o líder e os administradores veem).
+  O **relatório do mês** fica em Relatórios → Escalas, para o líder (do seu ministério) e os administradores.
 
 ## Aparência
 Cores do Hype (preto, branco e roxo; ciano e vermelho só no "H"), títulos na fonte Anton (OFL, em `assets/fonts`).

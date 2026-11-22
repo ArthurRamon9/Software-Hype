@@ -2,6 +2,7 @@
 // © Arthur Ramon da Silva — Todos os direitos reservados.
 import { api, sessao, preaquecer } from '../api.js';
 import { esc, $, icon, aviso, avisoErro, ocupado, janela, confirmar, hojeISO } from '../ui.js';
+import { abrirWhatsApp } from '../whats.js';
 
 let periodo = 'proximas';
 let filtroMin = '';
@@ -16,10 +17,35 @@ function linkGoogle(r) {
   return `https://calendar.google.com/calendar/render?${p}`;
 }
 
+// Mensagem pronta para o grupo do ministério no WhatsApp
+function mensagemReuniao(r) {
+  const fim = r.fim && r.fim.slice(11, 16) !== r.inicio.slice(11, 16) ? ` às ${hora(r.fim)}` : '';
+  return [`*${r.titulo}* (${r.ministerio})`, `${dataLonga(r.inicio.slice(0, 10) + 'T12:00:00')}, ${fim ? 'das' : 'às'} ${hora(r.inicio)}${fim}`,
+    r.local ? `Local: ${r.local}` : '', r.descricao || '', '', `Colocar na agenda: ${linkGoogle(r)}`].filter((l, i, a) => l || (i > 0 && a[i - 1])).join('\n').trim();
+}
+// Depois de criar ou mudar: avisar o grupo do ministério (o WhatsApp abre para escolher o grupo)
+function avisarNoGrupo(r, titulo) {
+  janela({
+    titulo,
+    avisarAoSair: false,
+    corpo: `<p style="margin:0 0 10px">Quer avisar o grupo do ${esc(r.ministerio)} no WhatsApp? A mensagem já vai pronta, é só escolher o grupo.</p>
+      <pre class="msg-previa">${esc(mensagemReuniao(r))}</pre>
+      <div class="janela-acoes"><button type="button" class="btn" data-fechar>Agora não</button><button type="button" class="btn primary" id="av-zap">${icon('whats')} Avisar no WhatsApp</button></div>`,
+    aoAbrir: (j, fechar) => j.querySelector('#av-zap').addEventListener('click', () => { abrirWhatsApp(mensagemReuniao(r)); fechar(); }),
+  });
+}
+// Reuniões que batem com este horário (de qualquer ministério que a pessoa vê)
+const conflitos = (reunioes, data, ini, fim, semId) => {
+  if (!data || !ini) return [];
+  const a = `${data}T${ini}`, b = `${data}T${fim && fim > ini ? fim : `${String(Math.min(23, Number(ini.slice(0, 2)) + 1)).padStart(2, '0')}${ini.slice(2)}`}`;
+  return reunioes.filter((x) => !x.cancelada && x.id !== semId && x.inicio.slice(0, 16) < b && x.fim.slice(0, 16) > a);
+};
+
 export async function render(conteudo) {
   const { reunioes, posso_criar: possoCriar, email_ativo: emailAtivo = true } = await api('GET', `/agenda?periodo=${periodo}`);
   preaquecer(`/agenda?periodo=${periodo === 'proximas' ? 'anteriores' : 'proximas'}`);   // a outra aba já fica pronta
   const meusMins = (sessao.usuario.ministerios || []).map((m) => m.nome);
+  const lider = possoCriar.length > 0;
   const ministeriosNaLista = [...new Map(reunioes.map((r) => [r.ministerio_id, r.ministerio])).entries()];
   const lista = reunioes.filter((r) => !filtroMin || String(r.ministerio_id) === filtroMin);
   // Agrupa por dia
@@ -41,13 +67,14 @@ export async function render(conteudo) {
         ${r.descricao ? `<p class="small muted" style="margin-top:6px">${esc(r.descricao)}</p>` : ''}
       </div>
       <div class="acoes-r">
+        ${r.pode_editar && !r.cancelada && periodo === 'proximas' ? `<button class="btn-icone zap" data-zap="${r.id}" title="Avisar o grupo no WhatsApp" aria-label="Avisar o grupo no WhatsApp">${icon('zap')}</button>` : ''}
         ${!r.cancelada && periodo === 'proximas' ? `<a class="btn-icone" href="${linkGoogle(r)}" target="_blank" rel="noopener" title="Colocar no meu Google Agenda" aria-label="Colocar no meu Google Agenda">${icon('agendaMais')}</a>` : ''}
         ${r.pode_editar && !r.cancelada && periodo === 'proximas' ? `<button class="btn-icone" data-editar="${r.id}" title="Editar reunião" aria-label="Editar reunião">${icon('lapis')}</button>` : ''}
       </div></div>`;
   };
 
   conteudo.innerHTML = `
-    <div class="cabecalho"><div><h1>Agenda</h1><p class="sub">${meusMins.length ? `Reuniões dos seus ministérios: ${esc(meusMins.join(', '))}.` : 'Reuniões dos ministérios do Hype.'}${possoCriar.length ? '' : ' Quem marca reuniões é o líder do ministério (marcado como líder em Ministérios).'}</p></div>
+    <div class="cabecalho"><div><h1>Agenda</h1><p class="sub">${lider ? 'Reuniões de todos os ministérios, para marcar sem bater horário. Você altera as do seu.' : meusMins.length ? `Reuniões dos seus ministérios: ${esc(meusMins.join(', '))}.` : 'Reuniões dos ministérios do Hype.'}${possoCriar.length ? '' : ' Quem marca reuniões é o líder do ministério (marcado como líder em Ministérios).'}</p></div>
       <div class="acoes">${possoCriar.length ? '<button class="btn primary" id="nova">Nova reunião</button>' : ''}</div></div>
     ${!sessao.usuario.pessoa_id && !possoCriar.length ? '<p class="msg aviso" style="margin-bottom:14px">Sua conta ainda não está ligada ao seu cadastro do Hype, então ainda não dá para saber quais são os seus ministérios. Peça a um administrador para ligar.</p>' : ''}
     ${possoCriar.length && !emailAtivo ? '<p class="msg aviso" style="margin-bottom:14px">O e-mail do site não está ligado aqui, então os convites não saem. No site publicado (com o e-mail configurado na Netlify) eles chegam no e-mail e entram sozinhos no Google Agenda de cada participante.</p>' : ''}
@@ -61,11 +88,16 @@ export async function render(conteudo) {
 
   conteudo.querySelectorAll('[data-p]').forEach((b) => b.addEventListener('click', () => { if (periodo === b.dataset.p) return; entrada = b.dataset.p === 'anteriores' ? 'entra-esq' : 'entra-dir'; periodo = b.dataset.p; render(conteudo).catch(avisoErro); }));
   $('#f-min')?.addEventListener('change', (e) => { filtroMin = e.target.value; render(conteudo).catch(avisoErro); });
-  $('#nova')?.addEventListener('click', () => editar(conteudo, null, possoCriar));
-  conteudo.querySelectorAll('[data-editar]').forEach((b) => b.addEventListener('click', () => editar(conteudo, reunioes.find((r) => r.id === Number(b.dataset.editar)), possoCriar)));
+  $('#nova')?.addEventListener('click', async () => {
+    // para avisar de horário batendo, compara com as próximas (mesmo se a aba aberta for a das anteriores)
+    const prox = periodo === 'proximas' ? reunioes : (await api('GET', '/agenda?periodo=proximas').catch(() => ({ reunioes: [] }))).reunioes;
+    editar(conteudo, null, possoCriar, prox);
+  });
+  conteudo.querySelectorAll('[data-editar]').forEach((b) => b.addEventListener('click', () => editar(conteudo, reunioes.find((r) => r.id === Number(b.dataset.editar)), possoCriar, reunioes)));
+  conteudo.querySelectorAll('[data-zap]').forEach((b) => b.addEventListener('click', () => abrirWhatsApp(mensagemReuniao(reunioes.find((r) => r.id === Number(b.dataset.zap))))));
 }
 
-async function editar(conteudo, r, possoCriar) {
+async function editar(conteudo, r, possoCriar, reunioes = []) {
   const novo = !r;
   let mid = r ? r.ministerio_id : possoCriar[0].id;
   janela({
@@ -77,6 +109,7 @@ async function editar(conteudo, r, possoCriar) {
       <div class="field"><label for="r-data">Data *</label><input class="input" id="r-data" type="date" required min="${hojeISO()}" value="${r ? r.inicio.slice(0, 10) : ''}"></div>
       <div class="field duas"><div><label for="r-ini">Começa *</label><input class="input" id="r-ini" type="time" required value="${r ? r.inicio.slice(11, 16) : ''}"></div>
         <div><label for="r-fim">Termina</label><input class="input" id="r-fim" type="time" value="${r ? r.fim.slice(11, 16) : ''}"></div></div>
+      <p class="msg aviso full" id="r-conflito" hidden></p>
       <div class="field full"><label for="r-local">Local ou link</label><input class="input" id="r-local" maxlength="250" value="${esc(r?.local || '')}" placeholder="Ex.: Sala 2 da igreja"></div>
       <div class="field full"><label for="r-desc">Descrição (opcional)</label><textarea class="input" id="r-desc" maxlength="1000">${esc(r?.descricao || '')}</textarea></div>
       <div class="field full"><div class="part-topo"><span class="label">Quem participa <span class="muted small" id="r-conta"></span></span><button type="button" class="link-btn" id="r-todos" hidden></button></div><div class="part" id="r-part"><span class="muted">Carregando…</span></div></div>
@@ -121,6 +154,15 @@ async function editar(conteudo, r, possoCriar) {
         if (h < 23) fim.value = `${String(h + 1).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
       });
       j.querySelector('#r-min').addEventListener('change', (e) => { mid = Number(e.target.value); carregarMembros(); });
+      // Avisa se já tem reunião (de qualquer ministério) nesse horário
+      const verConflito = () => {
+        const c = conflitos(reunioes, j.querySelector('#r-data').value, j.querySelector('#r-ini').value, j.querySelector('#r-fim').value, r?.id);
+        const el = j.querySelector('#r-conflito');
+        el.hidden = !c.length;
+        el.innerHTML = c.length ? `Nesse horário já tem: ${c.map((x) => `<b>${esc(x.titulo)}</b> (${esc(x.ministerio)}, ${hora(x.inicio)} às ${hora(x.fim)})`).join('; ')}. Pode marcar assim mesmo.` : '';
+      };
+      ['#r-data', '#r-ini', '#r-fim'].forEach((s) => j.querySelector(s).addEventListener('change', verConflito));
+      verConflito();
       j.querySelector('#fr').addEventListener('submit', async (e) => {
         e.preventDefault();
         const corpo = {
@@ -133,8 +175,11 @@ async function editar(conteudo, r, possoCriar) {
         await ocupado(e.submitter, async () => {
           try {
             const res = await api(novo ? 'POST' : 'PUT', novo ? '/agenda' : `/agenda/${r.id}`, corpo);
-            aviso(`${novo ? 'Reunião criada' : 'Reunião salva'}${corpo.enviar ? `: convite enviado a ${res.enviados}` : ''}.`);
             fechar(); render(conteudo).catch(avisoErro);
+            const nomeMin = (novo ? possoCriar.find((m) => m.id === mid)?.nome : r.ministerio) || '';
+            avisarNoGrupo({ titulo: corpo.titulo.trim(), ministerio: nomeMin, inicio: `${corpo.data}T${corpo.hora_inicio}:00`,
+              fim: corpo.hora_fim ? `${corpo.data}T${corpo.hora_fim}:00` : '', local: corpo.local.trim(), descricao: corpo.descricao.trim() },
+            `${novo ? 'Reunião criada' : 'Reunião salva'}${corpo.enviar ? `: convite enviado a ${res.enviados}` : ''}`);
           } catch (err) { avisoErro(err); }
         });
       });

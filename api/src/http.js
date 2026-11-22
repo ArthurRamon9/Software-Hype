@@ -29,7 +29,9 @@ async function atender({ metodo, caminho, query, texto, cabecalhos, origemPadrao
     });
     const extra = r.cookie ? { 'Set-Cookie': r.cookie } : {};
     if (r.corpo && r.corpo.$binario) {
-      return resp(200, r.corpo.$binario, { ...extra, 'Content-Type': 'image/jpeg', 'Content-Disposition': 'inline', 'Cache-Control': 'private, max-age=604800' });
+      const tipo = ['image/jpeg', 'application/pdf'].includes(r.corpo.$tipo) ? r.corpo.$tipo : 'image/jpeg';
+      const baixar = r.corpo.$baixar ? `attachment; filename="${String(r.corpo.$baixar).replace(/[^\w .()-]/g, '_')}"` : 'inline';
+      return resp(200, r.corpo.$binario, { ...extra, 'Content-Type': tipo, 'Content-Disposition': baixar, 'Cache-Control': 'private, max-age=604800' });
     }
     const json = JSON.stringify(r.corpo ?? { ok: true });
     // Respostas grandes vão compactadas (a lista de pessoas cai de ~120 KB para ~15 KB): chega bem mais rápido no celular

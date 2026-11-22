@@ -55,7 +55,7 @@ async function desenhar(conteudo, manter = {}) {
       </div>
       <div class="chamada" id="chamada"></div>
       <div class="barra-salvar">
-        <button class="link-btn" id="resto" ${futura ? 'disabled' : ''}>Restantes como falta</button>
+        <button class="btn" id="resto" ${futura ? 'disabled' : ''} title="Quem não foi marcado entra como falta">${icon('xis')}<span id="resto-txt">Marcar quem falta como ausente</span></button>
         <button class="btn primary" id="salvar" ${futura ? 'disabled' : ''}>Salvar chamada</button>
       </div>
     </div>
@@ -66,11 +66,13 @@ async function desenhar(conteudo, manter = {}) {
     lista.forEach((x) => { const v = marca.get(x.id); if (v === true) p++; else if (v === false) f++; });
     const resto = lista.filter((x) => esperado(x) && !marca.has(x.id)).length;
     $('#contagem').innerHTML = `<span class="p">${p} presente${p === 1 ? '' : 's'}</span><span class="f">${f} ausente${f === 1 ? '' : 's'}</span>${resto ? `<span>${resto} sem marcar</span>` : ''}`;
+    $('#resto').hidden = !resto;
+    $('#resto-txt').textContent = `Marcar ${resto === 1 ? 'o 1 que falta' : `os ${resto} que faltam`} como ausente${resto === 1 ? '' : 's'}`;
   };
   const linha = (p) => {
     const v = marca.get(p.id), j = just.get(p.id);
     return `<div data-id="${p.id}" class="${v === true ? 'marcado-p' : v === false ? 'marcado-f' : ''}">${foto(p.nome, urlFoto(p.id, p.foto_v))}
-      <div class="nome"><b>${esc(p.nome)}${p.referencia ? ` <span class="ref">${esc(p.referencia)}</span>` : ''}</b><span>${TIPOS[p.tipo]}${v === false ? ` · <button class="link-btn small" data-just>${j ? esc(j) : 'Justificar'}</button>` : ''}</span></div>
+      <div class="nome"><b>${esc(p.nome)}${p.referencia ? ` <span class="ref">${esc(p.referencia)}</span>` : ''}</b><span>${TIPOS[p.tipo]}${p.cd_status === 1 ? '' : ' · Arquivada (sai do arquivo se vier)'}${v === false ? ` · <button class="link-btn small" data-just>${j ? esc(j) : 'Justificar'}</button>` : ''}</span></div>
       <div class="pf"><button data-v="1" class="${v === true ? 'p' : ''}" aria-label="Presente" title="Veio" ${futura ? 'disabled' : ''}>${icon('check')}</button><button data-v="0" class="${v === false ? 'f' : ''}" aria-label="Faltou" title="Faltou" ${futura ? 'disabled' : ''}>${icon('xis')}</button></div></div>`;
   };
   // A chamada mostra quem está "no Hype" (veio nos últimos 3 meses ou acabou de ser cadastrado).

@@ -24,6 +24,8 @@ const ACOES = {
   casos_enviados: 'Enviou ao responsável', chamada_excluida: 'Apagou chamada', caso_excluido: 'Apagou acompanhamento', ver_como: 'Ver como',
   reuniao_salva: 'Salvou reunião', reuniao_cancelada: 'Cancelou reunião', escala_salva: 'Salvou escala',
   sugestao_enviada: 'Enviou sugestão', sugestao_alterada: 'Alterou sugestão', sugestao_apagada: 'Apagou sugestão',
+  escala_participacao: 'Marcou participação na escala', escala_funcoes: 'Alterou funções da escala', pessoas_arquivadas: 'Arquivou pessoas', pessoas_desarquivadas: 'Tirou pessoas do arquivo',
+  financeiro_lancado: 'Fez lançamento', financeiro_corrigido: 'Corrigiu lançamento', financeiro_apagado: 'Apagou lançamento', financeiro_categorias: 'Alterou categorias do financeiro', nota_anexada: 'Anexou nota fiscal', nota_removida: 'Tirou nota fiscal', estoque_movido: 'Mexeu no estoque',
 };
 const dataHora = (iso) => new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
 

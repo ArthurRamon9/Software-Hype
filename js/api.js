@@ -49,7 +49,23 @@ export function preaquecer(caminho) {
   buscarFresco(caminho).catch(() => {});
 }
 
-export async function api(metodo, caminho, corpo) {
+// Tela atual: cada troca de tela ganha um número. Uma consulta pedida por uma tela que já foi
+// trocada (a pessoa clicou rápido em outro módulo) nunca responde, para a tela velha não se
+// desenhar por cima da nova. Gravações (POST/PUT/DELETE) sempre respondem.
+let telaAtual = 0;
+export const novaTela = () => ++telaAtual;
+novaTela.atual = () => telaAtual;
+const nunca = () => new Promise(() => {});
+
+export async function api(metodo, caminho, corpo, { sempre = false } = {}) {
+  if (metodo !== 'GET' || sempre || caminho.startsWith('/auth/')) return pedir(metodo, caminho, corpo);
+  const minha = telaAtual;
+  let r;
+  try { r = await pedir(metodo, caminho, corpo); } catch (e) { if (minha !== telaAtual) return nunca(); throw e; }
+  return minha !== telaAtual ? nunca() : r;
+}
+
+async function pedir(metodo, caminho, corpo) {
   if (metodo === 'GET' && podeGuardar(caminho)) {
     usadosNaTela.add(caminho);
     const m = memoria.get(caminho);

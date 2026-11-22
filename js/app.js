@@ -1,6 +1,6 @@
 // Gestão do Hype — rotas, menu e layout
 // © Arthur Ramon da Silva — Todos os direitos reservados.
-import { api, sessao, podeAlgum, urlFoto, usadosNaTela, preaquecer } from './api.js';
+import { api, sessao, podeAlgum, urlFoto, usadosNaTela, preaquecer, novaTela } from './api.js';
 import { icon, esc, direitos, $, foto } from './ui.js';
 import './campos.js';
 import './abas.js';
@@ -41,8 +41,8 @@ const PRIVADAS = [
   ['/presenca', presenca.render, ['presenca.marcar']],
   ['/pastoral', pastoral.render, ['pastoral.ver']],
   ['/integracao', pastoral.renderIntegracao, ['integracao.ver']],
-  ['/relatorios', relatorios.render, ['relatorios.ver']],
-  ['/ministerios', ministerios.render, ['pessoas.ver', 'ministerios.editar']],
+  ['/relatorios', relatorios.render, () => podeAlgum('relatorios.ver') || relatorios.veRelatorioEscalas()],
+  ['/ministerios', ministerios.render],   // todos veem (só olhar); editar é de quem tem ministerios.editar
   ['/acessos', usuarios.render, ['acessos.gerenciar']],
   ['/agenda', agenda.render],
   ['/escalas', escalas.render],
@@ -65,17 +65,17 @@ const MENU = [
   { href: '/presenca', rotulo: 'Presença', ic: 'presenca', mob: true, perm: ['presenca.marcar'] },
   { href: '/integracao', rotulo: 'Integração', ic: 'integracao', mob: true, cont: 'integracao', perm: ['integracao.ver'] },
   { href: '/pastoral', rotulo: 'Pastoral', ic: 'pastoral', mob: true, cont: 'pastoral', perm: ['pastoral.ver'] },
-  { href: '/relatorios', rotulo: 'Relatórios', ic: 'relatorios', mob: true, perm: ['relatorios.ver'] },
+  { href: '/relatorios', rotulo: 'Relatórios', ic: 'relatorios', mob: true, perm: () => podeAlgum('relatorios.ver') || relatorios.veRelatorioEscalas() },
   { href: '/escalas', rotulo: 'Escalas', ic: 'escalas', mob: true },
   { href: '/agenda', rotulo: 'Agenda', ic: 'agenda', mob: true },
   { href: '/documentos', rotulo: 'Documentos', ic: 'documentos' },
   { href: '/financeiro', rotulo: 'Financeiro', ic: 'financeiro', perm: ['financeiro.ver'] },
   { href: '/sugestoes', rotulo: 'Sugestões', ic: 'sugestoes', cont: 'sugestoes' },
-  { grupo: 'Cadastros', perm: ['pessoas.ver', 'ministerios.editar', 'acessos.gerenciar'] },
-  { href: '/ministerios', rotulo: 'Ministérios', ic: 'ministerios', perm: ['pessoas.ver', 'ministerios.editar'] },
+  { grupo: 'Cadastros' },
+  { href: '/ministerios', rotulo: 'Ministérios', ic: 'ministerios' },
   { href: '/acessos', rotulo: 'Acessos', ic: 'acessos', cont: 'pendentes', perm: ['acessos.gerenciar'] },
 ];
-const permitido = (perms) => !perms || podeAlgum(...perms);
+const permitido = (perms) => !perms || (typeof perms === 'function' ? perms() : podeAlgum(...perms));
 const contadores = { pastoral: 0, pendentes: 0, integracao: 0, sugestoes: 0 };
 
 export const navegar = (c) => { location.hash = '#' + c; };
@@ -93,9 +93,13 @@ function casar(caminho) {
 }
 
 let limpar = null;
+let carregando = null;
+let vigia = null;
 async function rota(silencioso = false) {
   if (typeof limpar === 'function') { try { limpar(); } catch {} }
   limpar = null;
+  const minha = novaTela();       // consultas da tela anterior que chegarem atrasadas são ignoradas
+  clearTimeout(carregando); vigia?.disconnect();
   if (!silencioso) document.querySelectorAll('.fundo').forEach((m) => m.remove());
   usadosNaTela.clear();
   const caminho = caminhoAtual();
@@ -116,20 +120,22 @@ async function rota(silencioso = false) {
   const rolagem = window.scrollY;
   // A tela só mostra o "carregando" se demorar: com a memória ela aparece na hora, sem piscar
   // (e só se a tela ainda não desenhou nada: se já mostrou o topo e espera o resto, não apaga o que está pronto)
-  let carregando = null;
   if (!silencioso) {
-    const vigia = new MutationObserver(() => { clearTimeout(carregando); vigia.disconnect(); });
+    vigia = new MutationObserver(() => { clearTimeout(carregando); vigia.disconnect(); });
     carregando = setTimeout(() => { vigia.disconnect(); conteudo.innerHTML = '<div class="boot"><span class="spin"></span></div>'; }, 120);
     vigia.observe(conteudo, { childList: true });
   }
   if (!silencioso) window.scrollTo(0, 0);
   try {
     if (!silencioso) conteudo.classList.add('nova-tela');
-    limpar = await m.fn(conteudo, m.params);
+    const fim = await m.fn(conteudo, m.params);
+    if (minha !== novaTela.atual()) { if (typeof fim === 'function') try { fim(); } catch {} return; }
+    limpar = fim;
     clearTimeout(carregando);
     if (!silencioso) setTimeout(() => conteudo.classList.remove('nova-tela'), 450);
     if (silencioso) window.scrollTo(0, rolagem);
   } catch (e) {
+    if (minha !== novaTela.atual()) return;   // erro de uma tela que já foi trocada: não mostra na tela nova
     clearTimeout(carregando);
     console.error(e);
     conteudo.innerHTML = `<div class="painel vazio"><p>Não foi possível carregar esta página.</p><p class="small" style="margin:6px 0 14px">${esc(e.message)}</p>
@@ -191,7 +197,7 @@ function montarLayout(caminho) {
 export async function atualizarContadores() {
   if (sessao.usuario?.cd_status !== 1) return;
   try {
-    Object.assign(contadores, await api('GET', '/contadores'));
+    Object.assign(contadores, await api('GET', '/contadores', undefined, { sempre: true }));
     if ($('#menu')) montarLayout(caminhoAtual());
   } catch {}
 }
