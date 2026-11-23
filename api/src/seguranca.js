@@ -130,7 +130,18 @@ async function conferirLimite(email, ip) {
 }
 
 // ---------------- Auditoria ----------------
-async function registrar(acao, { usuario = null, detalhe = null, email = null, ip = null } = {}) {
+// Registro de atividade. Fora o que conta para o limite de tentativas (login e senha), ele não segura a resposta:
+// grava logo depois de responder (o banco fica longe e cada ida custa). Ver depoisDaResposta em http.js.
+const { AsyncLocalStorage } = require('async_hooks');
+const pedidoAtual = new AsyncLocalStorage();
+const ESPERA = /^(login|esqueci|senha|conta_criada)/;
+function registrar(acao, dados = {}) {
+  const p = gravarRegistro(acao, dados);
+  const pedido = pedidoAtual.getStore();
+  if (pedido && !ESPERA.test(acao)) { pedido.depois.push(p); return Promise.resolve(); }
+  return p;
+}
+async function gravarRegistro(acao, { usuario = null, detalhe = null, email = null, ip = null } = {}) {
   try {
     await query(`INSERT INTO dbo.auditoria (usuario_id, usuario_nome, acao, detalhe, email, ip) VALUES (@uid, @nome, @acao, @detalhe, @email, @ip)`,
       { uid: usuario?.verComoPor?.id ?? usuario?.id ?? null,
@@ -152,5 +163,5 @@ function validarJpeg(dataUrl) {
 
 module.exports = {
   validarSenha, gerarHash, conferirSenha, sha256, cookieSessao, cookieSair, usuarioDaSessao, carregarUsuario, publico,
-  conferirLimite, registrar, validarJpeg, esquecerSessoes,
+  conferirLimite, registrar, validarJpeg, esquecerSessoes, pedidoAtual,
 };

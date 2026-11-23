@@ -2,6 +2,7 @@
 // © Arthur Ramon da Silva — Todos os direitos reservados.
 const zlib = require('zlib');
 const { despachar, respostaErro, CABECALHOS } = require('./rotas');
+const { pedidoAtual } = require('./seguranca');
 
 const LIMITE_CORPO = 1.5 * 1024 * 1024;
 
@@ -13,9 +14,20 @@ function ipDe(cabecalhos) {
   return ip.slice(0, 45) || null;
 }
 
-// entrada: { metodo, caminho, query, texto, cabecalhos (minúsculos), origemPadrao }
+// entrada: { metodo, caminho, query, texto, cabecalhos (minúsculos), origemPadrao, depoisDaResposta }
 // saída:   { status, cabecalhos, corpo (Buffer|string) }
-async function atender({ metodo, caminho, query, texto, cabecalhos, origemPadrao }) {
+// depoisDaResposta(promessa): quem chama termina o que ficou para depois (registro de atividade) sem segurar a resposta.
+// Sem ele, espera tudo antes de responder (como sempre foi).
+async function atender(entrada) {
+  const pedido = { depois: [] };
+  const r = await pedidoAtual.run(pedido, () => atenderPedido(entrada));
+  if (pedido.depois.length) {
+    const tudo = Promise.allSettled(pedido.depois);
+    if (entrada.depoisDaResposta) entrada.depoisDaResposta(tudo); else await tudo;
+  }
+  return r;
+}
+async function atenderPedido({ metodo, caminho, query, texto, cabecalhos, origemPadrao }) {
   const resp = (status, corpo, extra = {}) => ({ status, cabecalhos: { ...CABECALHOS, ...extra }, corpo });
   try {
     if (texto && texto.length > LIMITE_CORPO) return resp(413, JSON.stringify({ erro: 'Envio grande demais.' }), { 'Content-Type': 'application/json' });

@@ -30,6 +30,7 @@ http.createServer(async (req, res) => {
     const r = await atender({
       metodo: req.method, caminho: url.pathname.slice(4), query: Object.fromEntries(url.searchParams), texto,
       cabecalhos: { ...req.headers, 'x-ip-local': req.socket.remoteAddress }, origemPadrao: `http://${req.headers.host}/`,
+      depoisDaResposta: (p) => p,   // aqui o processo continua vivo: termina sozinho
     });
     if (process.env.SQL_CONTAR === '1') console.log(`[api] ${req.method} ${url.pathname.slice(4)}${url.search} ${r.status} ${Date.now() - t0}ms idas=${require('./src/db').idasAoBanco()} ${Buffer.byteLength(r.corpo || '')}B`);
     res.writeHead(r.status, r.cabecalhos);

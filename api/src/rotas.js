@@ -1006,15 +1006,22 @@ function rotasDeAcompanhamento(area) {
   }, ver);
 
   rota('GET', `/${area}/casos/:id`, async ({ params, usuario }) => {
-    const v = await casoVisivel(usuario, params.id);
-    const [caso, registros, anteriores, regAnt] = await query(`
-      SELECT ${SQL_CASO} ${SQL_CASO_FROM} WHERE c.id = @id AND c.area = @area;
+    // Uma ida só: confere se pode ver e já traz o caso, os registros e os acompanhamentos anteriores
+    const todos = veTodos(usuario, area);
+    const [[v], caso, registros, anteriores, regAnt] = await query(`
+      DECLARE @pid INT, @st VARCHAR(15), @rp INT;
+      SELECT @pid = c.pessoa_id, @st = c.status, @rp = c.responsavel_pessoa_id FROM dbo.pastoral_casos c WHERE c.id = @id AND c.area = @area
+        AND (@todos = 1 OR EXISTS (SELECT 1 FROM dbo.pastoral_casos x WHERE x.pessoa_id = c.pessoa_id AND x.area = @area AND x.status <> 'concluido' AND x.responsavel_pessoa_id = @eu));
+      SELECT @pid AS pessoa_id, @st AS status, @rp AS responsavel_pessoa_id;
+      SELECT ${SQL_CASO} ${SQL_CASO_FROM} WHERE c.id = @id AND c.area = @area AND @pid IS NOT NULL;
       SELECT r.id, r.texto, r.autor_nome, r.dt_criacao FROM dbo.pastoral_registros r JOIN dbo.pastoral_casos c ON c.id = r.caso_id
-       WHERE r.caso_id = @id AND c.area = @area ORDER BY r.dt_criacao DESC;
+       WHERE r.caso_id = @id AND c.area = @area AND @pid IS NOT NULL ORDER BY r.dt_criacao DESC;
       SELECT c.id, c.responsavel_nome, c.motivo, c.status, c.desfecho, c.dt_abertura, c.dt_conclusao FROM dbo.pastoral_casos c
        WHERE c.pessoa_id = @pid AND c.area = @area AND c.id <> @id ORDER BY c.dt_abertura DESC;
       SELECT r.caso_id, r.texto, r.autor_nome, r.dt_criacao FROM dbo.pastoral_registros r JOIN dbo.pastoral_casos c ON c.id = r.caso_id
-       WHERE c.pessoa_id = @pid AND c.area = @area AND c.id <> @id ORDER BY r.dt_criacao DESC;`, { id: int(params.id), area, pid: v.pessoa_id }, { todos: true });
+       WHERE c.pessoa_id = @pid AND c.area = @area AND c.id <> @id ORDER BY r.dt_criacao DESC;`, { id: int(params.id), area, todos: todos ? 1 : 0, eu: euPessoa(usuario) }, { todos: true });
+    if (!v?.pessoa_id) throw new HttpError(404, 'Acompanhamento não encontrado.');
+    v.cuida = todos || (v.status !== 'concluido' && v.responsavel_pessoa_id === euPessoa(usuario));
     anteriores.forEach((a) => { a.registros = regAnt.filter((r) => r.caso_id === a.id); });
     return { caso: caso[0], registros, anteriores, poder: { designar: designa(usuario, area), cuidaDaArea: veTodos(usuario, area), cuida: v.cuida } };
   }, ver);
@@ -1049,8 +1056,16 @@ function rotasDeAcompanhamento(area) {
     const pessoas = (Array.isArray(body.pessoas) ? body.pessoas : []).slice(0, 300);
     if (!pessoas.length) throw new HttpError(400, 'Selecione pelo menos uma pessoa.');
     const resp = await responsavelDaEquipe(area, body.responsavel_pessoa_id);
-    let n = 0;
-    for (const x of pessoas) { const r = await abrirCaso(usuario, x.pessoa_id, x.motivo, null, resp.pessoa_id); if (r.id) n++; }
+    // Todos numa ida só ao banco (antes era uma por pessoa); quem já tem acompanhamento aberto fica de fora
+    const lista = [...new Map(pessoas.map((x) => [int(x.pessoa_id), { pessoa_id: int(x.pessoa_id), motivo: txt(x.motivo, 200) || null }])).values()];
+    const { n } = await umaLinha(`
+      SET XACT_ABORT ON; BEGIN TRAN;
+      INSERT INTO dbo.pastoral_casos (pessoa_id, area, responsavel_nome, responsavel_pessoa_id, responsavel_id, motivo, criado_por)
+      SELECT j.pessoa_id, @area, @resp, @rp, (SELECT TOP 1 id FROM dbo.usuarios WHERE pessoa_id = @rp AND cd_status = 1), j.motivo, @uid
+        FROM OPENJSON(@p) WITH (pessoa_id INT, motivo NVARCHAR(200)) j JOIN dbo.pessoas p ON p.id = j.pessoa_id
+       WHERE NOT EXISTS (SELECT 1 FROM dbo.pastoral_casos x WITH (UPDLOCK, HOLDLOCK) WHERE x.pessoa_id = j.pessoa_id AND x.area = @area AND x.status <> 'concluido');
+      DECLARE @n INT = @@ROWCOUNT;
+      COMMIT; SELECT @n AS n;`, { area, resp: resp.nome, rp: resp.pessoa_id, uid: usuario.id, p: JSON.stringify(lista) });
     await seg.registrar('casos_designados', { usuario, ip, detalhe: `${area}: ${n} novos para ${resp.nome}` });
     return { abertos: n };
   }, editar);
