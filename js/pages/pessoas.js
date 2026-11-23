@@ -1,9 +1,10 @@
 // Pessoas: lista, cadastro/edição e ficha
 // © Arthur Ramon da Silva — Todos os direitos reservados.
 import { api, urlFoto, pode } from '../api.js';
+import { ajustarFoto, verFoto } from '../foto-ajuste.js';
 import {
   esc, $, $$, aviso, avisoErro, ocupado, confirmar, foto, tagTipo, TIPOS, SITUACOES, corSituacao, idade, fmtData,
-  icon, hojeISO, prepararFoto, pct, semAcento, linkWhats, janela, estaNoHype, ultimaVez, textoUltimaVez, minuscula, fmtTel, formatarAoSair,
+  icon, hojeISO, pct, semAcento, linkWhats, janela, estaNoHype, ultimaVez, textoUltimaVez, minuscula, fmtTel, formatarAoSair,
 } from '../ui.js';
 import { navegar, atualizarContadores } from '../app.js';
 import { abrirAcompanhamento } from './pastoral.js';
@@ -149,7 +150,7 @@ export async function formulario(conteudo, { id } = {}) {
   const [ministerios, dados] = await Promise.all([api('GET', '/ministerios'), editando ? api('GET', `/pessoas/${id}`) : null]);
   const p = dados?.pessoa || { tipo: 'novo_visitante', cd_status: 1, data_cadastro: hojeISO(), ministerios: [], batizado: null };
   const fotoAtual = editando ? urlFoto(p.id, p.foto_v) : null;
-  let novaFoto = null, removerFoto = false;
+  let novaFoto = null, removerFoto = false, original = null;   // original: o arquivo escolhido, para ajustar de novo sem perder qualidade
   const v = (k) => esc(p[k] ?? '');
   const voltar = editando ? `#/pessoas/${id}` : '#/pessoas';
 
@@ -163,6 +164,7 @@ export async function formulario(conteudo, { id } = {}) {
           <div style="display:grid;gap:4px">
             <label class="link-btn" for="arquivo" style="cursor:pointer">${fotoAtual ? 'Trocar foto' : 'Adicionar foto'}</label>
             <input type="file" id="arquivo" accept="image/*" hidden>
+            <button type="button" class="link-btn ${fotoAtual ? '' : 'hidden'}" id="ajustar" style="text-align:left">Ajustar foto</button>
             <button type="button" class="link-btn danger ${fotoAtual ? '' : 'hidden'}" id="tirar" style="text-align:left">Remover foto</button>
             <span class="hint">Opcional</span>
           </div>
@@ -206,12 +208,33 @@ export async function formulario(conteudo, { id } = {}) {
       <div style="display:flex;gap:8px"><a class="btn" href="${voltar}">Cancelar</a><button class="btn primary" type="submit">Salvar</button></div>
     </div></form>`;
 
-  const mostrar = (url) => { $('#prev').innerHTML = foto($('#nome').value || '', url, 'g'); };
+  const fotoVisivel = () => (removerFoto ? null : novaFoto || fotoAtual);
+  const mostrar = (url) => {
+    $('#prev').innerHTML = foto($('#nome').value || '', url, 'g');
+    $('#prev').classList.toggle('foto-clicavel', !!url);
+    $('#prev').title = url ? 'Ver a foto' : '';
+    ['#tirar', '#ajustar'].forEach((s) => $(s).classList.toggle('hidden', !url));
+  };
+  mostrar(fotoAtual);
+  // Escolheu a foto: abre o ajuste (arrastar e zoom) antes de usar
+  const ajustar = async (arq) => {
+    try {
+      const pronta = await ajustarFoto(arq);
+      if (pronta) { novaFoto = pronta; original = arq; removerFoto = false; mostrar(novaFoto); }
+    } catch (err) { avisoErro(err); }
+  };
   $('#arquivo').addEventListener('change', async (e) => {
-    const arq = e.target.files[0]; if (!arq) return;
-    try { novaFoto = await prepararFoto(arq); removerFoto = false; mostrar(novaFoto); $('#tirar').classList.remove('hidden'); } catch (err) { avisoErro(err); }
+    const arq = e.target.files[0]; e.target.value = ''; if (!arq) return;
+    await ajustar(arq);
   });
-  $('#tirar').addEventListener('click', () => { novaFoto = null; removerFoto = true; $('#arquivo').value = ''; mostrar(null); $('#tirar').classList.add('hidden'); });
+  // Ajustar de novo: usa o arquivo escolhido agora ou a foto que já está salva
+  $('#ajustar').addEventListener('click', async () => {
+    if (original) return ajustar(original);
+    try { const r = await fetch(fotoVisivel()); if (!r.ok) throw new Error(); await ajustar(await r.blob()); }
+    catch { avisoErro(new Error('Não consegui abrir a foto salva. Use "Trocar foto".')); }
+  });
+  $('#prev').addEventListener('click', () => { const u = fotoVisivel(); if (u) verFoto(u, $('#nome').value); });
+  $('#tirar').addEventListener('click', () => { novaFoto = null; original = null; removerFoto = true; mostrar(null); });
   $('#excluir')?.addEventListener('click', async () => {
     if (!(await confirmar(`Excluir ${p.nome}? O histórico de presença dessa pessoa também será apagado. Se a pessoa só parou de vir, prefira mudar a situação para Ex-visitante ou desmarcar "Cadastro ativo".`, { botao: 'Excluir', perigo: true }))) return;
     try { await api('DELETE', `/pessoas/${id}`); aviso('Cadastro excluído.'); navegar('/pessoas'); } catch (err) { avisoErro(err); }
@@ -271,7 +294,7 @@ export async function perfil(conteudo, { id }) {
     <a class="voltar" href="#/pessoas">← Pessoas</a>
     <div class="painel ficha-topo" style="--c:${corSituacao(p.tipo)}">
       <div class="perfil-topo">
-        ${foto(p.nome, urlFoto(p.id, p.foto_v), 'g')}
+        ${p.foto_v ? `<button type="button" class="foto-btn" id="ver-foto" title="Ver a foto">${foto(p.nome, urlFoto(p.id, p.foto_v), 'g')}</button>` : foto(p.nome, null, 'g')}
         <div style="flex:1;min-width:0">
           <h1>${esc(p.nome)}</h1>
           ${p.referencia ? `<p class="muted" style="margin-top:2px">${esc(p.referencia)}</p>` : ''}
@@ -330,6 +353,7 @@ export async function perfil(conteudo, { id }) {
         : casos ? '<p class="muted">Nenhum acompanhamento ainda.</p>' : '<p class="muted small">O histórico de acompanhamento fica só com o líder da área e com o responsável. Para começar um, use os botões acima.</p>'}
       </div></section>` : ''}`;
 
+  $('#ver-foto')?.addEventListener('click', () => verFoto(urlFoto(p.id, p.foto_v), p.nome));
   conteudo.querySelectorAll('[data-novo]').forEach((b) => b.addEventListener('click', () => abrirAcompanhamento({
     area: b.dataset.novo, pessoa: p,
     motivo: b.dataset.novo === 'pastoral' && seguidas >= 2 ? `${seguidas} faltas seguidas` : '',

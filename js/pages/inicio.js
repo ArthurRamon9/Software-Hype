@@ -3,6 +3,7 @@
 import { api, urlFoto, sessao, pode } from '../api.js';
 import { esc, foto, fmtData, fmtDiaMes, parseISO, isoLocal, pct, SITUACOES, ehMembro, idade, saudacao, estaNoHype } from '../ui.js';
 import { barras, tabelaDados, COR } from '../charts.js';
+import { pintarNovidade } from '../app.js';
 
 const DIA = 86400000;
 
@@ -20,7 +21,8 @@ export async function render(conteudo) {
     <p>${hoje.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' }).replace(/^./, (c) => c.toUpperCase())}</p></div>`;
 
   if (!sessao.usuario.permissoes.length) {
-    conteudo.innerHTML = `${ola}<div class="painel vazio"><b>Quase lá</b>Sua conta está liberada, mas você ainda não faz parte de nenhum grupo.<br>Peça a um administrador para incluir você no grupo certo.</div>`;
+    conteudo.innerHTML = `${ola}<div id="novidade-slot"></div><div class="painel vazio"><b>Quase lá</b>Sua conta está liberada, mas você ainda não faz parte de nenhum grupo.<br>Peça a um administrador para incluir você no grupo certo.</div>`;
+    pintarNovidade();
     return;
   }
 
@@ -141,11 +143,12 @@ export async function render(conteudo) {
         ${meusCasos.length > 8 ? `<p class="small" style="margin-top:10px"><a href="#/${meusCasos[0].area}">Ver todos os ${meusCasos.length}</a></p>` : ''}
       </div></section>` : '';
   const meio = [blocoGrafico, blocoFaltando].filter(Boolean);
-  conteudo.innerHTML = `${ola}${destaque}
+  conteudo.innerHTML = `${ola}<div id="novidade-slot"></div>${destaque}
     ${numeros.length ? `<div class="numeros n${Math.min(numeros.length, 4)}">${numeros.map(([r, v, d]) => `<div><div class="rot">${r}</div><div class="val">${v}</div><div class="det">${d}</div></div>`).join('')}</div>` : ''}
     ${blocoMeus}
     ${meio.length ? `<div class="colunas ${meio.length === 2 ? 'c21' : ''} mt">${meio.join('')}</div>` : ''}
     ${blocosPessoas}`;
+  pintarNovidade();
 
   conteudo.querySelectorAll('[data-situacao]').forEach((l) => l.addEventListener('click', () => sessionStorage.setItem('hype_filtro_tipo', l.dataset.situacao)));
 

@@ -8,7 +8,7 @@
      - chamadas de teste na data 03/01/2020
      - contas de teste com e-mail terminando em @teste.com
      - reuniões de teste com título começando com "Zz Teste"
-     - lançamentos do financeiro, itens do estoque, funções de escala, documentos e sugestões começando com "Zz Teste"
+     - lançamentos do financeiro, itens do estoque, funções de escala, documentos, sugestões e sprints começando com "Zz Teste"
 
    Rode primeiro como está (só MOSTRA o que seria apagado).
    Conferiu? Troque @apagar para 1 e rode de novo.
@@ -33,6 +33,8 @@ IF OBJECT_ID('dbo.fin_itens') IS NOT NULL
     SELECT 'item do estoque' AS o_que, CAST(id AS VARCHAR(20)) AS id, nome AS detalhe FROM dbo.fin_itens WHERE nome LIKE N'Zz Teste%';
 IF OBJECT_ID('dbo.sugestoes') IS NOT NULL
     SELECT 'sugestão' AS o_que, CAST(id AS VARCHAR(20)) AS id, titulo AS detalhe FROM dbo.sugestoes WHERE titulo LIKE N'Zz Teste%';
+IF OBJECT_ID('dbo.sprints') IS NOT NULL
+    SELECT 'sprint' AS o_que, CAST(id AS VARCHAR(20)) AS id, titulo AS detalhe FROM dbo.sprints WHERE titulo LIKE N'Zz Teste%';
 
 IF @apagar = 1
 BEGIN
@@ -46,6 +48,7 @@ BEGIN
         DELETE FROM dbo.escala_funcoes  WHERE nome LIKE N'Zz Teste%';
         DELETE FROM dbo.documentos      WHERE titulo LIKE N'Zz Teste%';
         IF OBJECT_ID('dbo.sugestoes') IS NOT NULL DELETE FROM dbo.sugestoes WHERE titulo LIKE N'Zz Teste%';
+        IF OBJECT_ID('dbo.sprints') IS NOT NULL DELETE FROM dbo.sprints WHERE titulo LIKE N'Zz Teste%';
         IF OBJECT_ID('dbo.fin_itens') IS NOT NULL DELETE FROM dbo.fin_itens WHERE nome LIKE N'Zz Teste%';   -- leva junto os movimentos
     COMMIT;
     PRINT 'Testes apagados.';

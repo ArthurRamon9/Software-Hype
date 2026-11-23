@@ -752,3 +752,56 @@ BEGIN
     COMMIT;
 END
 GO
+
+/* =========================================================================
+   v10: sprints de 15 dias e Novidades. A sugestão aceita fica no backlog até
+   entrar numa sprint; ao fechar a sprint (de preferência numa segunda, que é
+   quando publica), o que ficou pronto vira a nota das Novidades.
+   ========================================================================= */
+IF OBJECT_ID('dbo.sprints') IS NULL
+CREATE TABLE dbo.sprints (
+    id          INT IDENTITY(1,1) CONSTRAINT pk_sprints PRIMARY KEY,
+    numero      INT NOT NULL CONSTRAINT uq_sprints_numero UNIQUE,
+    titulo      NVARCHAR(80)  NULL,          -- ex.: "Versão 10" (opcional)
+    inicio      DATE NOT NULL,
+    fim         DATE NOT NULL,
+    status      VARCHAR(12) NOT NULL CONSTRAINT df_sprints_status DEFAULT 'aberta'
+                CONSTRAINT ck_sprints_status CHECK (status IN ('aberta', 'fechada')),
+    notas       NVARCHAR(4000) NULL,         -- a nota das Novidades (uma linha por novidade)
+    dt_fechada  DATETIME2(0) NULL,           -- quando foi fechada e publicada
+    criado_por  INT NULL,
+    dt_criacao  DATETIME2(0) NOT NULL CONSTRAINT df_sprints_criacao DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT ck_sprints_datas CHECK (fim >= inicio)
+);
+GO
+IF COL_LENGTH('dbo.sugestoes', 'sprint_id') IS NULL
+    ALTER TABLE dbo.sugestoes ADD sprint_id INT NULL CONSTRAINT fk_sug_sprint REFERENCES dbo.sprints(id) ON DELETE SET NULL;
+GO
+-- Sprint 0 = esta versão (v10): já vem com a nota escrita para o Arthur revisar e fechar ao publicar
+IF NOT EXISTS (SELECT 1 FROM dbo.sementes WHERE chave = N'v10:sprint0')
+BEGIN
+    SET XACT_ABORT ON;
+    BEGIN TRAN;
+    IF NOT EXISTS (SELECT 1 FROM dbo.sprints WHERE numero = 0)
+        INSERT INTO dbo.sprints (numero, titulo, inicio, fim, status, notas) VALUES (0, N'Versão 10', '2026-11-09', '2026-11-22', 'aberta',
+N'- Os líderes não somem mais dos ministérios quando alguém edita o cadastro da pessoa.
+- Clicar rápido entre as telas sempre abre a última que você escolheu.
+- Escalas: botão "Montar" para escolher a sexta inteira de uma vez e "Copiar ou limpar" para várias sextas.
+- Escalas: o líder marca quem participou, e o relatório do mês fica em Relatórios → Escalas.
+- Escalas: "Enviar para o grupo" vai direto para o WhatsApp (no computador, a imagem já vai copiada).
+- "Suas próximas escalas" não mostra mais as sextas que já passaram.
+- Agenda: os líderes veem as reuniões de todos os ministérios, e dá para avisar o grupo no WhatsApp ao marcar uma reunião.
+- Pastoral e Integração: quando alguém em acompanhamento vem ao Hype, o responsável recebe um aviso.
+- Chamada: botão "Marcar restantes como ausentes".
+- Pessoas: dá para arquivar quem parou de vir. Se a pessoa voltar, sai do arquivo sozinha ao ser marcada na chamada.
+- Financeiro: quantidade, estoque e nota fiscal anexada. Agora só o grupo Financeiro vê o financeiro.
+- Fotos: ao escolher, dá para arrastar, dar zoom e girar para enquadrar o rosto. Clicar na foto abre ela grande.
+- Todo mundo com acesso vê Escalas, Agenda, Documentos e Ministérios.
+- Sugestões: sprints de 15 dias e esta página de Novidades.');
+    -- o que já estava pronto ou sendo feito entra na Sprint 0
+    UPDATE dbo.sugestoes SET sprint_id = (SELECT id FROM dbo.sprints WHERE numero = 0)
+     WHERE sprint_id IS NULL AND status IN ('feita', 'fazendo');
+    INSERT INTO dbo.sementes (chave) VALUES (N'v10:sprint0');
+    COMMIT;
+END
+GO

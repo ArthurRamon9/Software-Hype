@@ -34,7 +34,7 @@ O site nunca fala direto com o banco. Quem fala é a API, que confere o login e 
 | SQL injection | Todas as consultas usam parâmetros; nada digitado vira comando SQL. |
 | Script malicioso (XSS) | Todo texto é escapado antes de aparecer na tela, e o site envia `Content-Security-Policy` que proíbe scripts de fora ou embutidos. |
 | Ataque vindo de outro site (CSRF) | Cookie `SameSite=Strict` + toda escrita exige um cabeçalho que outro site não consegue enviar. |
-| Arquivo malicioso na foto | A foto é redesenhada no navegador e a API só aceita JPEG verdadeiro (confere a assinatura do arquivo), até 1 MB. |
+| Arquivo malicioso na foto | A foto é enquadrada (arrastar, zoom, girar) e redesenhada no navegador e a API só aceita JPEG verdadeiro (confere a assinatura do arquivo), até 1 MB. |
 | Estrago no banco | O site usa o usuário `hype_app`, que só lê e grava dados: não apaga tabelas, não muda estrutura e não consegue apagar o registro de atividades. |
 | Saber quem fez o quê | Registro de atividades (tabela `auditoria`, tela Acessos → Atividades): logins, tentativas falhas, liberações, bloqueios, cadastros, exclusões, chamadas salvas. |
 
@@ -155,8 +155,14 @@ Só o grupo **Financeiro** (e administradores) vê (v10).
   "Usar" tira do estoque, "Entrou" soma o que chegou sem compra (doação), e "Contei e tem" acerta com o que tem de verdade. Corrigir ou apagar a compra corrige o estoque junto.
 - **Nota fiscal (opcional):** anexe a foto ou o PDF da nota no lançamento. A foto é reduzida no próprio celular (até 1 MB) e fica no banco (`fin_notas`), como as fotos das pessoas.
 
-## Sugestões
-Qualquer pessoa com acesso manda ideias, melhorias ou avisa de algo com erro (menu **Sugestões**). Todos veem as sugestões dos outros, para não repetir e acompanhar o que vem por aí; a recusada só aparece para quem sugeriu. Quem tem `sugestoes.gerenciar` (administradores) aceita ou recusa com um recado. O que foi aceito vai para a **Sprint** (a fazer → fazendo → feita), e dá para baixar tudo em planilha. Quem sugeriu pode corrigir ou apagar a sua enquanto ninguém respondeu. O menu mostra quantas novas esperam resposta (v9 do `01_estrutura.sql`).
+## Sugestões, sprints e Novidades
+Qualquer pessoa com acesso manda ideias, melhorias ou avisa de algo com erro (menu **Sugestões**). Todos veem as sugestões dos outros, para não repetir e acompanhar o que vem por aí; a recusada só aparece para quem sugeriu. Quem sugeriu pode corrigir ou apagar a sua enquanto ninguém respondeu.
+
+Quem tem `sugestoes.gerenciar` (administradores) organiza o trabalho em **sprints de 15 dias**:
+- **Novas → Backlog:** aceitar manda para o backlog (a sugestão de quem gerencia já entra lá). Recusar pede um recado opcional.
+- **Sprint:** abra uma sprint (segunda a domingo da outra semana), puxe do backlog o que vai ser feito e mova: a fazer → fazendo → pronta.
+- **Fechar a sprint** na segunda em que publicar (nunca na sexta, que é dia de uso): a nota escrita vira as **Novidades**, que todos veem, com as sugestões prontas e o nome de quem sugeriu. O que não ficou pronto passa para a próxima sprint ou volta para o backlog. O Início e o menu avisam quem ainda não viu as Novidades.
+- A Sprint 0 (Versão 10) já vem com a nota pronta para revisar e fechar ao publicar. Tabela `sprints` e `sugestoes.sprint_id` (v10 do `01_estrutura.sql`).
 
 ## Campos de data, hora e listas
 `js/campos.js` troca a aparência dos campos do navegador (listas de escolha, data, hora e mês) pela do Hype, em todo o site e sozinho.

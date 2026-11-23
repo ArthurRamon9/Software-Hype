@@ -76,7 +76,27 @@ const MENU = [
   { href: '/acessos', rotulo: 'Acessos', ic: 'acessos', cont: 'pendentes', perm: ['acessos.gerenciar'] },
 ];
 const permitido = (perms) => !perms || (typeof perms === 'function' ? perms() : podeAlgum(...perms));
-const contadores = { pastoral: 0, pendentes: 0, integracao: 0, sugestoes: 0 };
+const contadores = { pastoral: 0, pendentes: 0, integracao: 0, sugestoes: 0, novidade: null };
+
+// Novidades: a última sprint fechada que esta pessoa ainda não viu (marca fica no navegador)
+const CHAVE_NOVIDADE = 'hype_novidade_vista';
+export function novidadeNaoVista() {
+  const n = contadores.novidade;
+  try { return n && Number(localStorage.getItem(CHAVE_NOVIDADE) || 0) < n.id ? n : null; } catch { return null; }
+}
+export function marcarNovidadeVista(id) {
+  try { if (Number(localStorage.getItem(CHAVE_NOVIDADE) || 0) >= id) return; localStorage.setItem(CHAVE_NOVIDADE, String(id)); } catch { return; }
+  document.querySelectorAll('.aviso-novidade').forEach((x) => x.remove());
+  if ($('#menu')) montarLayout(caminhoAtual());
+}
+// O Início deixa um lugar (#novidade-slot); o aviso aparece quando os contadores chegam
+export function pintarNovidade() {
+  const slot = document.getElementById('novidade-slot'), n = novidadeNaoVista();
+  if (!slot || !n || slot.firstChild) return;
+  slot.innerHTML = `<div class="aviso-novidade"><span><b>Novidades no site:</b> ${n.titulo ? esc(n.titulo) : `Sprint ${n.numero}`}. Veja o que mudou.</span>
+    <a class="btn sm" href="#/sugestoes?ver=novidades">Ver novidades</a><button type="button" class="link-btn small" id="novidade-fechar" aria-label="Dispensar">Agora não</button></div>`;
+  slot.querySelector('#novidade-fechar').addEventListener('click', () => marcarNovidadeVista(n.id));
+}
 
 export const navegar = (c) => { location.hash = '#' + c; };
 export const caminhoAtual = () => location.hash.replace(/^#/, '').split('?')[0] || '/';
@@ -147,7 +167,8 @@ async function rota(silencioso = false) {
 function itemMenu(item, caminho, mobile) {
   const ativo = item.href === '/' ? caminho === '/' : caminho.startsWith(item.href);
   const n = item.cont ? contadores[item.cont] : 0;
-  return `<a href="#${item.href}" class="${ativo ? 'ativo' : ''}">${icon(item.ic)}<span>${item.rotulo}</span>${n ? `<span class="n">${n}</span>` : ''}</a>`;
+  const novo = !n && item.href === '/sugestoes' && novidadeNaoVista();
+  return `<a href="#${item.href}" class="${ativo ? 'ativo' : ''}">${icon(item.ic)}<span>${item.rotulo}</span>${n ? `<span class="n">${n}</span>` : novo ? '<span class="n novo">Novo</span>' : ''}</a>`;
 }
 
 // Itens do menu que a pessoa pode ver (o celular mostra até 5; se passar, o 5º vira "Mais")
@@ -199,6 +220,7 @@ export async function atualizarContadores() {
   try {
     Object.assign(contadores, await api('GET', '/contadores', undefined, { sempre: true }));
     if ($('#menu')) montarLayout(caminhoAtual());
+    pintarNovidade();
   } catch {}
 }
 

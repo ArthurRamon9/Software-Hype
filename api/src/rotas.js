@@ -62,6 +62,12 @@ const PERMISSAO_DA_ROTA = {
   'POST /sugestoes':                  'aprovado',
   'PUT /sugestoes/:id':               'aprovado',   // quem sugeriu corrige enquanto está nova; quem gerencia muda tudo
   'DELETE /sugestoes/:id':            'aprovado',   // quem sugeriu apaga enquanto está nova; quem gerencia apaga qualquer uma
+  // Sprints de 15 dias (a nota da sprint fechada vira as Novidades, que todos veem em GET /sugestoes)
+  'POST /sprints':                    'sugestoes.gerenciar',
+  'PUT /sprints/:id':                 'sugestoes.gerenciar',
+  'DELETE /sprints/:id':              'sugestoes.gerenciar',   // só a aberta; o que estava nela volta para o backlog
+  'POST /sprints/:id/puxar':          'sugestoes.gerenciar',
+  'POST /sprints/:id/fechar':         'sugestoes.gerenciar',
   'GET /documentos':                  'aprovado',   // cada um vê os dos seus ministérios (a regra está na rota)
   'POST /documentos':                 'aprovado',   // líder do ministério, quem tem documentos.gerenciar ou administrador
   'PUT /documentos/:id':              'aprovado',
@@ -408,10 +414,14 @@ rota('GET', '/contadores', async ({ usuario }) => {
   // Quem gerencia as sugestões vê quantas novas esperam resposta (se o banco ainda não tem a tabela, fica 0)
   const sugNovas = gerenciaSugestoes(usuario)
     ? umaLinha("SELECT COUNT(*) AS n FROM dbo.sugestoes WHERE status = 'nova'").then((x) => x.n, () => 0) : 0;
-  const [r, past, integ, sugestoes] = await Promise.all([contas,
+  // A última sprint fechada nas últimas 3 semanas: o menu e o Início avisam quem ainda não viu as Novidades
+  const novidade = umaLinha(`SELECT TOP 1 id, numero, titulo FROM dbo.sprints
+    WHERE status = 'fechada' AND dt_fechada > DATEADD(DAY, -21, SYSUTCDATETIME()) ORDER BY dt_fechada DESC`).then((x) => x || null, () => null);
+  const [r, past, integ, sugestoes, nov] = await Promise.all([contas,
     pode(usuario, 'pastoral.ver') && designa(usuario, 'pastoral') ? Promise.all([calcularAlertas(), semResp('pastoral')]).then(([a, n]) => a.length + n) : null,
-    pode(usuario, 'integracao.ver') && designa(usuario, 'integracao') ? Promise.all([visitantesSemContato(), semResp('integracao')]).then(([a, n]) => a.length + n) : null, sugNovas]);
+    pode(usuario, 'integracao.ver') && designa(usuario, 'integracao') ? Promise.all([visitantesSemContato(), semResp('integracao')]).then(([a, n]) => a.length + n) : null, sugNovas, novidade]);
   r.sugestoes = sugestoes;
+  r.novidade = nov;
   if (past !== null) r.pastoral = past;
   if (integ !== null) r.integracao = integ;
   return r;
@@ -1685,26 +1695,33 @@ function dadosSugestao(body) {
 rota('GET', '/sugestoes', async ({ usuario }) => {
   const gerencia = gerenciaSugestoes(usuario);
   // Todos veem as sugestões de todos (para não repetir e acompanhar o que vem por aí); recusada, só quem sugeriu e quem gerencia
-  const itens = await query(`
-    SELECT s.id, s.titulo, s.detalhe, s.tipo, s.status, s.resposta, s.dt_criacao, s.dt_status,
+  const [itens, sprints] = await query(`
+    SELECT s.id, s.titulo, s.detalhe, s.tipo, s.status, s.resposta, s.dt_criacao, s.dt_status, s.sprint_id,
            u.nome AS autor, CASE WHEN s.criado_por = @eu THEN 1 ELSE 0 END AS minha
       FROM dbo.sugestoes s LEFT JOIN dbo.usuarios u ON u.id = s.criado_por
      WHERE s.status <> 'recusada' OR s.criado_por = @eu OR @ger = 1
-     ORDER BY s.dt_criacao DESC, s.id DESC`, { eu: usuario.id, ger: gerencia ? 1 : 0 });
-  return { itens: itens.map((i) => ({ ...i, minha: !!i.minha })), gerencia };
+     ORDER BY s.dt_criacao DESC, s.id DESC;
+    SELECT id, numero, titulo, CONVERT(CHAR(10), inicio, 126) AS inicio, CONVERT(CHAR(10), fim, 126) AS fim, status, notas, dt_fechada
+      FROM dbo.sprints ORDER BY numero DESC;`, { eu: usuario.id, ger: gerencia ? 1 : 0 }, { todos: true });
+  // A nota da sprint aberta ainda é rascunho: só quem gerencia vê
+  return { itens: itens.map((i) => ({ ...i, minha: !!i.minha })), gerencia, hoje: hojeBrasil(),
+    sprints: sprints.map((x) => (x.status === 'aberta' && !gerencia ? { ...x, notas: null } : x)) };
 });
 rota('POST', '/sugestoes', async ({ body, usuario, ip }) => {
   const d = dadosSugestao(body);
   // Freio contra enxurrada (ou robô): até 15 sugestões por conta em 24 horas
   const n = await umaLinha('SELECT COUNT(*) AS n FROM dbo.sugestoes WHERE criado_por = @eu AND dt_criacao > DATEADD(HOUR, -24, SYSUTCDATETIME())', { eu: usuario.id });
   if (n.n >= 15) throw new HttpError(429, 'Você já mandou muitas sugestões hoje. Tente de novo amanhã.');
-  const r = await umaLinha(`INSERT INTO dbo.sugestoes (titulo, detalhe, tipo, criado_por) OUTPUT inserted.id VALUES (@titulo, @detalhe, @tipo, @eu)`, { ...d, eu: usuario.id });
+  // Quem cuida do site não precisa aceitar a própria ideia: ela já vai para o backlog
+  const r = await umaLinha(`INSERT INTO dbo.sugestoes (titulo, detalhe, tipo, criado_por, status, dt_status) OUTPUT inserted.id
+    VALUES (@titulo, @detalhe, @tipo, @eu, @status, CASE WHEN @status = 'nova' THEN NULL ELSE SYSUTCDATETIME() END)`,
+  { ...d, eu: usuario.id, status: gerenciaSugestoes(usuario) ? 'aceita' : 'nova' });
   await seg.registrar('sugestao_enviada', { usuario, ip, detalhe: d.titulo });
   return { id: r.id };
 });
 rota('PUT', '/sugestoes/:id', async ({ params, body, usuario, ip }) => {
   const id = int(params.id);
-  const atual = await umaLinha('SELECT criado_por, status, resposta FROM dbo.sugestoes WHERE id = @id', { id });
+  const atual = await umaLinha('SELECT criado_por, status, resposta, sprint_id FROM dbo.sugestoes WHERE id = @id', { id });
   if (!atual) throw new HttpError(404, 'Sugestão não encontrada.');
   const gerencia = gerenciaSugestoes(usuario);
   if (!gerencia && !(atual.criado_por === usuario.id && atual.status === 'nova'))
@@ -1712,19 +1729,33 @@ rota('PUT', '/sugestoes/:id', async ({ params, body, usuario, ip }) => {
   // Só o status (botões rápidos de quem gerencia) ou o texto também
   const soStatus = body.titulo === undefined;
   const d = soStatus ? null : dadosSugestao(body);
-  let status = atual.status, resposta = atual.resposta;
+  let status = atual.status, resposta = atual.resposta, sprint = atual.sprint_id;
   if (gerencia) {
     if (body.status !== undefined) {
       if (!SUG_STATUS.includes(body.status)) throw new HttpError(400, 'Situação inválida.');
       status = body.status;
     }
     if (body.resposta !== undefined) resposta = txt(body.resposta, 500);
+    // Pôr na sprint aberta (ou tirar, voltando para o backlog)
+    if (body.sprint_id !== undefined) {
+      if (body.sprint_id === null) sprint = null;
+      else {
+        const sp = await umaLinha("SELECT id FROM dbo.sprints WHERE id = @sp AND status = 'aberta'", { sp: int(body.sprint_id) });
+        if (!sp) throw new HttpError(400, 'Essa sprint já foi fechada.');
+        sprint = sp.id;
+      }
+    }
   }
-  if (soStatus && status === atual.status && resposta === atual.resposta) return { ok: true };
+  // Nova ou recusada não fica em sprint; começou ou terminou fora da sprint: entra na aberta (se tiver)
+  if (['nova', 'recusada'].includes(status)) sprint = null;
+  const entraNaAberta = ['fazendo', 'feita'].includes(status) && sprint === null && body.sprint_id === undefined ? 1 : 0;
+  if (soStatus && status === atual.status && resposta === atual.resposta && sprint === atual.sprint_id && !entraNaAberta) return { ok: true };
   await query(`UPDATE dbo.sugestoes SET
       titulo = COALESCE(@titulo, titulo), detalhe = CASE WHEN @soStatus = 1 THEN detalhe ELSE @detalhe END, tipo = COALESCE(@tipo, tipo),
-      dt_status = CASE WHEN status <> @status THEN SYSUTCDATETIME() ELSE dt_status END, status = @status, resposta = @resposta
-    WHERE id = @id`, { id, titulo: d?.titulo || null, detalhe: d?.detalhe || null, tipo: d?.tipo || null, soStatus: soStatus ? 1 : 0, status, resposta });
+      dt_status = CASE WHEN status <> @status THEN SYSUTCDATETIME() ELSE dt_status END, status = @status, resposta = @resposta,
+      sprint_id = CASE WHEN @entra = 1 THEN (SELECT TOP 1 id FROM dbo.sprints WHERE status = 'aberta') ELSE @sprint END
+    WHERE id = @id`, { id, titulo: d?.titulo || null, detalhe: d?.detalhe || null, tipo: d?.tipo || null, soStatus: soStatus ? 1 : 0, status, resposta,
+    sprint, entra: entraNaAberta });
   await seg.registrar('sugestao_alterada', { usuario, ip, detalhe: `${id}: ${status}${d ? ` · ${d.titulo}` : ''}`.slice(0, 400) });
   return { ok: true };
 });
@@ -1737,6 +1768,98 @@ rota('DELETE', '/sugestoes/:id', async ({ params, usuario, ip }) => {
   await query('DELETE FROM dbo.sugestoes WHERE id = @id', { id });
   await seg.registrar('sugestao_apagada', { usuario, ip, detalhe: atual.titulo });
   return { ok: true };
+});
+
+// ---------- Sprints de 15 dias ----------
+// Uma sprint aberta por vez. Ao fechar (na segunda em que publica), a nota vira as Novidades e o que não ficou
+// pronto passa para a próxima sprint ou volta para o backlog.
+function datasSprint(body) {
+  const inicio = dataISO(body.inicio), fim = dataISO(body.fim);
+  if (!inicio || !fim) throw new HttpError(400, 'Escolha o começo e o fim da sprint.');
+  if (fim < inicio) throw new HttpError(400, 'O fim da sprint vem depois do começo.');
+  if ((new Date(fim) - new Date(inicio)) / 86400000 > 60) throw new HttpError(400, 'Uma sprint vai até 60 dias (o combinado é 15).');
+  return { inicio, fim };
+}
+const notasSprint = (v) => txt(v, 4000);
+async function sprintAberta(id) {
+  const sp = await umaLinha('SELECT id, numero, status FROM dbo.sprints WHERE id = @id', { id });
+  if (!sp) throw new HttpError(404, 'Sprint não encontrada.');
+  if (sp.status !== 'aberta') throw new HttpError(400, 'Essa sprint já foi fechada.');
+  return sp;
+}
+rota('POST', '/sprints', async ({ body, usuario, ip }) => {
+  const { inicio, fim } = datasSprint(body);
+  const r = await umaLinha(`
+    SET XACT_ABORT ON; BEGIN TRAN;
+    IF EXISTS (SELECT 1 FROM dbo.sprints WITH (UPDLOCK, HOLDLOCK) WHERE status = 'aberta') BEGIN ROLLBACK; SELECT CAST(NULL AS INT) AS id; RETURN; END
+    INSERT INTO dbo.sprints (numero, titulo, inicio, fim, criado_por) OUTPUT inserted.id, inserted.numero
+      SELECT ISNULL(MAX(numero), -1) + 1, @titulo, @inicio, @fim, @eu FROM dbo.sprints WITH (UPDLOCK, HOLDLOCK);
+    COMMIT;`, { titulo: txt(body.titulo, 80), inicio, fim, eu: usuario.id });
+  if (!r?.id) throw new HttpError(409, 'Já tem uma sprint aberta. Feche ela antes de abrir outra.');
+  await seg.registrar('sprint_aberta', { usuario, ip, detalhe: `Sprint ${r.numero}: ${inicio} a ${fim}` });
+  return { id: r.id, numero: r.numero };
+});
+// Corrigir datas, nome e a nota (a nota de uma sprint fechada também pode ser corrigida)
+rota('PUT', '/sprints/:id', async ({ params, body, usuario, ip }) => {
+  const id = int(params.id);
+  const sp = await umaLinha('SELECT numero FROM dbo.sprints WHERE id = @id', { id });
+  if (!sp) throw new HttpError(404, 'Sprint não encontrada.');
+  const d = body.inicio !== undefined || body.fim !== undefined ? datasSprint(body) : { inicio: null, fim: null };
+  await query(`UPDATE dbo.sprints SET inicio = COALESCE(@inicio, inicio), fim = COALESCE(@fim, fim),
+      titulo = CASE WHEN @mudaTitulo = 1 THEN @titulo ELSE titulo END, notas = CASE WHEN @mudaNotas = 1 THEN @notas ELSE notas END
+    WHERE id = @id`, { id, ...d, mudaTitulo: body.titulo === undefined ? 0 : 1, titulo: txt(body.titulo, 80),
+    mudaNotas: body.notas === undefined ? 0 : 1, notas: notasSprint(body.notas) });
+  await seg.registrar('sprint_alterada', { usuario, ip, detalhe: `Sprint ${sp.numero}` });
+  return { ok: true };
+});
+rota('DELETE', '/sprints/:id', async ({ params, usuario, ip }) => {
+  const sp = await sprintAberta(int(params.id));
+  // o que estava nela volta para o backlog (a chave do banco solta sozinha)
+  await query("UPDATE dbo.sugestoes SET sprint_id = NULL, status = CASE WHEN status = 'fazendo' THEN 'aceita' ELSE status END WHERE sprint_id = @id; DELETE FROM dbo.sprints WHERE id = @id;", { id: sp.id });
+  await seg.registrar('sprint_apagada', { usuario, ip, detalhe: `Sprint ${sp.numero}` });
+  return { ok: true };
+});
+// Puxar do backlog para a sprint aberta
+rota('POST', '/sprints/:id/puxar', async ({ params, body, usuario, ip }) => {
+  const sp = await sprintAberta(int(params.id));
+  const lista = (Array.isArray(body.ids) ? body.ids : []).map(Number).filter(Number.isInteger).slice(0, 200);
+  if (!lista.length) return { ok: true };
+  await query(`UPDATE dbo.sugestoes SET sprint_id = @sp WHERE id IN (SELECT value FROM OPENJSON(@ids)) AND status IN ('aceita', 'fazendo', 'feita')`,
+    { sp: sp.id, ids: JSON.stringify(lista) });
+  await seg.registrar('sprint_alterada', { usuario, ip, detalhe: `Sprint ${sp.numero}: ${lista.length} sugestão(ões) puxada(s) do backlog` });
+  return { ok: true };
+});
+// Fechar: grava a nota (Novidades), leva o que não ficou pronto e já pode abrir a próxima
+rota('POST', '/sprints/:id/fechar', async ({ params, body, usuario, ip }) => {
+  const sp = await sprintAberta(int(params.id));
+  const notas = notasSprint(body.notas);
+  const pendentes = body.pendentes === 'backlog' ? 'backlog' : 'proxima';
+  const prox = body.proxima ? datasSprint(body.proxima) : null;
+  const r = await umaLinha(`
+    SET XACT_ABORT ON; BEGIN TRAN;
+    UPDATE dbo.sprints SET status = 'fechada', dt_fechada = SYSUTCDATETIME(), notas = @notas,
+      titulo = CASE WHEN @mudaTitulo = 1 THEN @titulo ELSE titulo END WHERE id = @id AND status = 'aberta';
+    IF @@ROWCOUNT = 0 BEGIN ROLLBACK; SELECT CAST(0 AS INT) AS ok, CAST(NULL AS INT) AS nova; RETURN; END
+    -- o que ficou pronto fora de sprint entra nesta nota
+    UPDATE dbo.sugestoes SET sprint_id = @id WHERE sprint_id IS NULL AND status = 'feita';
+    DECLARE @nova INT = NULL;
+    IF @abrir = 1
+    BEGIN
+      INSERT INTO dbo.sprints (numero, inicio, fim, criado_por)
+        SELECT ISNULL(MAX(numero), -1) + 1, @pi, @pf, @eu FROM dbo.sprints WITH (UPDLOCK, HOLDLOCK);
+      SET @nova = SCOPE_IDENTITY();
+    END
+    -- não ficou pronto: vai para a próxima (se abriu) ou volta para o backlog
+    UPDATE dbo.sugestoes SET sprint_id = CASE WHEN @pend = 'proxima' THEN @nova END,
+           status = CASE WHEN @pend = 'proxima' AND @nova IS NOT NULL THEN status ELSE 'aceita' END
+     WHERE sprint_id = @id AND status IN ('aceita', 'fazendo');
+    COMMIT;
+    SELECT CAST(1 AS INT) AS ok, @nova AS nova;`,
+  { id: sp.id, notas, mudaTitulo: body.titulo === undefined ? 0 : 1, titulo: txt(body.titulo, 80), abrir: prox ? 1 : 0,
+    pi: prox?.inicio || null, pf: prox?.fim || null, eu: usuario.id, pend: pendentes });
+  if (!r?.ok) throw new HttpError(400, 'Essa sprint já foi fechada.');
+  await seg.registrar('sprint_fechada', { usuario, ip, detalhe: `Sprint ${sp.numero}${prox ? `; aberta a próxima (${prox.inicio} a ${prox.fim})` : ''}` });
+  return { ok: true, nova: r.nova };
 });
 
 // ------------------------------------------------------------------ PAINEL E RELATÓRIOS
