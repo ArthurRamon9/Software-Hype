@@ -787,8 +787,8 @@ BEGIN
 N'- Os líderes não somem mais dos ministérios quando alguém edita o cadastro da pessoa.
 - Clicar rápido entre as telas sempre abre a última que você escolheu.
 - Escalas: botão "Montar" para escolher a sexta inteira de uma vez e "Copiar ou limpar" para várias sextas.
-- Escalas: o líder marca quem participou, e o relatório do mês fica em Relatórios → Escalas.
-- Escalas: "Enviar para o grupo" vai direto para o WhatsApp (no computador, a imagem já vai copiada).
+- Engajamento (novo, para os líderes): depois da sexta, o líder marca como cada um da escala serviu e conta como foi. O relatório mostra o gráfico do mês e quem precisa de uma conversa.
+- Escalas: "Enviar para o grupo" manda a imagem e os nomes. No computador, a imagem já vai copiada, com o passo a passo. As opções menos usadas ficaram no botão "⋯".
 - "Suas próximas escalas" não mostra mais as sextas que já passaram.
 - Agenda: os líderes veem as reuniões de todos os ministérios, e dá para avisar o grupo no WhatsApp ao marcar uma reunião.
 - Pastoral e Integração: quando alguém em acompanhamento vem ao Hype, o responsável recebe um aviso.
@@ -804,4 +804,41 @@ N'- Os líderes não somem mais dos ministérios quando alguém edita o cadastro
     INSERT INTO dbo.sementes (chave) VALUES (N'v10:sprint0');
     COMMIT;
 END
+GO
+
+/* =====================================================================
+   v11 — Engajamento de sexta (ideia do Yuri)
+   O líder marca como cada um da escala serviu e responde três perguntas sobre a sexta.
+   Só acrescenta: o site antigo continua funcionando com o banco novo.
+   ===================================================================== */
+-- Como cada um serviu: serviu, parcial (serviu parcialmente), nao_serviu (compareceu e não serviu),
+-- ausente (ausente no dia), trocou (trocou de escala; substituto_id = quem serviu no lugar)
+IF COL_LENGTH('dbo.escala_itens', 'engajamento') IS NULL
+    ALTER TABLE dbo.escala_itens ADD engajamento VARCHAR(12) NULL
+        CONSTRAINT ck_ei_engajamento CHECK (engajamento IN ('serviu', 'parcial', 'nao_serviu', 'ausente', 'trocou'));
+IF COL_LENGTH('dbo.escala_itens', 'substituto_id') IS NULL
+    ALTER TABLE dbo.escala_itens ADD substituto_id INT NULL;   -- sem chave estrangeira: a pessoa apagada só some do relatório
+GO
+-- A marcação antiga (participou) vira engajamento
+IF NOT EXISTS (SELECT 1 FROM dbo.sementes WHERE chave = N'v11:engajamento')
+BEGIN
+    UPDATE dbo.escala_itens
+       SET engajamento = CASE participou WHEN 2 THEN 'serviu' WHEN 1 THEN 'parcial' WHEN 0 THEN 'nao_serviu' END
+     WHERE engajamento IS NULL AND participou IS NOT NULL;
+    INSERT INTO dbo.sementes (chave) VALUES (N'v11:engajamento');
+END
+GO
+-- O que o líder respondeu sobre a sexta (uma por ministério e sexta)
+IF OBJECT_ID('dbo.escala_avaliacoes') IS NULL
+CREATE TABLE dbo.escala_avaliacoes (
+    ministerio_id  INT NOT NULL CONSTRAINT fk_ea_ministerio REFERENCES dbo.ministerios(id) ON DELETE CASCADE,
+    data           DATE NOT NULL,
+    o_que          NVARCHAR(2000) NULL,   -- O que aconteceu de errado ou defasado?
+    acoes          NVARCHAR(2000) NULL,   -- Que ações foram tomadas?
+    avancar        NVARCHAR(400) NULL,    -- Precisamos avançar de outra forma? (opções marcadas, separadas por ;)
+    avancar_outro  NVARCHAR(400) NULL,
+    atualizado_por INT NULL,
+    dt_atualizacao DATETIME2(0) NOT NULL CONSTRAINT df_ea_atualizacao DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT pk_escala_avaliacoes PRIMARY KEY (ministerio_id, data)
+);
 GO

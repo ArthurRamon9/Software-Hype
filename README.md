@@ -181,8 +181,10 @@ O campo original continua escondido guardando o valor, então o resto do código
   **Enviar para o grupo:** no computador copia a imagem e abre o WhatsApp Web (é só escolher o grupo e Ctrl+V); no celular abre o compartilhar com a imagem.
   **Montar:** em cada sexta, uma janela com a equipe e as funções lado a lado para escolher todo mundo de uma vez.
   **Copiar ou limpar:** copia uma sexta para outras do mês, ou tira todo mundo das sextas escolhidas. Tirar uma função tira quem estava nela nas próximas sextas.
-  **Participação:** depois da sexta, o líder marca quem participou, mais ou menos ou não participou (só o líder e os administradores veem).
-  O **relatório do mês** fica em Relatórios → Escalas, para o líder (do seu ministério) e os administradores.
+  **Engajamento** (tela própria no menu, só para líderes e administradores): depois da sexta, o líder marca como cada um da escala serviu
+  (compareceu e serviu, serviu parcialmente, compareceu e não serviu, ausente no dia, trocou de escala) e responde três perguntas sobre a sexta.
+  Quem faltou na chamada já vem como ausente. O Início lembra o líder enquanto falta marcar. O relatório do mês tem gráfico, a matriz
+  pessoas × sextas, quem precisa de conversa (2 ou mais sem servir/ausente) e as observações; o líder vê só os seus ministérios.
 
 ## Aparência
 Cores do Hype (preto, branco e roxo; ciano e vermelho só no "H"), títulos na fonte Anton (OFL, em `assets/fonts`).

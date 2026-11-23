@@ -10,6 +10,7 @@ import * as pessoas from './pages/pessoas.js';
 import * as presenca from './pages/presenca.js';
 import * as pastoral from './pages/pastoral.js';
 import * as relatorios from './pages/relatorios.js';
+import * as engajamento from './pages/engajamento.js';
 import * as ministerios from './pages/ministerios.js';
 import * as usuarios from './pages/usuarios.js';
 import * as agenda from './pages/agenda.js';
@@ -41,7 +42,8 @@ const PRIVADAS = [
   ['/presenca', presenca.render, ['presenca.marcar']],
   ['/pastoral', pastoral.render, ['pastoral.ver']],
   ['/integracao', pastoral.renderIntegracao, ['integracao.ver']],
-  ['/relatorios', relatorios.render, () => podeAlgum('relatorios.ver') || relatorios.veRelatorioEscalas()],
+  ['/relatorios', relatorios.render, ['relatorios.ver']],
+  ['/engajamento', engajamento.render, () => engajamento.veEngajamento()],
   ['/ministerios', ministerios.render],   // todos veem (só olhar); editar é de quem tem ministerios.editar
   ['/acessos', usuarios.render, ['acessos.gerenciar']],
   ['/agenda', agenda.render],
@@ -57,7 +59,7 @@ const proximaSextaMes = () => { const d = new Date(); d.setHours(12); while (d.g
 const BUSCA_DA_TELA = {
   '/': () => ['/painel'], '/pessoas': () => ['/pessoas', '/ministerios'], '/integracao': () => ['/integracao'], '/pastoral': () => ['/pastoral'],
   '/relatorios': () => ['/encontros'], '/escalas': () => [`/escalas?mes=${proximaSextaMes()}`, '/escalas/minhas'], '/agenda': () => ['/agenda?periodo=proximas'],
-  '/ministerios': () => ['/ministerios'], '/acessos': () => ['/acessos'], '/financeiro': () => [`/financeiro?ano=${new Date().getFullYear()}`], '/documentos': () => ['/documentos'], '/sugestoes': () => ['/sugestoes'],
+  '/ministerios': () => ['/ministerios'], '/acessos': () => ['/acessos'], '/financeiro': () => [`/financeiro?ano=${new Date().getFullYear()}`], '/documentos': () => ['/documentos'], '/sugestoes': () => ['/sugestoes'], '/engajamento': () => ['/engajamento?'],
 };
 const MENU = [
   { href: '/', rotulo: 'Início', ic: 'inicio', mob: true },
@@ -65,8 +67,9 @@ const MENU = [
   { href: '/presenca', rotulo: 'Presença', ic: 'presenca', mob: true, perm: ['presenca.marcar'] },
   { href: '/integracao', rotulo: 'Integração', ic: 'integracao', mob: true, cont: 'integracao', perm: ['integracao.ver'] },
   { href: '/pastoral', rotulo: 'Pastoral', ic: 'pastoral', mob: true, cont: 'pastoral', perm: ['pastoral.ver'] },
-  { href: '/relatorios', rotulo: 'Relatórios', ic: 'relatorios', mob: true, perm: () => podeAlgum('relatorios.ver') || relatorios.veRelatorioEscalas() },
+  { href: '/relatorios', rotulo: 'Relatórios', ic: 'relatorios', mob: true, perm: ['relatorios.ver'] },
   { href: '/escalas', rotulo: 'Escalas', ic: 'escalas', mob: true },
+  { href: '/engajamento', rotulo: 'Engajamento', ic: 'engajamento', mob: true, cont: 'engajamentoN', perm: () => engajamento.veEngajamento() },
   { href: '/agenda', rotulo: 'Agenda', ic: 'agenda', mob: true },
   { href: '/documentos', rotulo: 'Documentos', ic: 'documentos' },
   { href: '/financeiro', rotulo: 'Financeiro', ic: 'financeiro', perm: ['financeiro.ver'] },
@@ -76,7 +79,7 @@ const MENU = [
   { href: '/acessos', rotulo: 'Acessos', ic: 'acessos', cont: 'pendentes', perm: ['acessos.gerenciar'] },
 ];
 const permitido = (perms) => !perms || (typeof perms === 'function' ? perms() : podeAlgum(...perms));
-const contadores = { pastoral: 0, pendentes: 0, integracao: 0, sugestoes: 0, novidade: null };
+const contadores = { pastoral: 0, pendentes: 0, integracao: 0, sugestoes: 0, novidade: null, engajamento: [], engajamentoN: 0 };
 
 // Novidades: a última sprint fechada que esta pessoa ainda não viu (marca fica no navegador)
 const CHAVE_NOVIDADE = 'hype_novidade_vista';
@@ -91,10 +94,17 @@ export function marcarNovidadeVista(id) {
 }
 // O Início deixa um lugar (#novidade-slot); o aviso aparece quando os contadores chegam
 export function pintarNovidade() {
-  const slot = document.getElementById('novidade-slot'), n = novidadeNaoVista();
-  if (!slot || !n || slot.firstChild) return;
-  slot.innerHTML = `<div class="aviso-novidade"><span><b>Novidades no site:</b> ${n.titulo ? esc(n.titulo) : `Sprint ${n.numero}`}. Veja o que mudou.</span>
-    <a class="btn sm" href="#/sugestoes?ver=novidades">Ver novidades</a><button type="button" class="link-btn small" id="novidade-fechar" aria-label="Dispensar">Agora não</button></div>`;
+  const slot = document.getElementById('novidade-slot');
+  if (!slot) return;
+  // Líder: a sexta que passou ainda sem engajamento marcado
+  if (contadores.engajamento.length && !slot.querySelector('.aviso-eng')) {
+    slot.insertAdjacentHTML('afterbegin', contadores.engajamento.map((x) => `<div class="aviso-novidade aviso-eng"><span><b>Avalie a equipe:</b> ${esc(x.ministerio)} na sexta ${x.data.slice(8, 10)}/${x.data.slice(5, 7)}. Marque como cada um serviu.</span>
+      <a class="btn sm primary" href="#/engajamento?min=${x.ministerio_id}&data=${x.data}">Avaliar agora</a></div>`).join(''));
+  }
+  const n = novidadeNaoVista();
+  if (!n || slot.querySelector('.aviso-novidade:not(.aviso-eng)')) return;
+  slot.insertAdjacentHTML('beforeend', `<div class="aviso-novidade"><span><b>Novidades no site:</b> ${n.titulo ? esc(n.titulo) : `Sprint ${n.numero}`}. Veja o que mudou.</span>
+    <a class="btn sm" href="#/sugestoes?ver=novidades">Ver novidades</a><button type="button" class="link-btn small" id="novidade-fechar" aria-label="Dispensar">Agora não</button></div>`);
   slot.querySelector('#novidade-fechar').addEventListener('click', () => marcarNovidadeVista(n.id));
 }
 
@@ -219,6 +229,9 @@ export async function atualizarContadores() {
   if (sessao.usuario?.cd_status !== 1) return;
   try {
     Object.assign(contadores, await api('GET', '/contadores', undefined, { sempre: true }));
+    contadores.engajamento = contadores.engajamento || [];
+    contadores.engajamentoN = contadores.engajamento.length;
+    document.querySelectorAll('.aviso-eng').forEach((x) => x.remove());
     if ($('#menu')) montarLayout(caminhoAtual());
     pintarNovidade();
   } catch {}

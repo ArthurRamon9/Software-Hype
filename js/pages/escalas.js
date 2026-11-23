@@ -3,7 +3,8 @@
 // Todo mundo vê as escalas de todos; só o líder do ministério (ou administrador) altera.
 // © Arthur Ramon da Silva — Todos os direitos reservados.
 import { api, sessao, pode as podeGeral } from '../api.js';
-import { esc, $, icon, aviso, avisoErro, janela, confirmar, isoLocal, semAcento, ocupado } from '../ui.js';
+import { esc, $, icon, aviso, avisoErro, janela, confirmar, isoLocal, semAcento, ocupado, menuAcoes } from '../ui.js';
+import { ENG } from './engajamento.js';
 import { abrirWhatsApp, ehCelular } from '../whats.js';
 import { baixarXLSX } from '../xlsx.js';
 import { desenharEscala } from '../escala-imagem.js';
@@ -89,8 +90,8 @@ export async function render(conteudo) {
 
   const nome = (i, data) => {
     const o = emOutro(i.pessoa_id, data);
-    const part = i.participou === undefined || i.participou === null ? '' : ` part p${i.participou}`;
-    return `<li class="${o.length ? 'conf' : ''} ${i.pessoa_id === eu ? 'eu' : ''}${part}" title="${esc(i.nome)}${part ? ` · ${PARTICIPOU[i.participou]}` : ''}${o.length ? ` · também na ${esc(o.join(' e '))} nesta sexta` : ''}">${part ? '<i class="bolinha"></i>' : ''}<span>${esc(i.nome)}</span>${o.length ? icon('alerta') : ''}</li>`;
+    const part = i.engajamento ? ` part e-${i.engajamento}` : '';
+    return `<li class="${o.length ? 'conf' : ''} ${i.pessoa_id === eu ? 'eu' : ''}${part}" title="${esc(i.nome)}${part ? ` · ${ENG[i.engajamento].rot}` : ''}${o.length ? ` · também na ${esc(o.join(' e '))} nesta sexta` : ''}">${part ? '<i class="bolinha"></i>' : ''}<span>${esc(i.nome)}</span>${o.length ? icon('alerta') : ''}</li>`;
   };
   // Função com quantidade (ex.: Entrada 3): mostra as vagas, preenchidas ou não
   const celula = (data, b) => {
@@ -114,7 +115,8 @@ export async function render(conteudo) {
   const cabecaSexta = (s) => `<span class="sx">Sexta <b>${dia2(s)}</b>${s === prox ? '<small>Próxima</small>' : ''}</span>`
     + (pode ? `<button type="button" class="link-btn small montar" data-montar="${s}" title="Escolher de uma vez quem serve em cada função nesta sexta">Montar</button>` : '');
   const passadas = sextas.filter((s) => s <= hoje && naCelula(s, null).length);
-  const temParticipacao = dados.itens.some((i) => i.ministerio_id === m.id && i.participou !== null && i.participou !== undefined);
+  const temEngajamento = dados.itens.some((i) => i.ministerio_id === m.id && i.engajamento);
+  const temAlguem = sextas.some((s) => naCelula(s, null).length);
 
   $('#quadro').innerHTML = `
     ${conflitosMes.length ? `<div class="aviso-conf">${icon('alerta')}<div>${conflitosMes.map((c) => `<b>${esc(c.nome)}</b> também está na ${esc(c.outros.join(' e '))} ${listaDatas(c.datas)}`).join('. ')}.${pode ? ' Pode manter, mas combine com o outro líder.' : ''}</div></div>` : ''}
@@ -122,10 +124,8 @@ export async function render(conteudo) {
       <div class="quadro-topo">
         <div><h2><i></i>${esc(m.nome)}</h2><span class="muted small">${pode ? 'Você monta esta escala. Toque numa sexta para escolher quem serve; salva na hora.' : 'Só o líder do ministério altera esta escala.'}</span></div>
         <div class="acoes">
-          ${pode ? '<button class="btn sm" id="funcoes">Funções</button><button class="btn sm" id="organizar" title="Copiar uma sexta para outras ou limpar sextas">Copiar ou limpar</button>' : ''}
-          ${pode && passadas.length ? '<button class="btn sm" id="participacao" title="Marcar quem participou, mais ou menos ou não participou">Participação</button>' : ''}
-          ${pode || podeBaixar ? '<button class="btn sm" id="planilha">Baixar planilha</button>' : ''}
-          <button class="btn sm primary" id="texto">${icon('whats')} Enviar para o grupo</button>
+          ${temAlguem ? `<button class="btn sm primary" id="texto">${icon('whats')} Enviar para o grupo</button>` : ''}
+          ${pode || (podeBaixar && temAlguem) ? `<button class="btn sm icone" id="mais-esc" title="Mais opções" aria-label="Mais opções">${icon('mais')}</button>` : ''}
         </div>
       </div>
       <div class="tabela-wrap so-computador"><table class="tab-escala">
@@ -135,20 +135,28 @@ export async function render(conteudo) {
       </table></div>
       <div class="esc-cel so-mobile">${sextas.map((s) => `<div class="esc-dia ${s === prox ? 'prox' : ''}"><h3>${cabecaSexta(s)}</h3>
         ${blocos.map((b) => `<div class="esc-bloco">${b.rot ? `<span class="fn">${esc(b.rot)}${b.vagas ? ` · ${b.vagas}` : ''}</span>` : ''}${celula(s, b)}</div>`).join('')}</div>`).join('')}</div>
-      ${pode && temParticipacao ? `<p class="rodape-quadro legenda-part"><span class="part p2"><i class="bolinha"></i>Participou</span><span class="part p1"><i class="bolinha"></i>Mais ou menos</span><span class="part p0"><i class="bolinha"></i>Não participou</span><a class="link-btn small" href="#/relatorios?ver=escalas">Ver o relatório do mês</a></p>` : ''}
+      ${pode && temEngajamento ? `<p class="rodape-quadro legenda-part">${Object.entries(ENG).map(([k, e]) => `<span class="part e-${k}"><i class="bolinha"></i>${e.curto}</span>`).join('')}<a class="link-btn small" href="#/engajamento?ver=relatorio">Ver o relatório</a></p>` : ''}
       ${pode && !m.funcoes.length ? '<p class="rodape-quadro">Sem funções, a escala é só a lista de quem serve. Para separar (ex.: Entrada, Saída), crie funções no botão "Funções".</p>' : ''}
     </section>`;
 
-  $('#planilha')?.addEventListener('click', () => baixarXLSX(`escala-${semAcento(m.nome).replace(/\s+/g, '-').toLowerCase()}-${mes}`, [{
+  const ctx = { m, sextas, blocos, naCelula, emOutro, recarregar, hoje };
+  const baixarPlanilha = () => baixarXLSX(`escala-${semAcento(m.nome).replace(/\s+/g, '-').toLowerCase()}-${mes}`, [{
     nome: 'Escala', linhas: [['', ...sextas.map((s) => `Sexta ${diaMes(s)}`)],
       ...blocos.flatMap((b) => {
         const cols = sextas.map((s) => naCelula(s, b.f).map((i) => i.nome));
         const n = Math.max(1, ...cols.map((c) => c.length));
         return Array.from({ length: n }, (_, k) => [k === 0 ? (b.rot || 'Escalados') : '', ...cols.map((c) => c[k] || '')]);
       })],
-  }]));
+  }]);
   // Enviar para o grupo: imagem da escala (no estilo do Hype) e o texto organizado para o WhatsApp
-  $('#texto').addEventListener('click', () => enviarParaGrupo({ m, sextas, blocos, naCelula, prox }));
+  $('#texto')?.addEventListener('click', () => enviarParaGrupo({ m, sextas, blocos, naCelula, prox }));
+  const ultimaPassada = passadas.at(-1);
+  if ($('#mais-esc')) menuAcoes($('#mais-esc'), [
+    pode && { rot: 'Funções', ic: 'lapis', acao: () => abrirFuncoes() },
+    pode && temAlguem && { rot: 'Copiar ou limpar sextas', ic: 'copiar', acao: () => copiarOuLimpar(ctx) },
+    pode && ultimaPassada && { rot: 'Engajamento da sexta', ic: 'engajamento', href: `#/engajamento?min=${m.id}&data=${ultimaPassada}` },
+    (pode || podeBaixar) && temAlguem && { rot: 'Baixar planilha', ic: 'planilha', acao: baixarPlanilha },
+  ]);
   if (!pode) return;
 
   // Escolher quem serve numa sexta (e função)
@@ -189,14 +197,11 @@ export async function render(conteudo) {
     cel.addEventListener('click', () => abrirCelula(cel));
     cel.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrirCelula(cel); } });
   });
-  const ctx = { m, sextas, blocos, naCelula, emOutro, recarregar, hoje };
   $('#quadro').querySelectorAll('[data-montar]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); montarSexta(ctx, b.dataset.montar); }));
-  $('#organizar').addEventListener('click', () => copiarOuLimpar(ctx));
-  $('#participacao')?.addEventListener('click', () => marcarParticipacao(ctx, passadas));
 
   // Funções do ministério: o líder cria quantas quiser, com a quantidade de pessoas de cada uma,
   // e só grava quando clica em Salvar (fechar sem salvar pergunta antes)
-  $('#funcoes').addEventListener('click', () => {
+  function abrirFuncoes() {
     let linhas = m.funcoes.map((f) => ({ id: f.id, nome: f.nome, vagas: f.vagas || '' }));
     janela({
       titulo: `Funções da ${m.nome}`,
@@ -242,12 +247,11 @@ export async function render(conteudo) {
         });
       },
     });
-  });
+  }
 
 }
 
 const dd = (iso) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
-const PARTICIPOU = { 2: 'Participou', 1: 'Mais ou menos', 0: 'Não participou' };
 
 // Montar a sexta inteira numa janela só: cada pessoa da equipe com as funções lado a lado
 function montarSexta({ m, naCelula, emOutro, recarregar }, data) {
@@ -346,51 +350,6 @@ function copiarOuLimpar({ m, sextas, naCelula, recarregar }) {
   });
 }
 
-// Participação de quem serviu (só o líder e os administradores veem)
-function marcarParticipacao({ m, naCelula, recarregar }, passadas) {
-  let data = passadas.at(-1);
-  janela({
-    titulo: `${m.nome} · Participação`,
-    corpo: `<div style="display:grid;gap:12px">
-      ${passadas.length > 1 ? `<div class="abas" id="pt-data">${passadas.map((s) => `<button data-d="${s}" class="${s === data ? 'ativo' : ''}">Sexta ${diaMes(s)}</button>`).join('')}</div>` : `<b>Sexta ${diaMes(data)}</b>`}
-      <p class="hint" style="margin:0">Como cada um serviu. Só você (e os administradores) veem isso; vai para o relatório do mês.</p>
-      <div id="pt-lista" class="pt-lista"></div>
-      <div class="janela-acoes" style="justify-content:space-between;flex-wrap:wrap"><button type="button" class="btn" id="pt-todos">Todos participaram</button>
-        <div style="display:flex;gap:8px"><button type="button" class="btn" data-fechar>Cancelar</button><button type="button" class="btn primary" id="pt-ok">Salvar</button></div></div></div>`,
-    aoAbrir: (j, fechar) => {
-      const marcas = new Map();   // id do item -> 0/1/2/null
-      const pintar = () => {
-        const l = naCelula(data, null);
-        j.querySelector('#pt-lista').innerHTML = l.map((i) => {
-          const v = marcas.has(i.id) ? marcas.get(i.id) : i.participou ?? null;
-          return `<div class="pt-linha"><span><b>${esc(i.nome)}</b>${i.funcao ? `<small>${esc(i.funcao)}</small>` : ''}</span>
-            <div class="seg">${[2, 1, 0].map((n) => `<button type="button" class="part p${n} ${v === n ? 'ativo' : ''}" data-i="${i.id}" data-v="${n}">${PARTICIPOU[n]}</button>`).join('')}</div></div>`;
-        }).join('');
-      };
-      pintar();
-      j.querySelector('#pt-data')?.addEventListener('click', async (e) => {
-        const b = e.target.closest('button[data-d]'); if (!b || b.dataset.d === data) return;
-        if (marcas.size) { if (!(await confirmar('Salvar o que marcou nesta sexta antes de trocar?', { botao: 'Salvar' }))) { marcas.clear(); } else { await salvar(false); } }
-        data = b.dataset.d; j.querySelectorAll('#pt-data button').forEach((x) => x.classList.toggle('ativo', x === b)); pintar();
-      });
-      j.querySelector('#pt-lista').addEventListener('click', (e) => {
-        const b = e.target.closest('button[data-i]'); if (!b) return;
-        const id = Number(b.dataset.i), v = Number(b.dataset.v);
-        const atual = marcas.has(id) ? marcas.get(id) : naCelula(data, null).find((x) => x.id === id)?.participou ?? null;
-        marcas.set(id, atual === v ? null : v); j.alterou = true; pintar();
-      });
-      j.querySelector('#pt-todos').addEventListener('click', () => { naCelula(data, null).forEach((i) => marcas.set(i.id, 2)); j.alterou = true; pintar(); });
-      const salvar = async (fecharDepois = true) => {
-        const lista = [...marcas].map(([id, participou]) => ({ id, participou }));
-        if (lista.length) await api('PUT', `/escalas/${m.id}/${data}/participacao`, { marcas: lista });
-        lista.forEach(({ id, participou }) => { const it = naCelula(data, null).find((x) => x.id === id); if (it) it.participou = participou; });
-        marcas.clear(); j.alterou = false;
-        if (fecharDepois) { fechar(true); aviso('Participação salva.'); recarregar(); }
-      };
-      j.querySelector('#pt-ok').addEventListener('click', (e) => ocupado(e.currentTarget, () => salvar().catch(avisoErro)));
-    },
-  });
-}
 function montarEscala({ m, blocos, naCelula, prox }, datas) {
   return datas.map((s) => ({ iso: s, data: dd(s), prox: s === prox,
     blocos: blocos.map((b) => ({ rot: b.rot, vagas: b.vagas || 0, nomes: naCelula(s, b.f).map((i) => curto(i.nome)) })) }));
@@ -410,7 +369,13 @@ function enviarParaGrupo(ctx) {
       <div class="ee-previa" id="ee-previa"><div class="boot"><span class="spin"></span></div></div>
       <div class="ee-acoes">
         <button class="btn primary" id="ee-compartilhar">${icon('whats')} Mandar no WhatsApp</button>
+        <button class="btn" id="ee-nomes" title="Copia a lista de quem serve, para colar na mensagem">${icon('copiar')} Copiar os nomes</button>
         <button class="btn" id="ee-baixar">Baixar imagem</button>
+      </div>
+      <div class="ee-passos" id="ee-passos" hidden>
+        <b>Imagem copiada. Agora no WhatsApp:</b>
+        <ol><li>Abra o grupo</li><li>Clique na caixa de mensagem</li><li>Aperte <kbd>Ctrl</kbd> + <kbd>V</kbd> e envie</li></ol>
+        <span class="muted small" id="ee-app"></span>
       </div>
       <p class="hint" id="ee-dica"></p>
     </div>`,
@@ -431,25 +396,50 @@ function enviarParaGrupo(ctx) {
         previa.innerHTML = `<img src="${url}" alt="Imagem da escala ${esc(m.nome)}">`;
         previa.querySelector('img').addEventListener('load', () => URL.revokeObjectURL(url), { once: true });
         j.querySelector('#ee-dica').textContent = celular && podeCompartilhar(arquivo)
-          ? 'Escolha o WhatsApp e depois o grupo: a imagem já vai junto.'
-          : 'Abre o WhatsApp com a imagem já copiada: escolha o grupo e aperte Ctrl+V para colar.';
+          ? 'Escolha o WhatsApp e depois o grupo: a imagem e os nomes já vão juntos.'
+          : 'A imagem é copiada e o WhatsApp Web abre numa aba. Lá é só abrir o grupo e colar.';
       };
       j.querySelector('#ee-qual').addEventListener('click', (e) => {
         const b = e.target.closest('button[data-q]'); if (!b || b.dataset.q === escolha) return;
         escolha = b.dataset.q; previa.classList.add('gerando'); gerar().catch(avisoErro).finally(() => previa.classList.remove('gerando'));
       });
+      // Texto com quem serve (vai junto no celular; no computador, "Copiar os nomes")
+      const texto = () => {
+        const datas = escolha === 'mes' ? sextas : [escolha];
+        return [`*Escala ${m.nome}* · ${escolha === 'mes' ? nomeMes(mes) : `Sexta ${dd(escolha)}`}`, ...montarEscala(ctx, datas).flatMap((sx) => [
+          ...(datas.length > 1 ? ['', `*Sexta ${sx.data}*`] : ['']),
+          ...sx.blocos.filter((b) => b.nomes.length).map((b) => `${b.rot ? `${b.rot}: ` : ''}${b.nomes.join(', ')}`),
+        ])].join('\n');
+      };
+      const compartilhar = async () => {
+        try { await navigator.share({ files: [arquivo], text: texto() }); }
+        catch (e) {
+          if (e?.name === 'AbortError') return;
+          try { await navigator.share({ files: [arquivo] }); } catch (e2) { if (e2?.name !== 'AbortError') avisoErro(e2); }
+        }
+      };
       bComp.addEventListener('click', async () => {
         if (!arquivo) return;
         // No celular a lista de compartilhar do aparelho é o único jeito de a imagem ir junto (WhatsApp costuma ser o primeiro)
-        if (celular && podeCompartilhar(arquivo)) {
-          try { await navigator.share({ files: [arquivo] }); } catch (e) { if (e?.name !== 'AbortError') avisoErro(e); }
-          return;
-        }
-        // No computador: copia a imagem e abre o WhatsApp; no grupo é só colar (Ctrl+V)
+        if (celular && podeCompartilhar(arquivo)) return compartilhar();
+        // No computador o navegador não consegue pôr a imagem dentro do WhatsApp: copia, abre e mostra o passo a passo
         let copiou = false;
         try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': arquivo })]); copiou = true; } catch {}
+        if (!copiou) { aviso('Não deu para copiar a imagem neste navegador: use "Baixar imagem" e anexe no grupo.', 'erro'); return; }
         abrirWhatsApp();
-        aviso(copiou ? 'Imagem copiada. No WhatsApp, abra o grupo e aperte Ctrl+V.' : 'Não deu para copiar a imagem neste navegador: use "Baixar imagem" e anexe no grupo.', copiou ? 'ok' : 'erro');
+        const passos = j.querySelector('#ee-passos');
+        passos.hidden = false;
+        passos.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        // Windows com Chrome/Edge: dá para usar o WhatsApp instalado no computador (a imagem vai junto)
+        const app = j.querySelector('#ee-app');
+        if (podeCompartilhar(arquivo) && !app.firstChild) {
+          app.innerHTML = 'Tem o WhatsApp instalado no computador? <button type="button" class="link-btn small" id="ee-app-btn">Mandar por ele</button>';
+          app.querySelector('#ee-app-btn').addEventListener('click', compartilhar);
+        }
+      });
+      j.querySelector('#ee-nomes').addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(texto()); aviso('Nomes copiados. É só colar na mensagem.'); }
+        catch { aviso('Não deu para copiar neste navegador.', 'erro'); }
       });
       j.querySelector('#ee-baixar').addEventListener('click', () => {
         if (!arquivo) return;

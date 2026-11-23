@@ -53,30 +53,17 @@ function comparar(atual, anterior) {
 const numero = (rot, val, det = '') => `<div><div class="rot">${rot}</div><div class="val">${val}</div><div class="det">${det || '&nbsp;'}</div></div>`;
 const tituloImpressao = (t) => `<div class="so-impressao" style="margin-bottom:12px"><h1>Gestão do Hype · ${t}</h1><p class="small">${direitos()}</p></div>`;
 
-// Quem lidera um ministério (ou é administrador) vê o relatório de participação nas escalas
-export const veRelatorioEscalas = () => pode('acessos.gerenciar') || (sessao.usuario?.ministerios || []).some((m) => m.lider);
-
 export async function render(conteudo) {
   const veGeral = pode('relatorios.ver');
-  const [encontros, relEsc] = await Promise.all([veGeral ? api('GET', '/encontros') : [], veRelatorioEscalas() ? api('GET', '/escalas/relatorio') : { meses: [] }]);
-  const mesesEsc = relEsc.meses;
-  if (new URLSearchParams(location.hash.split('?')[1] || '').get('ver') === 'escalas' && mesesEsc.length) estado.modo = 'escalas';
-  if (!veGeral) estado.modo = 'escalas';
-  if (estado.modo === 'escalas' && !mesesEsc.length) estado.modo = 'semana';
-  if (!estado.mesEsc || !mesesEsc.includes(estado.mesEsc)) estado.mesEsc = mesesEsc.find((m) => m <= isoLocal(new Date()).slice(0, 7)) || mesesEsc[0];
-  if (!veGeral && !mesesEsc.length) {
-    conteudo.innerHTML = '<div class="cabecalho"><div><h1>Relatórios</h1></div></div><div class="painel vazio"><b>Nenhuma escala ainda</b>Quando você montar a escala do seu ministério, o relatório de participação aparece aqui.</div>';
-    return;
-  }
+  const encontros = veGeral ? await api('GET', '/encontros') : [];
   if (!estado.encontro && encontros.length) estado.encontro = encontros[0].id;
   const anos = [...new Set([new Date().getFullYear(), ...encontros.map((e) => Number(e.data.slice(0, 4)))])].sort((a, b) => b - a);
 
   conteudo.innerHTML = `
     <div class="cabecalho nao-imprimir"><div><h1>Relatórios</h1></div>
-      <div class="acoes">${pode('relatorios.exportar') || mesesEsc.length ? '<button class="btn" id="csv">Baixar planilha</button><button class="btn" id="imprimir">Imprimir</button>' : ''}</div></div>
+      <div class="acoes">${pode('relatorios.exportar') ? '<button class="btn" id="csv">Baixar planilha</button><button class="btn" id="imprimir">Imprimir</button>' : ''}</div></div>
     <div class="nao-imprimir" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
-      <div class="abas" id="modo">${veGeral ? '<button data-m="semana">Semana</button><button data-m="mes">Mês</button><button data-m="ano">Ano</button>' : ''}${mesesEsc.length ? '<button data-m="escalas">Escalas</button>' : ''}</div>
-      <select class="input" id="sel-mes-esc" style="width:auto">${mesesEsc.map((m) => `<option value="${m}" ${m === estado.mesEsc ? 'selected' : ''}>${nomeMes(m)}</option>`).join('')}</select>
+      <div class="abas" id="modo">${veGeral ? '<button data-m="semana">Semana</button><button data-m="mes">Mês</button><button data-m="ano">Ano</button>' : ''}</div>
       <select class="input" id="sel-enc" style="width:auto">${encontros.map((e) => `<option value="${e.id}">${fmtData(e.data)}${e.tema ? ' · ' + esc(e.tema) : ''}</option>`).join('') || '<option>Nenhuma chamada</option>'}</select>
       <input type="month" class="input" id="sel-mes" style="width:auto" value="${estado.mes}">
       <select class="input" id="sel-ano" style="width:auto">${anos.map((a) => `<option ${a === estado.ano ? 'selected' : ''}>${a}</option>`).join('')}</select>
@@ -90,27 +77,23 @@ export async function render(conteudo) {
     $('#sel-enc').classList.toggle('hidden', estado.modo !== 'semana');
     $('#sel-mes').classList.toggle('hidden', estado.modo !== 'mes');
     $('#sel-ano').classList.toggle('hidden', estado.modo !== 'ano');
-    $('#sel-mes-esc').classList.toggle('hidden', estado.modo !== 'escalas');
-    $('#csv')?.classList.toggle('hidden', estado.modo !== 'escalas' && !pode('relatorios.exportar'));
-    $('#imprimir')?.classList.toggle('hidden', estado.modo !== 'escalas' && !pode('relatorios.exportar'));
     if (estado.encontro) $('#sel-enc').value = estado.encontro;
     const rel = $('#rel');
     rel.innerHTML = '<div class="boot"><span class="spin"></span></div>';
-    try { csv = await ({ semana, mes, ano, escalas })[estado.modo](rel, encontros); }
+    try { csv = await ({ semana, mes, ano })[estado.modo](rel, encontros); }
     catch (e) { rel.innerHTML = `<div class="painel vazio">${esc(e.message)}</div>`; }
   };
   $$('#modo button').forEach((b) => b.addEventListener('click', () => { estado.modo = b.dataset.m; gerar(); }));
   $('#sel-enc').addEventListener('change', (e) => { estado.encontro = Number(e.target.value); gerar(); });
   $('#sel-mes').addEventListener('change', (e) => { if (e.target.value) { estado.mes = e.target.value; gerar(); } });
   $('#sel-ano').addEventListener('change', (e) => { estado.ano = Number(e.target.value); gerar(); });
-  $('#sel-mes-esc').addEventListener('change', (e) => { estado.mesEsc = e.target.value; gerar(); });
   if ($('#imprimir')) $('#imprimir').onclick = () => window.print();
   // Planilha no jeito do "Imprimir": primeiro o resumo (os números de cima), depois o gráfico e as tabelas
   if ($('#csv')) $('#csv').onclick = () => {
     if (!csv) return;
     const num = (t) => { const x = t.trim().replace(/\./g, '').replace(',', '.'); return /^-?\d+(\.\d+)?$/.test(x) ? Number(x) : t.trim(); };
     const resumo = [...document.querySelectorAll('#rel .numeros > div')].map((d) => [d.querySelector('.rot')?.textContent.trim() || '', num(d.querySelector('.val')?.textContent || ''), (d.querySelector('.det')?.textContent || '').replace(/\s+/g, ' ').trim()]);
-    const titulo = { semana: 'Semana', mes: 'Mês', ano: 'Ano', escalas: 'Escalas' }[estado.modo];
+    const titulo = { semana: 'Semana', mes: 'Mês', ano: 'Ano' }[estado.modo];
     const abas = [
       ...(resumo.length ? [{ nome: 'Resumo', semFiltro: true, linhas: [[`Resumo · ${titulo}`, 'Valor', 'Detalhe'], ...resumo, [], ['Gerado em', new Date().toLocaleString('pt-BR'), direitos().replace(/<[^>]+>/g, '')]] }] : []),
       ...(csv.abas || [{ nome: 'Relatório', linhas: csv.linhas }]),
@@ -248,43 +231,3 @@ async function ano(rel) {
   ] };
 }
 
-// ---------------- Escalas: participação de quem serviu no mês ----------------
-// Só os ministérios que a pessoa lidera (administrador: todos). 2 = participou, 1 = mais ou menos, 0 = não participou.
-async function escalas(rel) {
-  const mesSel = estado.mesEsc;
-  const { itens } = await api('GET', `/escalas/relatorio?mes=${mesSel}`);
-  if (!itens.length) { rel.innerHTML = '<div class="painel vazio">Nenhuma escala neste mês.</div>'; return null; }
-  const pctTxt = (n) => (n === null ? '—' : `${Math.round(n * 100)}%`);
-  const mins = [...new Map(itens.map((i) => [i.ministerio_id, { id: i.ministerio_id, nome: i.ministerio, cor: i.cor }])).values()];
-  const resumoPessoa = (l) => {
-    const c = { vezes: l.length, p2: 0, p1: 0, p0: 0, sem: 0 };
-    l.forEach((i) => { if (i.participou === 2) c.p2++; else if (i.participou === 1) c.p1++; else if (i.participou === 0) c.p0++; else c.sem++; });
-    const marcados = c.p2 + c.p1 + c.p0;
-    c.aprov = marcados ? (c.p2 + c.p1 * 0.5) / marcados : null;
-    return c;
-  };
-  const porMin = mins.map((m) => {
-    const l = itens.filter((i) => i.ministerio_id === m.id);
-    const pessoas = [...new Map(l.map((i) => [i.pessoa_id, i.nome])).entries()].map(([id, nome]) => ({ id, nome, ...resumoPessoa(l.filter((i) => i.pessoa_id === id)) }))
-      .sort((a, b) => (b.aprov ?? -1) - (a.aprov ?? -1) || b.vezes - a.vezes || a.nome.localeCompare(b.nome));
-    return { ...m, itens: l, pessoas, total: resumoPessoa(l), sextas: new Set(l.map((i) => i.data)).size };
-  });
-  const tot = resumoPessoa(itens);
-  rel.innerHTML = `${tituloImpressao(`Escalas · ${nomeMes(mesSel)}`)}
-    <section class="painel"><div class="numeros">
-      ${numero('Vezes escaladas', tot.vezes, `${new Set(itens.map((i) => i.pessoa_id)).size} pessoas`)}
-      ${numero('Participaram', tot.p2, tot.vezes ? pctTxt(tot.p2 / tot.vezes) + ' das vezes' : '')}
-      ${numero('Mais ou menos', tot.p1, '')}
-      ${numero('Não participaram', tot.p0, tot.sem ? `${tot.sem} sem marcar` : 'Tudo marcado')}
-    </div></section>
-    ${porMin.map((m) => `<section class="painel" style="margin-top:14px"><div class="painel-topo"><h2><i class="bolinha-min" style="background:${esc(m.cor)}"></i>${esc(m.nome)}</h2><span class="muted small">${m.sextas} sexta${m.sextas === 1 ? '' : 's'} · ${m.total.sem ? `${m.total.sem} sem marcar` : 'Tudo marcado'}</span></div>
-      <div class="tabela-wrap"><table class="tabela"><thead><tr><th>Pessoa</th><th class="dir num">Escalado</th><th class="dir num">Participou</th><th class="dir num">Mais ou menos</th><th class="dir num">Não participou</th><th class="dir num">Sem marcar</th><th class="dir num">Aproveitamento</th></tr></thead>
-      <tbody>${m.pessoas.map((p) => `<tr><td>${esc(p.nome)}</td><td class="dir num">${p.vezes}</td><td class="dir num">${p.p2 || ''}</td><td class="dir num">${p.p1 || ''}</td><td class="dir num ${p.p0 ? 'txt-ruim' : ''}">${p.p0 || ''}</td><td class="dir num muted">${p.sem || ''}</td><td class="dir num"><b>${pctTxt(p.aprov)}</b></td></tr>`).join('')}</tbody></table></div></section>`).join('')}
-    <p class="hint" style="margin-top:10px">Aproveitamento: participou conta inteiro, mais ou menos conta metade; só entram as vezes marcadas. Marque em Escalas → Participação.</p>`;
-  const rot = { 2: 'Participou', 1: 'Mais ou menos', 0: 'Não participou' };
-  return { nome: `escalas-${mesSel}`, abas: [
-    { nome: 'Por pessoa', linhas: [['Ministério', 'Pessoa', 'Escalado', 'Participou', 'Mais ou menos', 'Não participou', 'Sem marcar', 'Aproveitamento'],
-      ...porMin.flatMap((m) => m.pessoas.map((p) => [m.nome, p.nome, p.vezes, p.p2, p.p1, p.p0, p.sem, p.aprov === null ? '' : Math.round(p.aprov * 100) / 100]))] },
-    { nome: 'Por sexta', linhas: [['Ministério', 'Data', 'Função', 'Pessoa', 'Participação'], ...itens.map((i) => [i.ministerio, i.data, i.funcao || '', i.nome, rot[i.participou] || 'Sem marcar'])] },
-  ] };
-}

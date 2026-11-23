@@ -32,6 +32,9 @@ const P = {
   externo: '<path d="M14 4h6v6M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
   lapis: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
   chevron: '<path d="M9 6l6 6-6 6"/>',
+  engajamento: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 13l2 2 4-4"/>',
+  planilha: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/>',
+  copiar: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>',
   girar: '<path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/>',
   clipe: '<path d="M21.4 11.1l-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/>',
   caixa: '<path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8M12 13v8"/>',
@@ -304,3 +307,31 @@ export function aplicarTema(escolha = temaAtual()) {
 }
 // Automático: acompanha quando o celular muda de claro para escuro
 try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (temaAtual() === 'auto') aplicarTema('auto'); }); } catch {}
+
+// Menu "⋯": guarda as ações que não são do dia a dia num botão só.
+// itens: [{ rot, ic, acao, href }] (itens falsos são ignorados). Fecha com Esc, clique fora ou ao escolher.
+export function menuAcoes(botao, itens) {
+  let aberto = null;
+  const fechar = () => { if (!aberto) return; aberto.remove(); aberto = null; botao.setAttribute('aria-expanded', 'false'); document.removeEventListener('pointerdown', fora, true); document.removeEventListener('keydown', tecla, true); };
+  const fora = (e) => { if (aberto && !aberto.contains(e.target) && !botao.contains(e.target)) fechar(); };
+  const tecla = (e) => { if (e.key === 'Escape') { e.stopPropagation(); fechar(); botao.focus(); } };
+  botao.setAttribute('aria-haspopup', 'menu'); botao.setAttribute('aria-expanded', 'false');
+  botao.addEventListener('click', () => {
+    if (aberto) { fechar(); return; }
+    const lista = itens.filter(Boolean);
+    aberto = document.createElement('div');
+    aberto.className = 'menu-acoes'; aberto.setAttribute('role', 'menu');
+    aberto.innerHTML = lista.map((it, i) => (it.href
+      ? `<a role="menuitem" href="${esc(it.href)}" data-i="${i}">${it.ic ? icon(it.ic) : ''}<span>${esc(it.rot)}</span></a>`
+      : `<button type="button" role="menuitem" data-i="${i}">${it.ic ? icon(it.ic) : ''}<span>${esc(it.rot)}</span></button>`)).join('');
+    document.body.append(aberto);
+    const r = botao.getBoundingClientRect(), w = aberto.offsetWidth;
+    aberto.style.top = `${r.bottom + window.scrollY + 6}px`;
+    aberto.style.left = `${Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w)) + window.scrollX}px`;
+    aberto.addEventListener('click', (e) => { const el = e.target.closest('[data-i]'); if (!el) return; const it = lista[Number(el.dataset.i)]; fechar(); it.acao?.(); });
+    botao.setAttribute('aria-expanded', 'true');
+    aberto.querySelector('[data-i]')?.focus();
+    document.addEventListener('pointerdown', fora, true); document.addEventListener('keydown', tecla, true);
+  });
+  window.addEventListener('hashchange', fechar, { once: true });
+}
