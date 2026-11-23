@@ -1234,7 +1234,8 @@ rota('POST', '/agenda/:id/cancelar', async ({ params, usuario, ip }) => {
   if (!atual) throw new HttpError(404, 'Reunião não encontrada.');
   precisaLiderar(usuario, atual.ministerio_id);
   await query('UPDATE dbo.reunioes SET cancelada = 1, sequencia = sequencia + 1 WHERE id = @id', { id });
-  const avisados = await enviarConvites(id, { cancelar: true });
+  // Já está cancelada no banco: se o e-mail falhar, a reunião continua cancelada (não devolve erro)
+  const avisados = await enviarConvites(id, { cancelar: true }).catch((e) => { console.error('cancelar reunião: e-mail', e); return 0; });
   await seg.registrar('reuniao_cancelada', { usuario, ip, detalhe: `${atual.titulo}, ${avisados} avisados` });
   return { avisados };
 });
@@ -1372,39 +1373,45 @@ rota('GET', '/engajamento', async ({ query: q, usuario }) => {
   if (!veEngajamento(usuario)) throw new HttpError(403, 'Só os líderes dos ministérios veem o engajamento.');
   const todos = ehGestor(usuario);
   const hoje = hojeBrasil();
-  // Ministérios que a pessoa lidera (administrador: todos os que têm escala), com as sextas que já tiveram escala
-  const [mins, sextas] = await query(`
-    SELECT m.id, m.nome, m.cor FROM dbo.ministerios m
-     WHERE m.cd_status = 1 AND (m.id IN (SELECT value FROM OPENJSON(@mins)) OR (@todos = 1 AND EXISTS (SELECT 1 FROM dbo.escala_itens i WHERE i.ministerio_id = m.id)))
-     ORDER BY m.nome;
-    SELECT i.ministerio_id, CONVERT(CHAR(10), i.data, 126) AS data, COUNT(*) AS escalados, SUM(CASE WHEN i.engajamento IS NULL THEN 0 ELSE 1 END) AS marcados
-      FROM dbo.escala_itens i
-     WHERE i.data <= @hoje AND i.data > DATEADD(MONTH, -4, @hoje)
-       AND (@todos = 1 OR i.ministerio_id IN (SELECT value FROM OPENJSON(@mins)))
-     GROUP BY i.ministerio_id, i.data ORDER BY i.data DESC;`,
-  { mins: JSON.stringify(ministeriosQueLidero(usuario)), todos: todos ? 1 : 0, hoje }, { todos: true });
-  const ministerios = mins.map((m) => ({ ...m, sextas: sextas.filter((s) => s.ministerio_id === m.id).map(({ ministerio_id, ...s }) => s) }));
-  const mid = (q.ministerio ? int(q.ministerio) : null) || (ministerios.find((m) => m.sextas.length) || ministerios[0])?.id;
-  const m = ministerios.find((x) => x.id === mid);
-  if (!m) return { ministerios, ministerio: null };
-  const data = dataISO(q.data) && q.data <= hoje ? q.data : m.sextas[0]?.data || null;
-  if (!data) return { ministerios, ministerio: m.id, data: null, itens: [], membros: [], avaliacao: null };
-  const [itens, membros, aval, chamada] = await query(`
+  // Uma ida só ao banco (ele fica longe): ministérios, sextas, e a sexta escolhida com a equipe, a avaliação e a chamada.
+  // Sem sexta pedida: a mais recente deste mês ou a mais recente que ainda falta marcar.
+  const r = await query(`
+    SET NOCOUNT ON;
+    DECLARE @m TABLE (id INT PRIMARY KEY, nome NVARCHAR(120), cor VARCHAR(20));
+    INSERT INTO @m SELECT m.id, m.nome, m.cor FROM dbo.ministerios m
+     WHERE m.cd_status = 1 AND (m.id IN (SELECT value FROM OPENJSON(@mins)) OR (@todos = 1 AND EXISTS (SELECT 1 FROM dbo.escala_itens i WHERE i.ministerio_id = m.id)));
+    DECLARE @s TABLE (ministerio_id INT, data DATE, escalados INT, marcados INT);
+    INSERT INTO @s SELECT i.ministerio_id, i.data, COUNT(*), SUM(CASE WHEN i.engajamento IS NULL THEN 0 ELSE 1 END)
+      FROM dbo.escala_itens i JOIN @m m ON m.id = i.ministerio_id
+     WHERE i.data <= @hoje AND i.data > DATEADD(MONTH, -4, @hoje) GROUP BY i.ministerio_id, i.data;
+    DECLARE @mid INT = (SELECT id FROM @m WHERE id = @qmid);
+    IF @mid IS NULL SET @mid = (SELECT TOP 1 ministerio_id FROM @s s JOIN @m m ON m.id = s.ministerio_id ORDER BY CASE WHEN s.marcados < s.escalados THEN 0 ELSE 1 END, s.data DESC, m.nome);
+    IF @mid IS NULL SET @mid = (SELECT TOP 1 id FROM @m ORDER BY nome);
+    DECLARE @data DATE = CASE WHEN @qdata IS NOT NULL AND @qdata <= @hoje THEN @qdata END;
+    IF @data IS NULL SET @data = (SELECT TOP 1 data FROM @s WHERE ministerio_id = @mid AND (marcados < escalados OR data >= DATEFROMPARTS(YEAR(@hoje), MONTH(@hoje), 1)) ORDER BY data DESC);
+    SELECT id, nome, cor FROM @m ORDER BY nome;
+    SELECT ministerio_id, CONVERT(CHAR(10), data, 126) AS data, escalados, marcados FROM @s ORDER BY data DESC;
+    SELECT @mid AS ministerio, CONVERT(CHAR(10), @data, 126) AS data;
     SELECT i.id, i.funcao, i.pessoa_id, p.nome, i.engajamento, i.substituto_id, s.nome AS substituto
       FROM dbo.escala_itens i JOIN dbo.pessoas p ON p.id = i.pessoa_id LEFT JOIN dbo.pessoas s ON s.id = i.substituto_id
      WHERE i.ministerio_id = @mid AND i.data = @data ORDER BY i.funcao, p.nome;
-    SELECT p.id, p.nome FROM dbo.pessoa_ministerio pm JOIN dbo.pessoas p ON p.id = pm.pessoa_id WHERE pm.ministerio_id = @mid AND p.cd_status = 1 ORDER BY p.nome;
+    SELECT p.id, p.nome FROM dbo.pessoa_ministerio pm JOIN dbo.pessoas p ON p.id = pm.pessoa_id WHERE pm.ministerio_id = @mid AND p.cd_status = 1 AND @data IS NOT NULL ORDER BY p.nome;
     SELECT o_que, acoes, avancar, avancar_outro, dt_atualizacao FROM dbo.escala_avaliacoes WHERE ministerio_id = @mid AND data = @data;
     SELECT pr.pessoa_id, CAST(pr.presente AS INT) AS presente FROM dbo.encontros e JOIN dbo.presencas pr ON pr.encontro_id = e.id
      WHERE e.data = @data AND pr.pessoa_id IN (SELECT pessoa_id FROM dbo.escala_itens WHERE ministerio_id = @mid AND data = @data);
-    SELECT COUNT(*) AS n FROM dbo.encontros e JOIN dbo.presencas pr ON pr.encontro_id = e.id WHERE e.data = @data;`,
-  { mid: m.id, data }, { todos: true }).then((r) => [r[0], r[1], r[2][0] || null, { feita: r[4][0].n > 0, lista: r[3] }]);
+    SELECT CASE WHEN EXISTS (SELECT 1 FROM dbo.encontros e JOIN dbo.presencas pr ON pr.encontro_id = e.id WHERE e.data = @data) THEN 1 ELSE 0 END AS feita;`,
+  { mins: JSON.stringify(ministeriosQueLidero(usuario)), todos: todos ? 1 : 0, hoje, qmid: q.ministerio ? int(q.ministerio) : null, qdata: dataISO(q.data) || null }, { todos: true });
+  const [mins, sextas, [sel], itens, membros, [aval], lista, [chamada]] = r;
+  const ministerios = mins.map((m) => ({ ...m, sextas: sextas.filter((s) => s.ministerio_id === m.id).map(({ ministerio_id, ...s }) => s) }));
+  if (!sel?.ministerio) return { ministerios, ministerio: null };
+  if (!sel.data) return { ministerios, ministerio: sel.ministerio, data: null, itens: [], membros: [], avaliacao: null };
   // Chamada da sexta: quem não foi marcado presente aparece como sugestão de "Ausente no dia"
-  const presentes = new Set(chamada.lista.filter((x) => x.presente).map((x) => x.pessoa_id));
+  const feita = !!chamada?.feita;
+  const presentes = new Set(lista.filter((x) => x.presente).map((x) => x.pessoa_id));
   return {
-    ministerios, ministerio: m.id, data, chamada_feita: chamada.feita,
-    itens: itens.map((i) => ({ ...i, presente: chamada.feita ? presentes.has(i.pessoa_id) : null })),
-    membros, avaliacao: aval && { ...aval, avancar: aval.avancar ? aval.avancar.split(';').filter(Boolean) : [] },
+    ministerios, ministerio: sel.ministerio, data: sel.data, chamada_feita: feita,
+    itens: itens.map((i) => ({ ...i, presente: feita ? presentes.has(i.pessoa_id) : null })),
+    membros, avaliacao: aval ? { ...aval, avancar: aval.avancar ? aval.avancar.split(';').filter(Boolean) : [] } : null,
     opcoes_avancar: AVANCAR,
   };
 });
@@ -1422,7 +1429,7 @@ rota('PUT', '/engajamento/:ministerio/:data', async ({ params, body, usuario, ip
   const avancar = (Array.isArray(a.avancar) ? a.avancar : []).filter((x) => AVANCAR.includes(x));
   const aval = { o_que: txt(a.o_que, 2000) || null, acoes: txt(a.acoes, 2000) || null, avancar: avancar.join(';') || null, avancar_outro: txt(a.avancar_outro, 400) || null };
   const temAval = Object.values(aval).some(Boolean);
-  await query(`
+  await Promise.all([query(`
     SET XACT_ABORT ON; BEGIN TRAN;
     UPDATE i SET engajamento = j.engajamento, substituto_id = j.substituto_id,
                  participou = CASE j.engajamento WHEN 'serviu' THEN 2 WHEN 'parcial' THEN 1 WHEN 'nao_serviu' THEN 0 ELSE NULL END
@@ -1434,8 +1441,9 @@ rota('PUT', '/engajamento/:ministerio/:data', async ({ params, body, usuario, ip
       WHEN MATCHED THEN UPDATE SET o_que = @o_que, acoes = @acoes, avancar = @avancar, avancar_outro = @avancar_outro, atualizado_por = @uid, dt_atualizacao = SYSUTCDATETIME()
       WHEN NOT MATCHED THEN INSERT (ministerio_id, data, o_que, acoes, avancar, avancar_outro, atualizado_por) VALUES (@mid, @data, @o_que, @acoes, @avancar, @avancar_outro, @uid);
     ELSE DELETE FROM dbo.escala_avaliacoes WHERE ministerio_id = @mid AND data = @data;
-    COMMIT;`, { mid, data, m: JSON.stringify(marcas), temAval: temAval ? 1 : 0, ...aval, uid: usuario.id });
-  await seg.registrar('escala_engajamento', { usuario, ip, detalhe: `ministério ${mid}, ${data}: ${marcas.filter((x) => x.engajamento).length} marcada(s)${temAval ? ', com observações' : ''}` });
+    COMMIT;`, { mid, data, m: JSON.stringify(marcas), temAval: temAval ? 1 : 0, ...aval, uid: usuario.id }),
+  // o registro vai junto (em paralelo), para salvar não esperar duas idas ao banco
+  seg.registrar('escala_engajamento', { usuario, ip, detalhe: `ministério ${mid}, ${data}: ${marcas.filter((x) => x.engajamento).length} marcada(s)${temAval ? ', com observações' : ''}` })]);
   return { ok: true };
 });
 

@@ -27,6 +27,7 @@ const nomeMes = (m) => maiusc(new Date(`${m}-15T12:00:00`).toLocaleDateString('p
 const somaMes = (m, n) => { const d = new Date(`${m}-15T12:00:00`); d.setMonth(d.getMonth() + n); return isoLocal(d).slice(0, 7); };
 const diaMes = (iso) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
 const fimDoMes = (m) => { const d = new Date(`${m}-15T12:00:00`); d.setMonth(d.getMonth() + 1, 0); return isoLocal(d); };
+const plural = (n, um, varios = `${um}s`) => `${n} ${n === 1 ? um : varios}`;
 const pctTxt = (a, b) => (b ? `${Math.round((a / b) * 100)}%` : '—');
 const chip = (e, extra = '') => (e ? `<span class="eng-chip e-${e}" title="${esc(ENG[e].rot)}${extra ? ` · ${esc(extra)}` : ''}">${ENG[e].curto}</span>` : '<span class="eng-chip vazio" title="Sem marcar">—</span>');
 
@@ -73,7 +74,7 @@ async function avaliar(corpo) {
   const pendente = (x) => x.sextas[0] && x.sextas[0].marcados < x.sextas[0].escalados;
   const chipsMin = d.ministerios.length > 1 ? `<div class="chips" id="eng-min">${d.ministerios.map((x) => `<button data-min="${x.id}" class="${x.id === m.id ? 'ativo' : ''}" style="--c:${esc(x.cor)}"><i></i>${esc(x.nome)}${pendente(x) ? '<b class="eng-falta" title="Falta marcar a última sexta">•</b>' : ''}</button>`).join('')}</div>` : '';
   if (!d.data) {
-    corpo.innerHTML = `${chipsMin}<div class="painel vazio"><b>Nenhuma sexta para avaliar</b>Quando a ${esc(m.nome)} tiver uma escala de uma sexta que já chegou, ela aparece aqui.</div>`;
+    corpo.innerHTML = `${chipsMin}<div class="painel vazio"><b>Nenhuma sexta para avaliar agora</b>Quando passar uma sexta com escala da ${esc(m.nome)}, ela aparece aqui. As dos meses anteriores ficam no <a href="#/engajamento?ver=relatorio">Relatório</a>.</div>`;
     ligarMinisterios(corpo, recarregar);
     return;
   }
@@ -84,11 +85,21 @@ async function avaliar(corpo) {
   const pelaChamada = new Set();
   d.itens.forEach((i) => { if (!i.engajamento && i.presente === false) { marcas.get(i.id).engajamento = 'ausente'; pelaChamada.add(i.id); } });
   const aval = { o_que: d.avaliacao?.o_que || '', acoes: d.avaliacao?.acoes || '', avancar: new Set(d.avaliacao?.avancar || []), avancar_outro: d.avaliacao?.avancar_outro || '' };
-  const alterou = () => { corpo.dataset.alterou = '1'; };
+  const temObs = !!(aval.o_que || aval.acoes || aval.avancar.size || aval.avancar_outro);
+  // Botão Salvar: vira "Salvo" quando não tem nada para gravar
+  const pintarBotao = () => {
+    const b = $('#eng-ok', corpo); if (!b || b.disabled && b.querySelector('.spin')) return;
+    const salvo = corpo.dataset.alterou !== '1' && d.itens.some((i) => marcas.get(i.id).engajamento);
+    b.classList.toggle('salvo', salvo);
+    b.innerHTML = salvo ? `${icon('check')} Salvo` : 'Salvar';
+  };
+  const alterou = () => { const antes = corpo.dataset.alterou; corpo.dataset.alterou = '1'; if (antes !== '1') pintarBotao(); };
   if (pelaChamada.size) alterou();
 
   const funcoes = [...new Set(d.itens.map((i) => i.funcao || ''))];
-  const sextas = m.sextas.slice(0, 8);
+  // Sextas para avaliar: as deste mês e as anteriores que ainda faltam marcar (as antigas ficam no Relatório)
+  const inicioMes = `${isoLocal(new Date()).slice(0, 7)}-01`;
+  const sextas = m.sextas.filter((s) => s.data === d.data || s.data >= inicioMes || s.marcados < s.escalados).slice(0, 8);
   const linha = (i) => {
     const v = marcas.get(i.id);
     const outros = d.membros.filter((x) => x.id !== i.pessoa_id);
@@ -114,9 +125,11 @@ async function avaliar(corpo) {
         ${funcoes.map((f) => `${funcoes.length > 1 || f ? `<div class="eng-funcao">${esc(f || 'Sem função')}</div>` : ''}${d.itens.filter((i) => (i.funcao || '') === f).map(linha).join('')}`).join('')}
       </div>
     </section>
-    <section class="painel eng-obs">
-      <div class="painel-topo"><h2>Como foi a sexta</h2><span class="sub">Opcional. Ajuda a combinar o próximo passo com a liderança.</span></div>
-      <div class="eng-obs-corpo">
+    <section class="painel eng-obs ${temObs ? 'aberta' : ''}">
+      <button type="button" class="eng-obs-tog" id="ob-tog" aria-expanded="${temObs}" aria-controls="ob-corpo">${icon('chevron')}
+        <span><b>Teve algum problema?</b><small>${temObs ? 'Você contou como foi esta sexta' : 'Se algo deu errado, conte aqui o que houve e o que fazer'}</small></span>
+        ${temObs ? '<em class="tag">Respondido</em>' : ''}</button>
+      <div class="eng-obs-corpo" id="ob-corpo" ${temObs ? '' : 'hidden'}>
         <label class="campo"><span class="label">O que aconteceu de errado ou defasado?</span><textarea class="input" id="ob-oque" rows="3" maxlength="2000" placeholder="Ex.: faltou gente na saída, chegaram atrasados">${esc(aval.o_que)}</textarea></label>
         <label class="campo"><span class="label">Que ações foram tomadas?</span><textarea class="input" id="ob-acoes" rows="3" maxlength="2000" placeholder="Ex.: remanejei a Entrada para a Saída">${esc(aval.acoes)}</textarea></label>
         <div class="campo"><span class="label">Precisamos avançar de outra forma?</span>
@@ -125,6 +138,13 @@ async function avaliar(corpo) {
       </div>
     </section>
     <div class="eng-salvar"><span class="muted small" id="eng-conta2">${contagem()}</span><button type="button" class="btn primary" id="eng-ok">Salvar</button></div>`;
+  pintarBotao();
+  $('#ob-tog', corpo).addEventListener('click', (e) => {
+    const sec = corpo.querySelector('.eng-obs'), aberta = !sec.classList.contains('aberta');
+    sec.classList.toggle('aberta', aberta); e.currentTarget.setAttribute('aria-expanded', aberta);
+    $('#ob-corpo', corpo).hidden = !aberta;
+    if (aberta) $('#ob-oque', corpo).focus({ preventScroll: true });
+  });
 
   ligarMinisterios(corpo, recarregar);
   const lista = $('#eng-lista', corpo);
@@ -159,7 +179,9 @@ async function avaliar(corpo) {
     if (corpo.dataset.alterou === '1' && !(await confirmar('Trocar de sexta sem salvar o que marcou?', { botao: 'Trocar sem salvar', perigo: true }))) return;
     dataSel = b.dataset.d; recarregar();
   });
-  $('#eng-ok', corpo).addEventListener('click', (e) => ocupado(e.currentTarget, async () => {
+  $('#eng-ok', corpo).addEventListener('click', (e) => {
+    if (corpo.dataset.alterou !== '1' && e.currentTarget.classList.contains('salvo')) return aviso('Já está salvo.');
+    ocupado(e.currentTarget, async () => {
     const avancar = [...corpo.querySelectorAll('#ob-avancar input:checked')].map((c) => c.value);
     try {
       await api('PUT', `/engajamento/${m.id}/${d.data}`, {
@@ -169,10 +191,21 @@ async function avaliar(corpo) {
       corpo.dataset.alterou = '0';
       const faltam = d.itens.filter((i) => !marcas.get(i.id).engajamento).length;
       aviso(faltam ? `Salvo. Ainda falta marcar ${faltam}.` : 'Engajamento salvo.');
+      // Atualiza a tela aqui mesmo (sem buscar tudo de novo): a sexta, o ministério e o "Não estava na chamada"
+      d.itens.forEach((i) => { i.engajamento = marcas.get(i.id).engajamento; });
+      pelaChamada.clear();
+      const sx = m.sextas.find((x) => x.data === d.data);
+      if (sx) {
+        sx.marcados = d.itens.length - faltam;
+        const chip = corpo.querySelector(`#eng-sextas button[data-d="${d.data}"] small`);
+        if (chip) { chip.className = faltam ? '' : 'ok'; chip.innerHTML = faltam ? (sx.marcados ? `${sx.marcados} de ${sx.escalados}` : 'Falta marcar') : `${icon('check')}Feita`; }
+      }
+      corpo.querySelector('.eng-aviso')?.remove();
+      corpo.querySelector(`#eng-min button[data-min="${m.id}"] .eng-falta`)?.toggleAttribute('hidden', !faltam);
       atualizarContadores();
-      recarregar();
     } catch (err) { avisoErro(err); }
-  }));
+    }).then(pintarBotao);
+  });
 }
 function ligarMinisterios(corpo, recarregar) {
   corpo.querySelector('#eng-min')?.addEventListener('click', async (e) => {
@@ -196,7 +229,7 @@ async function relatorio(corpo) {
   const conta = (l) => { const c = Object.fromEntries([...CHAVES, 'sem'].map((k) => [k, 0])); l.forEach((i) => { c[i.engajamento || 'sem']++; }); return c; };
   const tot = conta(sel);
   const marcados = sel.length - tot.sem;
-  const barra = (c, total) => `<div class="eng-barra" role="img" aria-label="${CHAVES.map((k) => `${ENG[k].rot}: ${c[k]}`).join(', ')}">${CHAVES.map((k) => (c[k] ? `<i class="e-${k}" style="flex:${c[k]}" title="${esc(ENG[k].rot)}: ${c[k]} (${pctTxt(c[k], total)})"></i>` : '')).join('')}${c.sem ? `<i class="vazio" style="flex:${c.sem}" title="Sem marcar: ${c.sem}"></i>` : ''}</div>`;
+  const barra = (c, total) => `<div class="eng-barra" role="img" aria-label="${CHAVES.map((k) => `${ENG[k].rot}: ${c[k]}`).join(', ')}">${CHAVES.map((k) => (c[k] ? `<i class="e-${k}" style="flex:${c[k]}" title="${esc(ENG[k].rot)}: ${c[k]} (${pctTxt(c[k], total)})"></i>` : '')).join('')}${c.sem ? `<i class="sem" style="flex:${c.sem}" title="Sem marcar: ${c.sem}"></i>` : ''}</div>`;
 
   // Precisa de conversa: 2 ou mais "não serviu" ou "ausente" no mês
   const porPessoa = new Map();
@@ -217,6 +250,8 @@ async function relatorio(corpo) {
     return;
   }
 
+  const nPessoas = new Set(sel.map((i) => i.pessoa_id)).size;
+  const nSextas = new Set(sel.map((i) => `${i.ministerio_id}|${i.data}`)).size;
   const minsVer = relMin === 'todos' ? mins : mins.filter((x) => x.id === relMin);
   const tabelaMin = (mm) => {
     const l = sel.filter((i) => i.ministerio_id === mm.id);
@@ -226,27 +261,27 @@ async function relatorio(corpo) {
     return `<section class="painel eng-min-rel" style="margin-top:14px">
       <div class="painel-topo"><h2><i class="bolinha-min" style="background:${esc(mm.cor)}"></i>${esc(mm.nome)}</h2><span class="sub">${datas.length} sexta${datas.length === 1 ? '' : 's'} · ${c.sem ? `${c.sem} sem marcar` : 'Tudo marcado'}</span></div>
       <div style="padding:12px 18px 0">${barra(c, l.length)}</div>
-      <div class="tabela-wrap"><table class="tabela eng-matriz"><thead><tr><th>Pessoa</th>${datas.map((s) => `<th class="centro">${diaMes(s)}</th>`).join('')}<th class="dir num" title="Compareceu e serviu (inteiro) e parcialmente (metade), sobre as vezes marcadas">Aproveitamento</th></tr></thead>
+      <div class="tabela-wrap"><table class="tabela eng-matriz"><thead><tr><th>Pessoa</th>${datas.map((s) => `<th class="centro">${diaMes(s)}</th>`).join('')}<th class="dir num" title="Quanto serviu nas vezes em que estava na escala (serviu em parte conta metade)">Serviu</th></tr></thead>
       <tbody>${pessoas.map(([pid, nome]) => {
         const dele = l.filter((i) => i.pessoa_id === pid);
         const cc = conta(dele), mk = dele.length - cc.sem;
         const ap = mk ? (cc.serviu + cc.parcial * 0.5) / mk : null;
-        return `<tr><td>${esc(nome)}</td>${datas.map((s) => { const it = dele.filter((i) => i.data === s); return `<td class="centro">${it.length ? it.map((i) => chip(i.engajamento, [i.funcao, i.substituto ? `${i.substituto} serviu no lugar` : ''].filter(Boolean).join(' · '))).join(' ') : '<span class="muted">·</span>'}</td>`; }).join('')}
+        return `<tr><td>${esc(nome)}</td>${datas.map((s) => { const it = dele.filter((i) => i.data === s); return `<td class="centro">${it.length ? it.map((i) => `${it.length > 1 && i.funcao ? `<small class="eng-fn">${esc(i.funcao)}</small>` : ''}${chip(i.engajamento, [i.funcao, i.substituto ? `${i.substituto} serviu no lugar` : ''].filter(Boolean).join(' · '))}`).join(' ') : '<span class="muted">·</span>'}</td>`; }).join('')}
           <td class="dir num"><b class="${ap !== null && ap < 0.5 ? 'txt-ruim' : ''}">${ap === null ? '—' : `${Math.round(ap * 100)}%`}</b></td></tr>`;
       }).join('')}</tbody></table></div></section>`;
   };
 
   corpo.innerHTML = `${topo}
     <section class="painel"><div class="numeros eng-numeros">
-      <div><div class="rot">Vezes escaladas</div><div class="val">${sel.length}</div><div class="det">${new Set(sel.map((i) => i.pessoa_id)).size} pessoas</div></div>
-      <div><div class="rot">Serviram</div><div class="val">${pctTxt(tot.serviu + tot.parcial, marcados)}</div><div class="det">${tot.serviu} inteiro, ${tot.parcial} parcial</div></div>
-      <div><div class="rot">Não serviram ou faltaram</div><div class="val">${tot.nao_serviu + tot.ausente}</div><div class="det">${tot.nao_serviu} não serviu, ${tot.ausente} ausente</div></div>
-      <div><div class="rot">Trocas</div><div class="val">${tot.trocou}</div><div class="det">${tot.sem ? `${tot.sem} sem marcar` : 'Tudo marcado'}</div></div>
+      <div><div class="rot">Pessoas na escala</div><div class="val">${nPessoas}</div><div class="det">${plural(nSextas, 'sexta')} · ${plural(sel.length, 'lugar', 'lugares')} na escala</div></div>
+      <div><div class="rot">Serviram</div><div class="val">${pctTxt(tot.serviu + tot.parcial, marcados)}</div><div class="det">${tot.serviu} por inteiro, ${tot.parcial} em parte</div></div>
+      <div><div class="rot">Faltaram ou não serviram</div><div class="val">${tot.nao_serviu + tot.ausente}</div><div class="det">${plural(tot.ausente, 'ausente')}, ${tot.nao_serviu === 1 ? '1 foi e não serviu' : `${tot.nao_serviu} foram e não serviram`}</div></div>
+      <div><div class="rot">Trocaram de escala</div><div class="val">${tot.trocou}</div><div class="det">${tot.sem ? `${tot.sem} ainda sem marcar` : 'Tudo marcado'}</div></div>
     </div></section>
     <section class="painel" style="margin-top:14px">
       <div class="painel-topo"><h2>Como serviram</h2><span class="sub">${marcados} de ${sel.length} marcados</span></div>
       <div class="eng-grafico">${[...CHAVES, 'sem'].map((k) => `<div class="eng-g-linha"><span class="eng-g-rot">${k === 'sem' ? 'Sem marcar' : ENG[k].rot}</span>
-        <span class="eng-g-trilho"><i class="${k === 'sem' ? 'vazio' : `e-${k}`}" style="width:${sel.length ? (tot[k] / sel.length) * 100 : 0}%"></i></span>
+        <span class="eng-g-trilho"><i class="${k === 'sem' ? 'sem' : `e-${k}`}" style="width:${sel.length ? (tot[k] / sel.length) * 100 : 0}%"></i></span>
         <span class="eng-g-num"><b>${tot[k]}</b> ${pctTxt(tot[k], sel.length)}</span></div>`).join('')}</div>
       ${minsVer.length > 1 ? `<div class="eng-por-min">${minsVer.map((mm) => { const l = sel.filter((i) => i.ministerio_id === mm.id); return `<div class="eng-pm"><span><i class="bolinha-min" style="background:${esc(mm.cor)}"></i>${esc(mm.nome)}</span>${barra(conta(l), l.length)}</div>`; }).join('')}</div>` : ''}
     </section>

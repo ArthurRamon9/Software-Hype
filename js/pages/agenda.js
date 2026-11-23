@@ -189,7 +189,12 @@ async function editar(conteudo, r, possoCriar, reunioes = []) {
       j.querySelector('#cancelar-r')?.addEventListener('click', async () => {
         fechar();
         if (!(await confirmar(`Cancelar "${r.titulo}"? Quem recebeu o convite é avisado por e-mail e a reunião sai da agenda deles.`, { botao: 'Cancelar reunião', perigo: true }))) return;
-        try { const res = await api('POST', `/agenda/${r.id}/cancelar`); aviso(`Reunião cancelada. ${res.avisados} avisado${res.avisados === 1 ? '' : 's'} por e-mail.`); render(conteudo).catch(avisoErro); } catch (err) { avisoErro(err); }
+        // Mostra na hora (o aviso por e-mail pode demorar) e sempre redesenha no fim, mesmo se o e-mail falhar
+        const card = conteudo.querySelector(`[data-editar="${r.id}"]`)?.closest('.reuniao');
+        if (card) { card.classList.add('cancelada'); card.querySelectorAll('.btn-icone').forEach((b) => b.remove()); const min = card.querySelector('.min'); if (min && !min.querySelector('b')) min.insertAdjacentHTML('beforeend', ' · <b>Cancelada</b>'); }
+        aviso('Cancelando e avisando quem foi convidado...');
+        try { const res = await api('POST', `/agenda/${r.id}/cancelar`); aviso(`Reunião cancelada${res.avisados ? `. ${res.avisados} avisado${res.avisados === 1 ? '' : 's'} por e-mail` : ''}.`); } catch (err) { avisoErro(err); }
+        render(conteudo).catch(avisoErro);
       });
     },
   });

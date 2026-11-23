@@ -99,9 +99,9 @@ export async function render(conteudo) {
     const passou = data < isoLocal(new Date());
     const faltam = b.vagas ? Math.max(0, b.vagas - l.length) : 0;
     const vazias = Array.from({ length: faltam }, () => `<li class="vaga">${passou ? '—' : 'Vaga'}</li>`).join('');
-    return `<div class="cel-esc ${pode ? 'editavel' : ''}" ${pode ? `data-data="${data}" data-f="${b.f === null ? '' : esc(b.f)}" data-todas="${b.f === null ? 1 : 0}" role="button" tabindex="0"` : ''}>
+    return `<div class="cel-esc ${pode ? 'editavel' : ''}" ${pode ? `data-data="${data}" role="button" tabindex="-1" title="Montar a sexta ${diaMes(data)}"` : ''}>
       ${l.length || vazias ? `<ul>${l.map((i) => nome(i, data)).join('')}${vazias}</ul>` : `<span class="vazio-f">${passou ? '—' : 'A definir'}</span>`}
-      ${pode ? `<span class="add">${icon('plus')}${l.length ? 'Alterar' : 'Escolher'}${b.vagas ? ` <em>${l.length}/${b.vagas}</em>` : ''}</span>` : ''}</div>`;
+</div>`;
   };
   // Quem também serve em outro ministério na mesma sexta (agrupado por pessoa)
   const conflitosMes = [];
@@ -113,7 +113,7 @@ export async function render(conteudo) {
   }));
   const listaDatas = (d) => { const t = d.map(diaMes); return t.length === 1 ? `na sexta ${t[0]}` : `nas sextas ${t.slice(0, -1).join(', ')} e ${t.at(-1)}`; };
   const cabecaSexta = (s) => `<span class="sx">Sexta <b>${dia2(s)}</b>${s === prox ? '<small>Próxima</small>' : ''}</span>`
-    + (pode ? `<button type="button" class="link-btn small montar" data-montar="${s}" title="Escolher de uma vez quem serve em cada função nesta sexta">Montar</button>` : '');
+    + (pode ? `<button type="button" class="montar" data-montar="${s}" title="Escolher quem serve em cada função nesta sexta">${icon('lapis')}<span>Montar</span></button>` : '');
   const passadas = sextas.filter((s) => s <= hoje && naCelula(s, null).length);
   const temEngajamento = dados.itens.some((i) => i.ministerio_id === m.id && i.engajamento);
   const temAlguem = sextas.some((s) => naCelula(s, null).length);
@@ -122,7 +122,7 @@ export async function render(conteudo) {
     ${conflitosMes.length ? `<div class="aviso-conf">${icon('alerta')}<div>${conflitosMes.map((c) => `<b>${esc(c.nome)}</b> também está na ${esc(c.outros.join(' e '))} ${listaDatas(c.datas)}`).join('. ')}.${pode ? ' Pode manter, mas combine com o outro líder.' : ''}</div></div>` : ''}
     <section class="painel quadro-escala" style="--c:${esc(m.cor)}">
       <div class="quadro-topo">
-        <div><h2><i></i>${esc(m.nome)}</h2><span class="muted small">${pode ? 'Você monta esta escala. Toque numa sexta para escolher quem serve; salva na hora.' : 'Só o líder do ministério altera esta escala.'}</span></div>
+        <div><h2><i></i>${esc(m.nome)}</h2><span class="muted small">${pode ? 'Você monta esta escala: toque em Montar (ou na sexta) para escolher quem serve.' : 'Só o líder do ministério altera esta escala.'}</span></div>
         <div class="acoes">
           ${temAlguem ? `<button class="btn sm primary" id="texto">${icon('whats')} Enviar para o grupo</button>` : ''}
           ${pode || (podeBaixar && temAlguem) ? `<button class="btn sm icone" id="mais-esc" title="Mais opções" aria-label="Mais opções">${icon('mais')}</button>` : ''}
@@ -159,44 +159,8 @@ export async function render(conteudo) {
   ]);
   if (!pode) return;
 
-  // Escolher quem serve numa sexta (e função)
-  const abrirCelula = (cel) => {
-    const data = cel.dataset.data, todas = cel.dataset.todas === '1', funcao = todas ? null : cel.dataset.f;
-    const atuais = new Set(naCelula(data, funcao).map((i) => i.pessoa_id));
-    const membros = m.membros;
-    const vagas = funcao ? vagasDe(funcao) : null;
-    janela({
-      titulo: `${m.nome} · Sexta ${diaMes(data)}${funcao ? ` · ${funcao}` : ''}`,
-      corpo: `<div style="display:grid;gap:10px">
-        ${membros.length > 8 ? '<input class="input busca" id="cel-busca" type="search" placeholder="Buscar nome" autocomplete="off">' : ''}
-        ${membros.length ? `<div class="lista-escolha" id="cel-lista">${membros.map((p) => { const o = emOutro(p.id, data); return `<label data-nome="${esc(p.nome)}"><input type="checkbox" value="${p.id}" ${atuais.has(p.id) ? 'checked' : ''}>
-          <span><b>${esc(p.nome)}</b>${o.length ? `<small class="txt-alerta">Já está na ${esc(o.join(' e '))} nesta sexta</small>` : p.lider ? '<small>Líder</small>' : ''}</span></label>`; }).join('')}</div>`
-          : `<p class="muted">Ninguém no ministério ${esc(m.nome)} ainda. Coloque a equipe em Ministérios.</p>`}
-        <div class="janela-acoes" style="justify-content:space-between"><span class="muted small" id="cel-conta"></span><div style="display:flex;gap:8px"><button type="button" class="btn" data-fechar>Cancelar</button>${membros.length ? '<button type="button" class="btn primary" id="cel-ok">Salvar</button>' : ''}</div></div></div>`,
-      aoAbrir: (j, fechar) => {
-        const conta = () => {
-          const n = j.querySelectorAll('#cel-lista input:checked').length, el = j.querySelector('#cel-conta');
-          el.textContent = vagas ? `${n} de ${vagas}${n > vagas ? ' (passou do combinado)' : ''}` : n ? `${n} escolhido${n === 1 ? '' : 's'}` : '';
-          el.classList.toggle('txt-alerta', !!vagas && n > vagas);
-        };
-        conta();
-        j.querySelector('#cel-lista')?.addEventListener('change', conta);
-        const busca = j.querySelector('#cel-busca');
-        busca?.addEventListener('input', () => { const b = semAcento(busca.value); j.querySelectorAll('#cel-lista label').forEach((l) => { l.hidden = b && !semAcento(l.dataset.nome).includes(b); }); });
-        j.querySelector('#cel-ok')?.addEventListener('click', async () => {
-          const ids = [...j.querySelectorAll('#cel-lista input:checked')].map((c) => Number(c.value));
-          try {
-            await api('PUT', `/escalas/${m.id}/${data}`, todas ? { itens: ids.map((pessoa_id) => ({ pessoa_id })) } : { funcao, itens: ids.map((pessoa_id) => ({ pessoa_id })) });
-            fechar(); aviso('Escala salva.'); recarregar();
-          } catch (err) { avisoErro(err); }
-        });
-      },
-    });
-  };
-  $('#quadro').querySelectorAll('.cel-esc.editavel').forEach((cel) => {
-    cel.addEventListener('click', () => abrirCelula(cel));
-    cel.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrirCelula(cel); } });
-  });
+  // Tocar numa sexta (ou no botão Montar) abre a sexta inteira para montar
+  $('#quadro').querySelectorAll('.cel-esc.editavel').forEach((cel) => cel.addEventListener('click', () => montarSexta(ctx, cel.dataset.data)));
   $('#quadro').querySelectorAll('[data-montar]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); montarSexta(ctx, b.dataset.montar); }));
 
   // Funções do ministério: o líder cria quantas quiser, com a quantidade de pessoas de cada uma,
@@ -373,8 +337,8 @@ function enviarParaGrupo(ctx) {
         <button class="btn" id="ee-baixar">Baixar imagem</button>
       </div>
       <div class="ee-passos" id="ee-passos" hidden>
-        <b>Imagem copiada. Agora no WhatsApp:</b>
-        <ol><li>Abra o grupo</li><li>Clique na caixa de mensagem</li><li>Aperte <kbd>Ctrl</kbd> + <kbd>V</kbd> e envie</li></ol>
+        <b>No WhatsApp que abriu:</b>
+        <ol><li>Escolha o grupo: a escala já vai escrita</li><li id="ee-img">Quer a imagem junto? Ela já está copiada: na conversa, aperte <kbd>Ctrl</kbd> + <kbd>V</kbd></li></ol>
         <span class="muted small" id="ee-app"></span>
       </div>
       <p class="hint" id="ee-dica"></p>
@@ -397,7 +361,7 @@ function enviarParaGrupo(ctx) {
         previa.querySelector('img').addEventListener('load', () => URL.revokeObjectURL(url), { once: true });
         j.querySelector('#ee-dica').textContent = celular && podeCompartilhar(arquivo)
           ? 'Escolha o WhatsApp e depois o grupo: a imagem e os nomes já vão juntos.'
-          : 'A imagem é copiada e o WhatsApp Web abre numa aba. Lá é só abrir o grupo e colar.';
+          : 'O WhatsApp abre com a escala já escrita: é só escolher o grupo e enviar.';
       };
       j.querySelector('#ee-qual').addEventListener('click', (e) => {
         const b = e.target.closest('button[data-q]'); if (!b || b.dataset.q === escolha) return;
@@ -422,12 +386,13 @@ function enviarParaGrupo(ctx) {
         if (!arquivo) return;
         // No celular a lista de compartilhar do aparelho é o único jeito de a imagem ir junto (WhatsApp costuma ser o primeiro)
         if (celular && podeCompartilhar(arquivo)) return compartilhar();
-        // No computador o navegador não consegue pôr a imagem dentro do WhatsApp: copia, abre e mostra o passo a passo
+        // No computador: igual à Agenda, o WhatsApp abre com a escala já escrita e a pessoa só escolhe o grupo.
+        // A imagem fica copiada: se quiser mandar junto, é colar na conversa.
         let copiou = false;
         try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': arquivo })]); copiou = true; } catch {}
-        if (!copiou) { aviso('Não deu para copiar a imagem neste navegador: use "Baixar imagem" e anexe no grupo.', 'erro'); return; }
-        abrirWhatsApp();
+        abrirWhatsApp(texto());
         const passos = j.querySelector('#ee-passos');
+        passos.querySelector('#ee-img').hidden = !copiou;
         passos.hidden = false;
         passos.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         // Windows com Chrome/Edge: dá para usar o WhatsApp instalado no computador (a imagem vai junto)

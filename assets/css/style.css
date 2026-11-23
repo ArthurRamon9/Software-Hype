@@ -811,11 +811,8 @@ a.marca, a.marca:hover { text-decoration: none; color: inherit; }
 .cel-esc li.eu { font-weight: 700; color: var(--accent); }
 .cel-esc li.conf { color: var(--warn); font-weight: 600; }
 .cel-esc li svg.i { width: 14px; height: 14px; color: var(--warn); flex: none; }
-.cel-esc .add { display: inline-flex; align-items: center; gap: 4px; align-self: flex-start; color: var(--muted); font-size: 12.5px; border: 1px dashed var(--line-2); border-radius: 999px; padding: 3px 10px; opacity: .75; transition: opacity .15s, color .15s, border-color .15s; }
-.cel-esc .add svg.i { width: 12px; height: 12px; }
 .cel-esc.editavel { cursor: pointer; transition: background .15s; }
 .cel-esc.editavel:hover, .cel-esc.editavel:focus-visible { background: var(--sunken); }
-.cel-esc.editavel:hover .add, .cel-esc.editavel:focus-visible .add { opacity: 1; color: var(--accent); border-color: var(--accent); }
 .rodape-quadro { margin: 0; padding: 12px 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
 .esc-cel { padding: 6px 14px 14px; }
 .esc-dia { border: 1px solid var(--line); border-radius: 12px; margin-top: 12px; overflow: hidden; }
@@ -1024,7 +1021,6 @@ tr.clicavel:hover td { background: var(--sunken); }
 .fn-vazio { padding: 6px 0; }
 .cel-esc li.vaga { color: var(--muted); font-style: italic; font-size: 13px; opacity: .7; }
 .tab-escala tr.banda th span { font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--muted); margin-left: 6px; }
-.cel-esc .add em { font-style: normal; font-weight: 700; margin-left: 2px; }
 
 /* Pastoral/Integração v5 */
 .btn-icone.zap { color: var(--accent); }
@@ -1162,9 +1158,13 @@ a.pasta:hover .pasta-seta { color: var(--c, var(--accent)); transform: translate
 
 /* ---------- Escalas: montar a sexta, copiar/limpar, participação ---------- */
 .tab-escala thead th { position: relative; }
-.tab-escala thead th .montar { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); }
+.tab-escala thead th .montar { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); }
 .esc-dia h3 { display: flex; align-items: center; justify-content: space-between; }
-.link-btn.montar { font-weight: 600; }
+/* Montar a sexta: o jeito de mexer na escala (destacado, no roxo do Hype) */
+.montar { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px 5px 10px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); background: var(--accent-soft); color: var(--accent-ink, var(--accent)); font: inherit; font-size: 13px; font-weight: 650; cursor: pointer; transition: background .15s, color .15s, border-color .15s; }
+.montar svg.i { width: 14px; height: 14px; }
+.montar:hover, .montar:focus-visible { background: var(--accent); border-color: var(--accent); color: #fff; outline: none; }
+
 .cel-esc li.part .bolinha { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .part.p2 .bolinha, .seg .part.p2.ativo { background: var(--ok); }
 .part.p1 .bolinha, .seg .part.p1.ativo { background: var(--warn); }
@@ -1386,6 +1386,17 @@ a.pasta:hover .pasta-seta { color: var(--c, var(--accent)); transform: translate
 .eng-troca select, .eng-troca .campo-sel { max-width: 320px; }
 
 .eng-obs { margin-top: 14px; }
+.eng-obs-tog { all: unset; box-sizing: border-box; cursor: pointer; display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px 18px; border-radius: var(--r); }
+.eng-obs-tog:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+.eng-obs-tog > svg.i { width: 18px; height: 18px; color: var(--muted); flex: none; transition: transform .15s; }
+.eng-obs.aberta .eng-obs-tog > svg.i { transform: rotate(90deg); }
+.eng-obs-tog span { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.eng-obs-tog b { font-size: 15.5px; }
+.eng-obs-tog small { color: var(--muted); font-size: 13px; }
+.eng-obs-tog:hover b { color: var(--accent-ink, var(--accent)); }
+.eng-obs.aberta .eng-obs-corpo { border-top: 1px solid var(--line); }
+.btn.salvo { background: var(--sunken); border-color: var(--line-2); color: var(--ok); }
+.btn.salvo svg.i { width: 16px; height: 16px; }
 .eng-obs-corpo { display: grid; gap: 14px; padding: 14px 18px 18px; }
 .eng-obs-corpo .campo { display: grid; gap: 6px; }
 .eng-avancar { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -1416,7 +1427,9 @@ a.pasta:hover .pasta-seta { color: var(--c, var(--accent)); transform: translate
 .eng-chip.vazio { --e: var(--muted); background: none; }
 .eng-barra { display: flex; height: 12px; border-radius: 6px; overflow: hidden; background: var(--sunken); gap: 2px; }
 .eng-barra i { display: block; background: var(--e); min-width: 4px; }
-.eng-barra i.vazio, .eng-g-trilho i.vazio { background: var(--line-2); }
+.eng-barra i.sem, .eng-g-trilho i.sem { background: var(--line-2); }
+.eng-g-trilho i[style*='width:0%'] { display: none; }
+.eng-fn { font-size: 11px; color: var(--muted); margin-right: 4px; }
 .eng-grafico { display: grid; gap: 10px; padding: 14px 18px 18px; }
 .eng-g-linha { display: grid; grid-template-columns: 190px 1fr 90px; gap: 12px; align-items: center; font-size: 13.5px; }
 .eng-g-trilho { height: 14px; background: var(--sunken); border-radius: 7px; overflow: hidden; }
