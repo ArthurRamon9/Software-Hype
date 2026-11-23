@@ -1710,9 +1710,9 @@ rota('GET', '/sugestoes', async ({ usuario }) => {
      ORDER BY s.dt_criacao DESC, s.id DESC;
     SELECT id, numero, titulo, CONVERT(CHAR(10), inicio, 126) AS inicio, CONVERT(CHAR(10), fim, 126) AS fim, status, notas, dt_fechada
       FROM dbo.sprints ORDER BY numero DESC;`, { eu: usuario.id, ger: gerencia ? 1 : 0 }, { todos: true });
-  // A nota da sprint aberta ainda é rascunho: só quem gerencia vê
+  // Backlog e sprints em andamento são o painel de quem gerencia; os outros veem só as fechadas (Novidades)
   return { itens: itens.map((i) => ({ ...i, minha: !!i.minha })), gerencia, hoje: hojeBrasil(),
-    sprints: sprints.map((x) => (x.status === 'aberta' && !gerencia ? { ...x, notas: null } : x)) };
+    sprints: gerencia ? sprints : sprints.filter((x) => x.status === 'fechada') };
 });
 rota('POST', '/sugestoes', async ({ body, usuario, ip }) => {
   const d = dadosSugestao(body);
@@ -1720,9 +1720,12 @@ rota('POST', '/sugestoes', async ({ body, usuario, ip }) => {
   const n = await umaLinha('SELECT COUNT(*) AS n FROM dbo.sugestoes WHERE criado_por = @eu AND dt_criacao > DATEADD(HOUR, -24, SYSUTCDATETIME())', { eu: usuario.id });
   if (n.n >= 15) throw new HttpError(429, 'Você já mandou muitas sugestões hoje. Tente de novo amanhã.');
   // Quem cuida do site não precisa aceitar a própria ideia: ela já vai para o backlog
-  const r = await umaLinha(`INSERT INTO dbo.sugestoes (titulo, detalhe, tipo, criado_por, status, dt_status) OUTPUT inserted.id
-    VALUES (@titulo, @detalhe, @tipo, @eu, @status, CASE WHEN @status = 'nova' THEN NULL ELSE SYSUTCDATETIME() END)`,
-  { ...d, eu: usuario.id, status: gerenciaSugestoes(usuario) ? 'aceita' : 'nova' });
+  const ger = gerenciaSugestoes(usuario);
+  const sprint = ger && Number.isInteger(body.sprint_id)
+    ? (await umaLinha("SELECT id FROM dbo.sprints WHERE id = @sp AND status = 'aberta'", { sp: body.sprint_id }))?.id ?? null : null;
+  const r = await umaLinha(`INSERT INTO dbo.sugestoes (titulo, detalhe, tipo, criado_por, status, dt_status, sprint_id) OUTPUT inserted.id
+    VALUES (@titulo, @detalhe, @tipo, @eu, @status, CASE WHEN @status = 'nova' THEN NULL ELSE SYSUTCDATETIME() END, @sprint)`,
+  { ...d, eu: usuario.id, status: ger ? 'aceita' : 'nova', sprint });
   await seg.registrar('sugestao_enviada', { usuario, ip, detalhe: d.titulo });
   return { id: r.id };
 });
@@ -1760,9 +1763,10 @@ rota('PUT', '/sugestoes/:id', async ({ params, body, usuario, ip }) => {
   await query(`UPDATE dbo.sugestoes SET
       titulo = COALESCE(@titulo, titulo), detalhe = CASE WHEN @soStatus = 1 THEN detalhe ELSE @detalhe END, tipo = COALESCE(@tipo, tipo),
       dt_status = CASE WHEN status <> @status THEN SYSUTCDATETIME() ELSE dt_status END, status = @status, resposta = @resposta,
-      sprint_id = CASE WHEN @entra = 1 THEN (SELECT TOP 1 id FROM dbo.sprints WHERE status = 'aberta') ELSE @sprint END
+      sprint_id = CASE WHEN @entra = 1 THEN (SELECT TOP 1 id FROM dbo.sprints WHERE status = 'aberta'
+                     ORDER BY CASE WHEN @hoje BETWEEN inicio AND fim THEN 0 ELSE 1 END, inicio) ELSE @sprint END
     WHERE id = @id`, { id, titulo: d?.titulo || null, detalhe: d?.detalhe || null, tipo: d?.tipo || null, soStatus: soStatus ? 1 : 0, status, resposta,
-    sprint, entra: entraNaAberta });
+    sprint, entra: entraNaAberta, hoje: hojeBrasil() });
   await seg.registrar('sugestao_alterada', { usuario, ip, detalhe: `${id}: ${status}${d ? ` · ${d.titulo}` : ''}`.slice(0, 400) });
   return { ok: true };
 });
@@ -1788,6 +1792,13 @@ function datasSprint(body) {
   return { inicio, fim };
 }
 const notasSprint = (v) => txt(v, 4000);
+// Duas sprints não podem cobrir os mesmos dias (dá para planejar a próxima, mas sem encavalar)
+async function semSobrepor(inicio, fim, fora = 0) {
+  const x = await umaLinha(`SELECT TOP 1 numero, CONVERT(CHAR(10), inicio, 126) AS inicio, CONVERT(CHAR(10), fim, 126) AS fim FROM dbo.sprints
+    WHERE id <> @fora AND inicio <= @fim AND fim >= @inicio ORDER BY inicio`, { inicio, fim, fora });
+  const br = (d) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
+  if (x) throw new HttpError(409, `Esses dias já são da Sprint ${x.numero} (${br(x.inicio)} a ${br(x.fim)}). Escolha outro período.`);
+}
 async function sprintAberta(id) {
   const sp = await umaLinha('SELECT id, numero, status FROM dbo.sprints WHERE id = @id', { id });
   if (!sp) throw new HttpError(404, 'Sprint não encontrada.');
@@ -1796,13 +1807,14 @@ async function sprintAberta(id) {
 }
 rota('POST', '/sprints', async ({ body, usuario, ip }) => {
   const { inicio, fim } = datasSprint(body);
+  await semSobrepor(inicio, fim);
   const r = await umaLinha(`
     SET XACT_ABORT ON; BEGIN TRAN;
-    IF EXISTS (SELECT 1 FROM dbo.sprints WITH (UPDLOCK, HOLDLOCK) WHERE status = 'aberta') BEGIN ROLLBACK; SELECT CAST(NULL AS INT) AS id; RETURN; END
+    IF EXISTS (SELECT 1 FROM dbo.sprints WITH (UPDLOCK, HOLDLOCK) WHERE inicio <= @fim AND fim >= @inicio) BEGIN ROLLBACK; SELECT CAST(NULL AS INT) AS id; RETURN; END
     INSERT INTO dbo.sprints (numero, titulo, inicio, fim, criado_por) OUTPUT inserted.id, inserted.numero
       SELECT ISNULL(MAX(numero), -1) + 1, @titulo, @inicio, @fim, @eu FROM dbo.sprints WITH (UPDLOCK, HOLDLOCK);
     COMMIT;`, { titulo: txt(body.titulo, 80), inicio, fim, eu: usuario.id });
-  if (!r?.id) throw new HttpError(409, 'Já tem uma sprint aberta. Feche ela antes de abrir outra.');
+  if (!r?.id) throw new HttpError(409, 'Esses dias já são de outra sprint. Escolha outro período.');
   await seg.registrar('sprint_aberta', { usuario, ip, detalhe: `Sprint ${r.numero}: ${inicio} a ${fim}` });
   return { id: r.id, numero: r.numero };
 });
@@ -1812,6 +1824,7 @@ rota('PUT', '/sprints/:id', async ({ params, body, usuario, ip }) => {
   const sp = await umaLinha('SELECT numero FROM dbo.sprints WHERE id = @id', { id });
   if (!sp) throw new HttpError(404, 'Sprint não encontrada.');
   const d = body.inicio !== undefined || body.fim !== undefined ? datasSprint(body) : { inicio: null, fim: null };
+  if (d.inicio) await semSobrepor(d.inicio, d.fim, id);
   await query(`UPDATE dbo.sprints SET inicio = COALESCE(@inicio, inicio), fim = COALESCE(@fim, fim),
       titulo = CASE WHEN @mudaTitulo = 1 THEN @titulo ELSE titulo END, notas = CASE WHEN @mudaNotas = 1 THEN @notas ELSE notas END
     WHERE id = @id`, { id, ...d, mudaTitulo: body.titulo === undefined ? 0 : 1, titulo: txt(body.titulo, 80),
@@ -1842,6 +1855,7 @@ rota('POST', '/sprints/:id/fechar', async ({ params, body, usuario, ip }) => {
   const notas = notasSprint(body.notas);
   const pendentes = body.pendentes === 'backlog' ? 'backlog' : 'proxima';
   const prox = body.proxima ? datasSprint(body.proxima) : null;
+  if (prox) await semSobrepor(prox.inicio, prox.fim, sp.id);
   const r = await umaLinha(`
     SET XACT_ABORT ON; BEGIN TRAN;
     UPDATE dbo.sprints SET status = 'fechada', dt_fechada = SYSUTCDATETIME(), notas = @notas,
@@ -1850,6 +1864,8 @@ rota('POST', '/sprints/:id/fechar', async ({ params, body, usuario, ip }) => {
     -- o que ficou pronto fora de sprint entra nesta nota
     UPDATE dbo.sugestoes SET sprint_id = @id WHERE sprint_id IS NULL AND status = 'feita';
     DECLARE @nova INT = NULL;
+    -- já tem a próxima planejada? o que não ficou pronto vai para ela
+    IF @abrir = 0 SET @nova = (SELECT TOP 1 id FROM dbo.sprints WHERE status = 'aberta' AND id <> @id ORDER BY inicio);
     IF @abrir = 1
     BEGIN
       INSERT INTO dbo.sprints (numero, inicio, fim, criado_por)
@@ -1861,7 +1877,7 @@ rota('POST', '/sprints/:id/fechar', async ({ params, body, usuario, ip }) => {
            status = CASE WHEN @pend = 'proxima' AND @nova IS NOT NULL THEN status ELSE 'aceita' END
      WHERE sprint_id = @id AND status IN ('aceita', 'fazendo');
     COMMIT;
-    SELECT CAST(1 AS INT) AS ok, @nova AS nova;`,
+    SELECT CAST(1 AS INT) AS ok, CASE WHEN @abrir = 1 THEN @nova END AS nova;`,
   { id: sp.id, notas, mudaTitulo: body.titulo === undefined ? 0 : 1, titulo: txt(body.titulo, 80), abrir: prox ? 1 : 0,
     pi: prox?.inicio || null, pf: prox?.fim || null, eu: usuario.id, pend: pendentes });
   if (!r?.ok) throw new HttpError(400, 'Essa sprint já foi fechada.');

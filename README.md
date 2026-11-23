@@ -160,7 +160,8 @@ Qualquer pessoa com acesso manda ideias, melhorias ou avisa de algo com erro (me
 
 Quem tem `sugestoes.gerenciar` (administradores) organiza o trabalho em **sprints de 15 dias**:
 - **Novas → Backlog:** aceitar manda para o backlog (a sugestão de quem gerencia já entra lá). Recusar pede um recado opcional.
-- **Sprint:** abra uma sprint (segunda a domingo da outra semana), puxe do backlog o que vai ser feito e mova: a fazer → fazendo → pronta.
+- **Sprints:** cada sprint é uma pasta com as sugestões dentro (a de agora aberta; as outras, inclusive as publicadas, abrem com um clique). Crie em "Nova sprint" (dá para planejar a próxima, sem encavalar os dias), traga do backlog e mova: pronto para codificação → em codificação → codificado.
+- **Quem não gerencia** vê só a aba Sugestões (com status simples: aguardando resposta, aceita, em andamento, feita) e as Novidades.
 - **Fechar a sprint** na segunda em que publicar (nunca na sexta, que é dia de uso): a nota escrita vira as **Novidades**, que todos veem, com as sugestões prontas e o nome de quem sugeriu. O que não ficou pronto passa para a próxima sprint ou volta para o backlog. O Início e o menu avisam quem ainda não viu as Novidades.
 - A Sprint 0 (Versão 10) já vem com a nota pronta para revisar e fechar ao publicar. Tabela `sprints` e `sugestoes.sprint_id` (v10 do `01_estrutura.sql`).
 
