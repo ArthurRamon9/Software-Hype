@@ -11,7 +11,7 @@ const TIPOS = { melhoria: 'Melhoria', ideia: 'Nova funcionalidade', problema: 'A
 // Quem cuida do site vê as etapas de trabalho; quem sugeriu vê em palavras simples
 const STATUS_ADM = { nova: 'Aguardando análise', aceita: 'Pronto para codificação', fazendo: 'Em codificação', feita: 'Codificado', recusada: 'Recusada' };
 const STATUS_PUB = { nova: 'Aguardando resposta', aceita: 'Aceita', fazendo: 'Em andamento', feita: 'Feita', recusada: 'Recusada' };
-const CLASSE = { nova: '', aceita: 'warn', fazendo: 'warn', feita: 'ok', recusada: 'bad' };
+const ICONE_TIPO = { melhoria: 'sugestoes', ideia: 'plus', problema: 'alerta' };
 const DIA = 86400000;
 const maisDias = (iso, n) => isoLocal(new Date(parseISO(iso).getTime() + n * DIA + 2 * 3600000));
 
@@ -79,11 +79,11 @@ export async function render(conteudo) {
     const clicavel = gerencia || (i.minha && i.status === 'nova');
     return `<article class="sug ${filho ? 'filho' : ''} ${clicavel ? 'clicavel' : ''}" data-id="${i.id}">
       <div class="sug-corpo">
-        <div class="sug-topo"><b>${esc(i.titulo)}</b></div>
+        <div class="sug-topo"><span class="sug-tipo t-${i.tipo}">${icon(ICONE_TIPO[i.tipo])}${TIPOS[i.tipo]}</span>
+          <span class="sug-status s-${i.status}">${i.status === 'feita' ? icon('check') : '<i></i>'}${STATUS[i.status]}</span></div>
+        <h3 class="sug-tit">${esc(i.titulo)}</h3>
         ${i.detalhe && !filho ? `<p class="sug-detalhe">${esc(i.detalhe)}</p>` : ''}
-        <div class="sug-pe"><span class="tag sug-tipo t-${i.tipo}">${TIPOS[i.tipo]}</span>
-          <span class="tag ${CLASSE[i.status]}">${STATUS[i.status]}</span>
-          <span class="muted small">${i.minha ? 'Você' : esc(i.autor || 'Conta apagada')} · ${haQuanto(i.dt_criacao)}</span></div>
+        <div class="sug-pe">${i.minha ? 'Você' : esc(i.autor || 'Conta apagada')} · ${haQuanto(i.dt_criacao)}</div>
         ${i.resposta && !filho ? `<div class="sug-resposta"><b>Recado de quem cuida do site</b>${esc(i.resposta)}</div>` : ''}
       </div>
       ${botoes ? `<div class="sug-acoes">${botoes}</div>` : ''}

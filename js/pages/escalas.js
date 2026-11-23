@@ -333,7 +333,6 @@ function enviarParaGrupo(ctx) {
       <div class="ee-previa" id="ee-previa"><div class="boot"><span class="spin"></span></div></div>
       <div class="ee-acoes">
         <button class="btn primary" id="ee-compartilhar">${icon('whats')} Mandar no WhatsApp</button>
-        <button class="btn" id="ee-nomes" title="Copia a lista de quem serve, para colar na mensagem">${icon('copiar')} Copiar os nomes</button>
         <button class="btn" id="ee-baixar">Baixar imagem</button>
       </div>
       <div class="ee-passos" id="ee-passos" hidden>
@@ -367,7 +366,7 @@ function enviarParaGrupo(ctx) {
         const b = e.target.closest('button[data-q]'); if (!b || b.dataset.q === escolha) return;
         escolha = b.dataset.q; previa.classList.add('gerando'); gerar().catch(avisoErro).finally(() => previa.classList.remove('gerando'));
       });
-      // Texto com quem serve (vai junto no celular; no computador, "Copiar os nomes")
+      // Texto com quem serve (vai escrito na mensagem do WhatsApp)
       const texto = () => {
         const datas = escolha === 'mes' ? sextas : [escolha];
         return [`*Escala ${m.nome}* · ${escolha === 'mes' ? nomeMes(mes) : `Sexta ${dd(escolha)}`}`, ...montarEscala(ctx, datas).flatMap((sx) => [
@@ -401,10 +400,6 @@ function enviarParaGrupo(ctx) {
           app.innerHTML = 'Tem o WhatsApp instalado no computador? <button type="button" class="link-btn small" id="ee-app-btn">Mandar por ele</button>';
           app.querySelector('#ee-app-btn').addEventListener('click', compartilhar);
         }
-      });
-      j.querySelector('#ee-nomes').addEventListener('click', async () => {
-        try { await navigator.clipboard.writeText(texto()); aviso('Nomes copiados. É só colar na mensagem.'); }
-        catch { aviso('Não deu para copiar neste navegador.', 'erro'); }
       });
       j.querySelector('#ee-baixar').addEventListener('click', () => {
         if (!arquivo) return;
