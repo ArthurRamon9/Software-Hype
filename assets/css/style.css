@@ -1175,7 +1175,7 @@ a.pasta:hover .pasta-seta { color: var(--c, var(--accent)); transform: translate
 .legenda-part a { margin-left: auto; }
 .montar-sexta { display: grid; gap: 6px; max-height: 420px; overflow-y: auto; }
 .montar-sexta .ms-cab, .montar-sexta .ms-linha { display: grid; grid-template-columns: minmax(140px, 1fr) repeat(var(--cols), minmax(78px, auto)); gap: 6px; align-items: center; }
-.montar-sexta .ms-cab { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); position: sticky; top: 0; background: var(--surface); padding-bottom: 4px; }
+.montar-sexta .ms-cab { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); position: sticky; top: 0; z-index: 2; background: var(--surface); padding: 4px 8px; box-shadow: 0 6px 0 var(--surface); }
 .montar-sexta .ms-cab span { text-align: center; }
 .montar-sexta .ms-linha { padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--r-sm); }
 .montar-sexta .ms-linha[hidden] { display: none; }
