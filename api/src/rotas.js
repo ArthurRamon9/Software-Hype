@@ -57,6 +57,7 @@ const PERMISSAO_DA_ROTA = {
   'POST /financeiro/estoque':         'financeiro.editar',
   'PUT /financeiro/estoque/:id':      'financeiro.editar',
   'DELETE /financeiro/estoque/mov/:id': 'financeiro.editar',
+  'DELETE /financeiro/estoque/:id':   'financeiro.excluir',   // o item e o histórico dele (os lançamentos de dinheiro ficam)
   // Sugestões: qualquer conta liberada sugere; aceitar, recusar e mexer na fila é de quem tem sugestoes.gerenciar (regra na rota)
   'GET /sugestoes':                   'aprovado',
   'POST /sugestoes':                  'aprovado',
@@ -1671,6 +1672,12 @@ rota('PUT', '/financeiro/estoque/:id', async ({ params, body, usuario, ip }) => 
     { id: int(params.id), nome, unidade: txt(body.unidade, 12), minimo: numeroBR(body.minimo) === null ? null : String(numeroBR(body.minimo)), st: body.cd_status === 0 ? 0 : 1 });
   if (!r.n) throw new HttpError(404, 'Item não encontrado.');
   await seg.registrar('estoque_movido', { usuario, ip, detalhe: `item ${params.id} alterado: ${nome}` });
+  return { ok: true };
+});
+// Excluir o item: os movimentos saem junto (chave em cascata); as compras continuam no dinheiro, só sem o "no estoque"
+rota('DELETE', '/financeiro/estoque/:id', async ({ params, usuario, ip }) => {
+  const r = await umaLinha('DELETE FROM dbo.fin_itens OUTPUT deleted.nome WHERE id = @id', { id: int(params.id) });
+  if (r) await seg.registrar('estoque_movido', { usuario, ip, detalhe: `item excluído: ${r.nome}` });
   return { ok: true };
 });
 // Só apaga movimento feito à mão (o da compra sai junto com o lançamento)

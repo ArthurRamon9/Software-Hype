@@ -1,7 +1,7 @@
 // Financeiro do Hype: verba do ano, despesas e entradas (ofertas, doações...), com o saldo sempre à vista
 // © Arthur Ramon da Silva — Todos os direitos reservados.
 import { api, pode } from '../api.js';
-import { esc, $, icon, aviso, avisoErro, ocupado, janela, confirmar, fmtData, hojeISO, semAcento } from '../ui.js';
+import { esc, $, icon, aviso, avisoErro, ocupado, janela, confirmar, fmtData, hojeISO, semAcento, autocompletar } from '../ui.js';
 import { baixarXLSX } from '../xlsx.js';
 
 let ano = null;
@@ -129,7 +129,7 @@ export async function render(conteudo) {
     $('#fin-total').textContent = `${l.length} lançamento${l.length === 1 ? '' : 's'}${l.length ? ` · ${total < 0 ? '−' : ''}${real(Math.abs(total))}` : ''}`;
     $('#fin-linhas').innerHTML = l.length ? l.map((x) => `<tr class="${podeEditar ? 'clicavel' : ''}" data-id="${x.id}">
         <td class="small" style="white-space:nowrap">${fmtData(x.data)}</td>
-        <td><b>${esc(x.descricao)}</b><span class="fin-tipo t-${x.tipo}">${TIPOS[x.tipo].rotulo}</span>${x.quantidade ? `<span class="fin-qtd">${qtdTxt(x.quantidade, x.unidade)}${x.item ? ' · no estoque' : ''}</span>` : ''}${x.nota_tipo ? `<button type="button" class="fin-nota" data-nota="${x.id}" title="Ver a nota fiscal" aria-label="Ver a nota fiscal">${icon('clipe')}Nota</button>` : ''}</td>
+        <td><div class="fin-desc"><b>${esc(x.descricao)}</b><span class="fin-tipo t-${x.tipo}">${TIPOS[x.tipo].rotulo}</span>${x.quantidade ? `<span class="fin-qtd">${qtdTxt(x.quantidade, x.unidade)}${x.item ? ' · no estoque' : ''}</span>` : ''}${x.nota_tipo ? `<button type="button" class="fin-nota" data-nota="${x.id}" title="Ver a nota fiscal" aria-label="Ver a nota fiscal">${icon('clipe')}Nota</button>` : ''}</div></td>
         <td class="some-mobile muted small">${esc(x.categoria || '')}</td>
         <td class="dir num fin-valor t-${x.tipo}">${x.tipo === 'despesa' ? '−' : '+'}${real(x.valor)}</td></tr>`).join('')
       : `<tr><td colspan="4" class="vazio">${lancamentos.length ? 'Nada com esses filtros.' : `<b>Nenhum lançamento em ${ano}</b>${podeEditar ? 'Comece lançando a verba do ano em "Novo lançamento".' : ''}`}</td></tr>`;
@@ -180,10 +180,10 @@ function editar(l, categorias, depois, podeApagar, itens = []) {
         <div class="field full"><label for="ff-cat">Categoria</label><select class="input" id="ff-cat"><option value="">Sem categoria</option>${[...categorias, ...(l?.categoria && !categorias.includes(l.categoria) ? [l.categoria] : [])].map((c) => `<option ${l?.categoria === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
           ${categorias.length ? '' : '<span class="hint">Nenhuma categoria ainda. Crie em "Categorias", ao lado de "Baixar planilha".</span>'}</div>
         <div class="field"><label for="ff-qtd">Quantidade <span class="muted small">(opcional)</span></label><input class="input" id="ff-qtd" inputmode="decimal" placeholder="Ex.: 5" value="${l?.quantidade ? String(l.quantidade).replace('.', ',') : ''}"></div>
-        <div class="field"><label for="ff-un">Unidade</label><input class="input" id="ff-un" list="ff-unidades" maxlength="12" placeholder="kg, un, pct..." value="${esc(l?.unidade || '')}"><datalist id="ff-unidades">${UNIDADES.map((u) => `<option value="${u}">`).join('')}</datalist></div>
+        <div class="field"><label for="ff-un">Unidade</label><input class="input" id="ff-un" maxlength="12" placeholder="kg, un, pct..." value="${esc(l?.unidade || '')}"></div>
         <div class="field full" id="ff-estoque-box" hidden><label class="check"><input type="checkbox" id="ff-estoque" ${l?.item ? 'checked' : ''}>Entra no estoque</label>
-          <div id="ff-item-box" ${l?.item ? '' : 'hidden'} style="margin-top:8px"><input class="input" id="ff-item" list="ff-itens" maxlength="80" placeholder="Qual item? Ex.: Arroz" value="${esc(l?.item || '')}">
-          <datalist id="ff-itens">${itens.map((i) => `<option value="${esc(i.nome)}">`).join('')}</datalist><span class="hint">Soma no estoque desse item (cria o item se ainda não existir).</span></div></div>
+          <div id="ff-item-box" ${l?.item ? '' : 'hidden'} style="margin-top:8px"><input class="input" id="ff-item" maxlength="80" placeholder="Qual item? Ex.: Arroz" value="${esc(l?.item || '')}">
+          <span class="hint">Escolha um item da lista ou escreva um nome novo: ele é criado ao salvar.</span></div></div>
         <div class="field full"><span class="label">Nota fiscal <span class="muted small">(opcional: foto ou PDF)</span></span>
           <div class="fin-nota-campo" id="ff-nota-box"></div>
           <input type="file" id="ff-nota" accept="image/*,application/pdf" hidden></div>
@@ -204,6 +204,8 @@ function editar(l, categorias, depois, podeApagar, itens = []) {
       v.addEventListener('blur', () => { const n = lerValor(v.value); if (Number.isFinite(n) && n > 0) v.value = n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); });
       (novo ? v : j.querySelector('#ff-desc')).focus();
       // Quantidade numa compra: pode entrar no estoque
+      autocompletar(j.querySelector('#ff-un'), UNIDADES);
+      autocompletar(j.querySelector('#ff-item'), itens.filter((i) => i.cd_status || i.nome === l?.item).map((i) => i.nome), { novo: (t) => `Item novo: "${t}" (criado ao salvar)` });
       const qtd = j.querySelector('#ff-qtd'), boxEst = j.querySelector('#ff-estoque-box'), chkEst = j.querySelector('#ff-estoque');
       const verEstoque = () => { boxEst.hidden = !(tipo === 'despesa' && qtd.value.trim()); j.querySelector('#ff-item-box').hidden = !chkEst.checked; };
       qtd.addEventListener('input', verEstoque); chkEst.addEventListener('change', verEstoque);
@@ -216,7 +218,7 @@ function editar(l, categorias, depois, podeApagar, itens = []) {
         const tem = !tirarNota && (nota || l?.nota_tipo);
         boxNota.innerHTML = tem
           ? `<span class="fin-nota-ok">${icon('clipe')}${nota ? esc(nota.nome === 'nota.jpg' ? 'Foto da nota (nova)' : nota.nome) : l.nota_tipo === 'application/pdf' ? 'PDF da nota' : 'Foto da nota'}</span>
-             ${!nota && l?.nota_tipo ? '<button type="button" class="link-btn small" id="ff-nota-ver">Ver</button>' : ''}<button type="button" class="link-btn small" id="ff-nota-trocar">Trocar</button><button type="button" class="link-btn small danger" id="ff-nota-tirar">Tirar</button>`
+             <span class="fin-nota-acoes">${!nota && l?.nota_tipo ? '<button type="button" class="btn sm" id="ff-nota-ver">Ver</button>' : ''}<button type="button" class="btn sm" id="ff-nota-trocar">Trocar</button><button type="button" class="btn sm danger" id="ff-nota-tirar">${icon('lixeira')}Tirar</button></span>`
           : `<button type="button" class="btn sm" id="ff-nota-trocar">${icon('clipe')} Anexar nota</button>`;
       };
       pintarNota();
@@ -316,7 +318,7 @@ function desenharEstoque(box, { itens, podeEditar, recarregar }) {
       <td class="dir some-mobile muted small">${i.preco_unidade ? `${real(i.preco_unidade)}${i.unidade ? `/${esc(i.unidade)}` : ''}` : '—'}</td>
       <td class="dir acoes-linha">${podeEditar ? `<button class="btn sm" data-usar="${i.id}" title="Tirar do estoque (usou)">− Usar</button><button class="btn sm" data-repor="${i.id}" title="Entrou sem compra (doação, sobra...)">+ Entrou</button>` : ''}</td></tr>`;
   box.innerHTML = `
-    ${ativos.some(falta) ? `<p class="msg aviso" style="margin-bottom:14px">${icon('alerta')} Acabando: ${ativos.filter(falta).map((i) => `<b>${esc(i.nome)}</b> (${qtdTxt(i.saldo, i.unidade)})`).join(', ')}.</p>` : ''}
+    ${ativos.some(falta) ? `<div class="aviso-conf centro">${icon('alerta')}<div><b>Acabando:</b> ${ativos.filter(falta).map((i) => `${esc(i.nome)} (${qtdTxt(i.saldo, i.unidade)})`).join(', ')}.</div></div>` : ''}
     <section class="painel">
       <div class="painel-topo"><h2>Estoque</h2>${podeEditar ? `<button class="btn sm primary" id="est-novo">${icon('plus')} Novo item</button>` : ''}</div>
       <p class="hint" style="padding:6px 18px 0">Compras lançadas com quantidade e "Entra no estoque" somam sozinhas. Quando usar, toque em "Usar". Toque no item para ver o histórico ou contar o que tem.</p>
@@ -339,11 +341,12 @@ function novoItem(depois) {
     titulo: 'Novo item no estoque',
     corpo: `<form id="ni" class="form-r">
       <div class="field full"><label for="ni-nome">Item *</label><input class="input" id="ni-nome" maxlength="80" required placeholder="Ex.: Arroz"></div>
-      <div class="field"><label for="ni-un">Unidade</label><input class="input" id="ni-un" list="ni-unidades" maxlength="12" placeholder="kg, un, pct..."><datalist id="ni-unidades">${UNIDADES.map((u) => `<option value="${u}">`).join('')}</datalist></div>
+      <div class="field"><label for="ni-un">Unidade</label><input class="input" id="ni-un" maxlength="12" placeholder="kg, un, pct..."></div>
       <div class="field"><label for="ni-qtd">Quanto tem agora</label><input class="input" id="ni-qtd" inputmode="decimal" placeholder="0"></div>
       <div class="field full"><label for="ni-min">Avisar quando tiver menos que</label><input class="input" id="ni-min" inputmode="decimal" placeholder="Ex.: 2 (opcional)"></div>
       <div class="janela-acoes full"><button type="button" class="btn" data-fechar>Cancelar</button><button class="btn primary">Salvar</button></div></form>`,
     aoAbrir: (j, fechar) => {
+      autocompletar(j.querySelector('#ni-un'), UNIDADES);
       j.querySelector('#ni-nome').focus();
       j.querySelector('#ni').addEventListener('submit', (e) => { e.preventDefault(); ocupado(e.submitter, async () => {
         try {
@@ -395,10 +398,10 @@ async function historicoItem(item, podeEditar, depois) {
         <td class="dir">${podeEditar && !m.lancamento_id ? `<button class="btn-icone" data-apagar-mov="${m.id}" title="Apagar este movimento" aria-label="Apagar este movimento">${icon('lixeira')}</button>` : ''}</td></tr>`).join('') : '<tr><td class="vazio">Nada ainda.</td></tr>'}</tbody></table></div>
       ${podeEditar ? `<details class="fin-item-dados"><summary class="link-btn small">Mudar nome, unidade ou mínimo</summary><form id="it" class="form-r" style="margin-top:10px">
         <div class="field full"><label for="it-nome">Item</label><input class="input" id="it-nome" maxlength="80" value="${esc(item.nome)}"></div>
-        <div class="field"><label for="it-un">Unidade</label><input class="input" id="it-un" maxlength="12" list="ni-unidades2" value="${esc(item.unidade || '')}"><datalist id="ni-unidades2">${UNIDADES.map((u) => `<option value="${u}">`).join('')}</datalist></div>
+        <div class="field"><label for="it-un">Unidade</label><input class="input" id="it-un" maxlength="12" value="${esc(item.unidade || '')}"></div>
         <div class="field"><label for="it-min">Avisar abaixo de</label><input class="input" id="it-min" inputmode="decimal" value="${item.minimo ?? ''}"></div>
         <label class="check full"><input type="checkbox" id="it-guardar" ${item.cd_status ? '' : 'checked'}>Guardar fora da lista (não compra mais)</label>
-        <div class="janela-acoes full"><button class="btn primary">Salvar item</button></div></form></details>` : ''}
+        <div class="janela-acoes full rodape-acoes">${pode('financeiro.excluir') || pode('acessos.gerenciar') ? `<button type="button" class="link-btn danger com-icone" id="it-excluir">${icon('lixeira')}Excluir item</button>` : '<span></span>'}<button class="btn primary">Salvar item</button></div></form></details>` : ''}
     </div>`,
     avisarAoSair: false,
     aoAbrir: (j, fechar) => {
@@ -409,6 +412,11 @@ async function historicoItem(item, podeEditar, depois) {
         if (!dif) return aviso('Já está certo.');
         try { await api('POST', '/financeiro/estoque', { item_id: item.id, quantidade: String(dif), obs: 'Contagem' }); aviso('Estoque acertado.'); fechar(); depois(); } catch (err) { avisoErro(err); }
       }); });
+      if (j.querySelector('#it-un')) autocompletar(j.querySelector('#it-un'), UNIDADES);
+      j.querySelector('#it-excluir')?.addEventListener('click', async () => {
+        if (!(await confirmar(`Excluir "${item.nome}" do estoque? O histórico dele some junto. Os lançamentos de dinheiro continuam como estão.`, { botao: 'Excluir', perigo: true }))) return;
+        try { await api('DELETE', `/financeiro/estoque/${item.id}`); aviso('Item excluído.'); fechar(); depois(); } catch (err) { avisoErro(err); }
+      });
       j.querySelector('#it')?.addEventListener('submit', (e) => { e.preventDefault(); ocupado(e.submitter, async () => {
         try {
           await api('PUT', `/financeiro/estoque/${item.id}`, { nome: j.querySelector('#it-nome').value, unidade: j.querySelector('#it-un').value, minimo: j.querySelector('#it-min').value, cd_status: j.querySelector('#it-guardar').checked ? 0 : 1 });

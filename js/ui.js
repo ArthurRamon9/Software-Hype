@@ -243,6 +243,48 @@ export const linkWhats = (tel, mensagem = '') => {
   return `https://wa.me/${n.length <= 11 ? '55' + n : n}${mensagem ? `?text=${encodeURIComponent(mensagem)}` : ''}`;
 };
 
+// Lista de opções embaixo de um campo de texto (no lugar do <datalist>, que cada navegador desenha de um jeito).
+// Mostra as opções que combinam com o que foi digitado; dá para escolher com o mouse, o dedo ou as setas + Enter.
+// `novo(texto)` (opcional) devolve o rótulo da última linha quando o texto não existe ainda (ex.: 'Novo item: "Feijão"').
+export function autocompletar(input, opcoes, { novo = null, max = 8 } = {}) {
+  const caixa = document.createElement('div');
+  caixa.className = 'auto-wrap';
+  input.replaceWith(caixa);
+  caixa.append(input);
+  const lista = document.createElement('div');
+  lista.className = 'sugestoes auto-lista';
+  lista.setAttribute('role', 'listbox');
+  lista.hidden = true;
+  caixa.append(lista);
+  input.setAttribute('autocomplete', 'off');
+  let marcada = -1, visiveis = [];
+  const fechar = () => { lista.hidden = true; marcada = -1; };
+  const pintar = () => {
+    const t = semAcento(input.value.trim());
+    visiveis = opcoes.filter((o) => !t || semAcento(o).includes(t)).slice(0, max);
+    const exato = opcoes.some((o) => semAcento(o) === t);
+    const extra = novo && t && !exato ? novo(input.value.trim()) : '';
+    if (visiveis.length === 1 && semAcento(visiveis[0]) === t) visiveis = [];
+    lista.innerHTML = visiveis.map((o, i) => `<button type="button" role="option" data-i="${i}" class="${i === marcada ? 'marcada' : ''}" tabindex="-1">${esc(o)}</button>`).join('')
+      + (extra ? `<div class="auto-novo">${esc(extra)}</div>` : '');
+    lista.hidden = !lista.innerHTML;
+  };
+  const escolher = (i) => { input.value = visiveis[i]; fechar(); input.dispatchEvent(new Event('input', { bubbles: true })); input.dispatchEvent(new Event('change', { bubbles: true })); };
+  input.addEventListener('focus', () => { marcada = -1; pintar(); });
+  input.addEventListener('input', () => { marcada = -1; pintar(); });
+  input.addEventListener('blur', () => setTimeout(fechar, 150));
+  input.addEventListener('keydown', (e) => {
+    if (lista.hidden) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault(); if (!visiveis.length) return;
+      marcada = (marcada + (e.key === 'ArrowDown' ? 1 : -1) + visiveis.length) % visiveis.length; pintar();
+    } else if (e.key === 'Enter' && marcada >= 0) { e.preventDefault(); escolher(marcada); }
+    else if (e.key === 'Escape') { e.stopPropagation(); fechar(); }
+  });
+  lista.addEventListener('mousedown', (e) => e.preventDefault());   // não tira o foco do campo
+  lista.addEventListener('click', (e) => { const b = e.target.closest('[data-i]'); if (b) escolher(Number(b.dataset.i)); });
+}
+
 export const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
 export const direitos = () => `© ${new Date().getFullYear()} Gestão do Hype. Todos os direitos reservados a Arthur Ramon da Silva.`;
 

@@ -1280,3 +1280,17 @@ a.pasta:hover .pasta-seta { color: var(--c, var(--accent)); transform: translate
 .foto-btn:focus-visible { box-shadow: 0 0 0 3px var(--accent-soft), 0 0 0 1px var(--accent); }
 .ver-foto { display: grid; place-items: center; }
 .ver-foto img { width: min(520px, 100%); aspect-ratio: 1; object-fit: cover; border-radius: var(--r-sm); background: var(--sunken); }
+
+/* Financeiro (ajustes): descrição alinhada, botões da nota, lista de opções no lugar do datalist */
+.fin-desc { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; }
+.fin-desc .fin-tipo, .fin-desc .fin-qtd, .fin-desc .fin-nota { margin-left: 0; vertical-align: baseline; }
+.fin-nota-campo { gap: 10px 14px; }
+.fin-nota-acoes { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.fin-nota-acoes .btn svg.i { width: 14px; height: 14px; }
+.auto-wrap { position: relative; display: block; }
+.auto-lista { position: absolute; left: 0; right: 0; top: 100%; z-index: 30; margin-top: 4px; background: var(--surface); box-shadow: 0 8px 24px rgba(0, 0, 0, .18); max-height: 260px; overflow-y: auto; }
+.auto-lista[hidden] { display: none; }
+.auto-lista button.marcada { background: var(--accent-soft); color: var(--accent-ink); }
+.auto-novo { padding: 8px 12px; font-size: 13px; color: var(--muted); font-style: italic; }
+.aviso-conf.centro { align-items: center; }
+.aviso-conf.centro svg.i { margin-top: 0; }
