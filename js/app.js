@@ -2,6 +2,7 @@
 // © Arthur Ramon da Silva — Todos os direitos reservados.
 import { api, sessao, podeAlgum, urlFoto, usadosNaTela, preaquecer, novaTela } from './api.js';
 import { icon, esc, direitos, $, foto } from './ui.js';
+import { ligarFotos, esquecerFotos } from './fotos.js';
 import './campos.js';
 import './abas.js';
 import * as acesso from './pages/acesso.js';
@@ -239,6 +240,7 @@ export async function atualizarContadores() {
 
 export async function sair() {
   try { await api('POST', '/auth/sair'); } catch {}
+  esquecerFotos();
   sessao.usuario = null;
   app.innerHTML = '';
   navegar('/entrar');
@@ -261,6 +263,7 @@ async function iniciar() {
       return;
     }
   }
+  ligarFotos();
   window.addEventListener('hashchange', () => rota());
   // Esquenta a próxima tela ao passar o mouse/tocar no menu
   const esquentar = (e) => { const a = e.target.closest?.('a[href^="#/"]'); if (!a || !sessao.usuario || sessao.usuario.cd_status !== 1) return; const f = BUSCA_DA_TELA[a.getAttribute('href').slice(1).replace(/\/$/, '') || '/']; if (f) f().forEach(preaquecer); };

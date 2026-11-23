@@ -842,3 +842,12 @@ CREATE TABLE dbo.escala_avaliacoes (
     CONSTRAINT pk_escala_avaliacoes PRIMARY KEY (ministerio_id, data)
 );
 GO
+
+/* ---------- v12: miniatura das fotos (listas carregam bem mais rápido) ----------
+   mini = a foto reduzida (128 px) que o site mostra nas listas; mini_v = de qual versão da foto ela foi feita.
+   Fotos antigas ganham a miniatura sozinhas na primeira vez que aparecem numa lista. */
+IF COL_LENGTH('dbo.pessoas_foto', 'mini') IS NULL
+    ALTER TABLE dbo.pessoas_foto ADD mini VARBINARY(MAX) NULL;
+IF COL_LENGTH('dbo.pessoas_foto', 'mini_v') IS NULL
+    ALTER TABLE dbo.pessoas_foto ADD mini_v VARCHAR(30) NULL;
+GO

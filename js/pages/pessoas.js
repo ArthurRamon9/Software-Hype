@@ -2,6 +2,7 @@
 // © Arthur Ramon da Silva — Todos os direitos reservados.
 import { api, urlFoto, pode } from '../api.js';
 import { ajustarFoto, verFoto } from '../foto-ajuste.js';
+import { reduzir } from '../fotos.js';
 import {
   esc, $, $$, aviso, avisoErro, ocupado, confirmar, foto, tagTipo, TIPOS, SITUACOES, corSituacao, idade, fmtData,
   icon, hojeISO, pct, semAcento, linkWhats, janela, estaNoHype, ultimaVez, textoUltimaVez, minuscula, fmtTel, formatarAoSair,
@@ -11,7 +12,7 @@ import { abrirAcompanhamento } from './pastoral.js';
 import { lerPlanilha, CAMPOS, mapearAutomatico, montarPessoa } from '../importar.js';
 import { baixarXLSX } from '../xlsx.js';
 
-const filtro = { busca: '', tipo: '', status: 'nohype', ministerio: '', extra: '' };
+const filtro = { busca: '', tipo: '', status: 'todos', ministerio: '', extra: '' };
 // Ordem da lista (clicar no título da coluna)
 const ordemPessoas = { col: 'nome', dir: 1 };
 // Grupos de situação para o filtro (além de cada situação sozinha)
@@ -33,9 +34,9 @@ export async function lista(conteudo) {
   const [pessoas, ministerios] = await Promise.all([api('GET', '/pessoas'), api('GET', '/ministerios')]);
   const nomeMin = Object.fromEntries(ministerios.map((m) => [m.id, m.nome]));
   const vindoDeMinisterio = sessionStorage.getItem('hype_filtro_min');
-  if (vindoDeMinisterio) { Object.assign(filtro, { ministerio: vindoDeMinisterio, busca: '', tipo: '', status: 'nohype', extra: '' }); sessionStorage.removeItem('hype_filtro_min'); }
+  if (vindoDeMinisterio) { Object.assign(filtro, { ministerio: vindoDeMinisterio, busca: '', tipo: '', status: 'todos', extra: '' }); sessionStorage.removeItem('hype_filtro_min'); }
   const vindoDeSituacao = sessionStorage.getItem('hype_filtro_tipo');
-  if (vindoDeSituacao) { Object.assign(filtro, { tipo: vindoDeSituacao, busca: '', ministerio: '', status: 'nohype', extra: '' }); sessionStorage.removeItem('hype_filtro_tipo'); }
+  if (vindoDeSituacao) { Object.assign(filtro, { tipo: vindoDeSituacao, busca: '', ministerio: '', status: 'todos', extra: '' }); sessionStorage.removeItem('hype_filtro_tipo'); }
   const vindoDeExtra = sessionStorage.getItem('hype_filtro_extra');
   if (vindoDeExtra) { Object.assign(filtro, { extra: vindoDeExtra, busca: '', tipo: '', ministerio: '', status: 'todos' }); sessionStorage.removeItem('hype_filtro_extra'); }
 
@@ -51,9 +52,9 @@ export async function lista(conteudo) {
         <select class="input" id="tipo" aria-label="Situação"></select>
         <select class="input" id="min"><option value="">Todos os ministérios</option>${ministerios.map((m) => `<option value="${m.id}" ${String(filtro.ministerio) === String(m.id) ? 'selected' : ''}>${esc(m.nome)}</option>`).join('')}</select>
         <select class="input" id="status">
+          <option value="todos" ${filtro.status === 'todos' ? 'selected' : ''}>Todo o cadastro</option>
           <option value="nohype" ${filtro.status === 'nohype' ? 'selected' : ''}>No Hype (últimos 3 meses)</option>
           <option value="afastados" ${filtro.status === 'afastados' ? 'selected' : ''}>Afastados (3+ meses sem vir)</option>
-          <option value="todos" ${filtro.status === 'todos' ? 'selected' : ''}>Todo o cadastro</option>
           <option value="inativos" ${filtro.status === 'inativos' ? 'selected' : ''}>Arquivados</option>
         </select>
         <select class="input" id="extra" aria-label="Mais filtros"><option value="">Mais filtros</option>${Object.entries(EXTRAS).map(([k, v]) => `<option value="${k}" ${filtro.extra === k ? 'selected' : ''}>${v.rotulo}</option>`).join('')}</select>
@@ -92,7 +93,7 @@ export async function lista(conteudo) {
   const desenhar = () => {
     opcoesSituacao();
     conteudo.querySelectorAll('[data-seta]').forEach((el) => { el.textContent = el.dataset.seta === ordemPessoas.col ? (ordemPessoas.dir > 0 ? ' ↑' : ' ↓') : ''; });
-    $('#limpar-pessoas').classList.toggle('hidden', !(filtro.busca || filtro.tipo || filtro.ministerio || filtro.extra || filtro.status !== 'nohype'));
+    $('#limpar-pessoas').classList.toggle('hidden', !(filtro.busca || filtro.tipo || filtro.ministerio || filtro.extra || filtro.status !== 'todos'));
     const l = filtradas();
     $('#total').textContent = `${l.length} ${l.length === 1 ? 'pessoa' : 'pessoas'}`;
     // Arquivar quem parou de vir (sai das listas e da chamada; volta sozinho se for marcado presente)
@@ -107,15 +108,15 @@ export async function lista(conteudo) {
         <td><div class="pessoa-cel">${foto(p.nome, urlFoto(p.id, p.foto_v))}<div class="nome-ref"><b>${esc(p.nome)}</b>${p.referencia ? `<span>${esc(p.referencia)}</span>` : ''}</div></div></td>
         <td>${tagTipo(p.tipo)}</td>
         <td class="small">${ultimaVez(p)}</td>
-        <td class="some-mobile num small">${esc(fmtTel(p.telefone))}</td>
+        <td class="some-mobile num small tel">${esc(fmtTel(p.telefone))}</td>
         <td class="some-mobile muted small">${p.ministerios.map((m) => esc(nomeMin[m])).join(', ')}</td>
       </tr>`).join('') : `<tr><td colspan="5" class="vazio">${pessoas.length ? 'Ninguém encontrado com esses filtros.' : '<b>Nenhuma pessoa cadastrada ainda</b>Comece cadastrando uma pessoa ou importando a planilha que vocês já usam.'}</td></tr>`;
   };
   desenhar();
 
   $('#tipo').addEventListener('change', (e) => { filtro.tipo = e.target.value; desenhar(); });
-  $('#extra').addEventListener('change', (e) => { filtro.extra = e.target.value; if (filtro.extra && filtro.status === 'nohype') { filtro.status = 'todos'; $('#status').value = 'todos'; } desenhar(); });
-  $('#limpar-pessoas').addEventListener('click', () => { Object.assign(filtro, { busca: '', tipo: '', status: 'nohype', ministerio: '', extra: '' }); lista(conteudo); });
+  $('#extra').addEventListener('change', (e) => { filtro.extra = e.target.value; desenhar(); });
+  $('#limpar-pessoas').addEventListener('click', () => { Object.assign(filtro, { busca: '', tipo: '', status: 'todos', ministerio: '', extra: '' }); lista(conteudo); });
   conteudo.querySelectorAll('[data-ordem]').forEach((b) => b.addEventListener('click', () => {
     if (ordemPessoas.col === b.dataset.ordem) ordemPessoas.dir *= -1; else { ordemPessoas.col = b.dataset.ordem; ordemPessoas.dir = 1; }
     desenhar();
@@ -258,7 +259,7 @@ export async function formulario(conteudo, { id } = {}) {
     await ocupado($('#f button[type=submit]'), async () => {
       try {
         const r = await api(editando ? 'PUT' : 'POST', editando ? `/pessoas/${id}` : '/pessoas', corpo);
-        if (novaFoto) await api('PUT', `/pessoas/${r.id}/foto`, { imagem: novaFoto });
+        if (novaFoto) await api('PUT', `/pessoas/${r.id}/foto`, { imagem: novaFoto, mini: await reduzir(novaFoto).catch(() => null) });
         else if (removerFoto) await api('DELETE', `/pessoas/${r.id}/foto`);
         aviso(editando ? 'Alterações salvas.' : 'Pessoa cadastrada.');
         navegar(`/pessoas/${r.id}`);
@@ -434,7 +435,7 @@ function abrirImportacao(depois) {
           <div class="previa"><table class="tabela"><thead><tr><th>Nome</th><th>Tipo</th><th>Nascimento</th><th>Telefone</th><th>Ministérios</th></tr></thead><tbody>
           ${pessoas.slice(0, 8).map((p) => `<tr><td>${esc(p.nome)}</td><td>${tagTipo(p.tipo)}</td>
             <td>${p.data_nascimento ? fmtData(p.data_nascimento) : (p._dataOriginal ? `<span class="tag warn">${esc(p._dataOriginal)}?</span>` : '')}</td>
-            <td>${esc(fmtTel(p.telefone))}</td><td>${esc(p.ministerios_nomes)}</td></tr>`).join('')}
+            <td class="tel">${esc(fmtTel(p.telefone))}</td><td>${esc(p.ministerios_nomes)}</td></tr>`).join('')}
           </tbody></table></div>
           <p class="hint" style="margin-top:6px">${pessoas.length} pessoa${pessoas.length === 1 ? '' : 's'} pronta${pessoas.length === 1 ? '' : 's'} para importar${pessoas.length > 8 ? ' (mostrando as 8 primeiras)' : ''}.</p>`;
       };

@@ -31,6 +31,8 @@ const PERMISSAO_DA_ROTA = {
   'DELETE /pessoas/:id':              'pessoas.excluir',
   'PUT /pessoas/:id/foto':            'pessoas.editar',
   'DELETE /pessoas/:id/foto':         'pessoas.editar',
+  'GET /fotos/lote':                  'aprovado',   // várias miniaturas numa ida só (mesma regra de quem vê foto)
+  'POST /fotos/:id/mini':             'aprovado',   // o navegador devolve a miniatura que fez de uma foto que ainda não tinha
   'GET /fotos/:id':                   'aprovado',   // confere dentro: permissões abaixo ou a própria foto
   'GET /presenca':                    'presenca.marcar',
   'POST /presenca':                   'presenca.marcar',
@@ -690,14 +692,41 @@ rota('DELETE', '/pessoas/:id', async ({ params, usuario, ip }) => {
 
 rota('PUT', '/pessoas/:id/foto', async ({ params, body }) => {
   const buf = seg.validarJpeg(body.imagem);   // só aceita JPEG real (confere a assinatura do arquivo)
+  // A miniatura das listas vem junto (o navegador já faz); sem ela, a primeira lista que mostrar a foto faz
+  let mini = null;
+  if (body.mini) { mini = seg.validarJpeg(body.mini); if (mini.length > 40 * 1024) mini = null; }
   await query(`
     MERGE dbo.pessoas_foto AS t USING (SELECT @id AS pessoa_id) s ON t.pessoa_id = s.pessoa_id
-    WHEN MATCHED THEN UPDATE SET foto = @foto, content_type = 'image/jpeg', dt_atualizacao = SYSUTCDATETIME()
-    WHEN NOT MATCHED THEN INSERT (pessoa_id, foto, content_type) VALUES (@id, @foto, 'image/jpeg');`, { id: int(params.id), foto: buf });
+    WHEN MATCHED THEN UPDATE SET foto = @foto, content_type = 'image/jpeg', dt_atualizacao = SYSUTCDATETIME(), mini = CAST(@mini AS VARBINARY(MAX)), mini_v = NULL
+    WHEN NOT MATCHED THEN INSERT (pessoa_id, foto, content_type, mini) VALUES (@id, @foto, 'image/jpeg', CAST(@mini AS VARBINARY(MAX)));
+    UPDATE dbo.pessoas_foto SET mini_v = CONVERT(VARCHAR(30), dt_atualizacao, 126) WHERE pessoa_id = @id AND mini IS NOT NULL;`, { id: int(params.id), foto: buf, mini });
   return { ok: true };
 });
 rota('DELETE', '/pessoas/:id/foto', async ({ params }) => { await query('DELETE FROM dbo.pessoas_foto WHERE pessoa_id = @id', { id: int(params.id) }); return { ok: true }; });
 
+// Fotos das listas: o navegador pede as que aparecem na tela de uma vez só (o banco fica longe).
+// Vai a miniatura (128 px, poucos KB); quem ainda não tem miniatura vai inteira e o navegador devolve a miniatura pronta.
+const podeVerFotos = (u) => ['pessoas.ver', 'presenca.marcar', 'pastoral.ver', 'integracao.ver'].some((p) => pode(u, p));
+rota('GET', '/fotos/lote', async ({ query: q, usuario }) => {
+  let ids = [...new Set(String(q.ids || '').split(',').map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 60);
+  if (!podeVerFotos(usuario)) ids = ids.filter((id) => id === usuario.pessoa_id);
+  if (!ids.length) return { fotos: [] };
+  const l = await query(`SELECT pessoa_id AS id, CONVERT(VARCHAR(30), dt_atualizacao, 126) AS v,
+      CASE WHEN mini IS NOT NULL AND mini_v = CONVERT(VARCHAR(30), dt_atualizacao, 126) THEN mini END AS mini,
+      CASE WHEN mini IS NULL OR ISNULL(mini_v, '') <> CONVERT(VARCHAR(30), dt_atualizacao, 126) THEN foto END AS foto
+    FROM dbo.pessoas_foto WHERE pessoa_id IN (SELECT value FROM OPENJSON(@ids))`, { ids: JSON.stringify(ids) });
+  return { fotos: l.map((f) => ({ id: f.id, v: f.v, mini: f.mini ? f.mini.toString('base64') : null, foto: f.foto ? f.foto.toString('base64') : null })) };
+});
+rota('POST', '/fotos/:id/mini', async ({ params, body, usuario }) => {
+  const id = int(params.id);
+  if (!podeVerFotos(usuario) && id !== usuario.pessoa_id) throw new HttpError(403, 'Você não tem permissão para isso.');
+  const buf = seg.validarJpeg(body.mini);
+  if (buf.length > 40 * 1024) throw new HttpError(400, 'Miniatura grande demais.');
+  // Só grava se a foto ainda é a mesma de quando a miniatura foi feita
+  await query(`UPDATE dbo.pessoas_foto SET mini = @mini, mini_v = @v WHERE pessoa_id = @id AND CONVERT(VARCHAR(30), dt_atualizacao, 126) = @v`,
+    { id, mini: buf, v: String(body.v || '').slice(0, 30) });
+  return { ok: true };
+});
 rota('GET', '/fotos/:id', async ({ params, usuario }) => {
   const id = int(params.id);
   const podeVer = ['pessoas.ver', 'presenca.marcar', 'pastoral.ver', 'integracao.ver'].some((p) => pode(usuario, p)) || id === usuario.pessoa_id;

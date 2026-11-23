@@ -1,5 +1,6 @@
 // Utilidades de interface
 // © Arthur Ramon da Silva — Todos os direitos reservados.
+import { miniPronta } from './fotos.js';
 
 const P = {
   inicio: '<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>',
@@ -177,7 +178,15 @@ export function corDoNome(nome = '') {
   let h = 0; for (const c of nome) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   return CORES_FOTO[h % CORES_FOTO.length];
 }
-export const foto = (nome, url, classe = '') => `<span class="foto ${classe}" style="--cor:${corDoNome(nome)}">${url ? `<img src="${esc(url)}" alt="" loading="lazy">` : esc(iniciais(nome))}</span>`;
+// Foto redonda (ou as iniciais). Nas listas a foto vem em lote e pequena (js/fotos.js); a grande ('g') vem inteira.
+export const foto = (nome, url, classe = '') => {
+  const m = url && !/(^|\s)g(\s|$)/.test(classe) && /^api\/fotos\/(\d+)\?v=(.+)$/.exec(url);
+  if (m) {
+    const v = decodeURIComponent(m[2]), pronta = miniPronta(m[1], v);
+    return `<span class="foto ${classe}" style="--cor:${corDoNome(nome)}">${pronta ? `<img src="${pronta}" alt="">` : `${esc(iniciais(nome))}<img alt="" data-foto="${m[1]}" data-v="${esc(v)}">`}</span>`;
+  }
+  return `<span class="foto ${classe}" style="--cor:${corDoNome(nome)}">${url ? `<img src="${esc(url)}" alt="" loading="lazy">` : esc(iniciais(nome))}</span>`;
+};
 // As 6 situações (a "jornada") usadas pelo Hype, na ordem do caminho de cada pessoa
 export const SITUACOES = [
   { id: 'novo_visitante', nome: 'Novo visitante', cor: '#e8336d' },

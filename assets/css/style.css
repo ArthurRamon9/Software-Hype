@@ -76,6 +76,7 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 20px 0; }
 .muted { color: var(--muted); }
 .small { font-size: 12.5px; }
 .num { font-variant-numeric: tabular-nums; }
+.tel { white-space: nowrap; }
 .hidden { display: none !important; }
 svg.i { width: 17px; height: 17px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 ::selection { background: var(--accent-soft); }
@@ -288,6 +289,10 @@ table.tabela { width: 100%; border-collapse: collapse; }
 
 .foto { width: 34px; height: 34px; border-radius: 50%; flex: none; background: var(--cor, #8a8679); color: #fff; display: grid; place-items: center; font-size: 12px; font-weight: 700; overflow: hidden; letter-spacing: .02em; }
 .foto img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* Foto da lista que ainda está chegando: as iniciais ficam por baixo até ela aparecer */
+.foto { position: relative; }
+.foto img[data-foto] { position: absolute; inset: 0; }
+.foto img[data-foto]:not([src]) { visibility: hidden; }
 .foto.m { width: 52px; height: 52px; font-size: 16px; }
 .foto.g { width: 84px; height: 84px; font-size: 26px; font-family: var(--titulo); }
 
