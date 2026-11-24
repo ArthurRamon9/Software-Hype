@@ -40,6 +40,10 @@ async function guardar(k, url) {
   try { db?.transaction('mini', 'readwrite').objectStore('mini').put(url, k); } catch { /* sem espaço: fica só na memória */ }
 }
 
+// Só quem pode trocar fotos (pessoas.editar) devolve ao servidor a miniatura de uma foto antiga; os outros guardam só no aparelho
+let enviaMini = false;
+export const podeEnviarMini = (sim) => { enviaMini = !!sim; };
+
 // Miniatura já em mãos (a tela já desenha a foto direto, sem esperar)
 export const miniPronta = (id, v) => memoria.get(`${id}|${v}`) || null;
 
@@ -102,7 +106,7 @@ async function buscar() {
         pintar(f.id, `data:image/jpeg;base64,${f.foto}`);
         reduzir(`data:image/jpeg;base64,${f.foto}`).then((mini) => {
           guardar(k, mini);
-          fetch(`api/fotos/${f.id}/mini`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-Hype': '1' }, body: JSON.stringify({ v: f.v, mini }) }).catch(() => {});
+          if (enviaMini) fetch(`api/fotos/${f.id}/mini`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-Hype': '1' }, body: JSON.stringify({ v: f.v, mini }) }).catch(() => {});
         }).catch(() => {});
       }
     });

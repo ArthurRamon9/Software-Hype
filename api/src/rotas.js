@@ -32,7 +32,7 @@ const PERMISSAO_DA_ROTA = {
   'PUT /pessoas/:id/foto':            'pessoas.editar',
   'DELETE /pessoas/:id/foto':         'pessoas.editar',
   'GET /fotos/lote':                  'aprovado',   // várias miniaturas numa ida só (mesma regra de quem vê foto)
-  'POST /fotos/:id/mini':             'aprovado',   // o navegador devolve a miniatura que fez de uma foto que ainda não tinha
+  'POST /fotos/:id/mini':             'pessoas.editar',   // o navegador devolve a miniatura de uma foto antiga (só quem já pode trocar a foto)
   'GET /fotos/:id':                   'aprovado',   // confere dentro: permissões abaixo ou a própria foto
   'GET /presenca':                    'presenca.marcar',
   'POST /presenca':                   'presenca.marcar',
@@ -415,7 +415,8 @@ rota('GET', '/contadores', async ({ usuario }) => {
     adm: pode(usuario, 'acessos.gerenciar') ? 1 : 0, eu: euPessoa(usuario) });
   // Quem distribui vê no menu quantos esperam alguém (sem acompanhamento); a equipe vê os que estão com ela
   const semResp = (area) => umaLinha(`SELECT COUNT(*) AS n FROM dbo.pastoral_casos c JOIN dbo.pessoas p ON p.id = c.pessoa_id
-    WHERE c.area = @area AND c.status <> 'concluido' AND c.responsavel_pessoa_id IS NULL AND p.cd_status = 1`, { area }).then((x) => x.n);
+    WHERE c.area = @area AND c.status <> 'concluido' AND c.responsavel_pessoa_id IS NULL AND p.cd_status = 1
+      ${area === 'pastoral' ? `AND ${SQL_HYPES_SEM_VIR('p.id')} >= 2 AND NOT ${SQL_DISPENSADO('p.id')}` : ''}`, { area }).then((x) => x.n);
   // Quem gerencia as sugestões vê quantas novas esperam resposta (se o banco ainda não tem a tabela, fica 0)
   const sugNovas = gerenciaSugestoes(usuario)
     ? umaLinha("SELECT COUNT(*) AS n FROM dbo.sugestoes WHERE status = 'nova'").then((x) => x.n, () => 0) : 0;
@@ -494,10 +495,26 @@ rota('PUT', '/ministerios/:id/pessoas', async ({ params, body, usuario, ip }) =>
   const lideresAntes = antes.map((x) => x.pessoa_id).filter((x) => !lideres.includes(x));
   await query(`
     SET XACT_ABORT ON; BEGIN TRAN;
-    DELETE pm FROM dbo.pessoa_ministerio pm JOIN dbo.pessoas p ON p.id = pm.pessoa_id WHERE pm.ministerio_id = @id AND p.cd_status = 1;
-    INSERT INTO dbo.pessoa_ministerio (pessoa_id, ministerio_id, lider)
-      SELECT DISTINCT p.id, @id, CASE WHEN p.id IN (SELECT value FROM OPENJSON(@l)) THEN 1 ELSE 0 END
-        FROM OPENJSON(@p) j JOIN dbo.pessoas p ON p.id = j.value AND p.cd_status = 1;
+    IF @ap IS NULL
+    BEGIN   -- versão antiga da tela: a lista inteira
+      DELETE pm FROM dbo.pessoa_ministerio pm JOIN dbo.pessoas p ON p.id = pm.pessoa_id WHERE pm.ministerio_id = @id AND p.cd_status = 1;
+      INSERT INTO dbo.pessoa_ministerio (pessoa_id, ministerio_id, lider)
+        SELECT DISTINCT p.id, @id, CASE WHEN p.id IN (SELECT value FROM OPENJSON(@l)) THEN 1 ELSE 0 END
+          FROM OPENJSON(@p) j JOIN dbo.pessoas p ON p.id = j.value AND p.cd_status = 1;
+    END
+    ELSE
+    BEGIN   -- só o que mudou desde que a tela abriu: quem saiu, quem entrou e quem virou (ou deixou de ser) líder
+      DELETE pm FROM dbo.pessoa_ministerio pm
+       WHERE pm.ministerio_id = @id AND pm.pessoa_id IN (SELECT value FROM OPENJSON(@ap)) AND pm.pessoa_id NOT IN (SELECT value FROM OPENJSON(@p));
+      INSERT INTO dbo.pessoa_ministerio (pessoa_id, ministerio_id, lider)
+        SELECT DISTINCT p.id, @id, CASE WHEN p.id IN (SELECT value FROM OPENJSON(@l)) THEN 1 ELSE 0 END
+          FROM OPENJSON(@p) j JOIN dbo.pessoas p ON p.id = j.value AND p.cd_status = 1
+         WHERE NOT EXISTS (SELECT 1 FROM dbo.pessoa_ministerio x WHERE x.pessoa_id = p.id AND x.ministerio_id = @id);
+      UPDATE pm SET lider = CASE WHEN pm.pessoa_id IN (SELECT value FROM OPENJSON(@l)) THEN 1 ELSE 0 END
+        FROM dbo.pessoa_ministerio pm
+       WHERE pm.ministerio_id = @id AND pm.pessoa_id IN (SELECT value FROM OPENJSON(@p))
+         AND (CASE WHEN pm.pessoa_id IN (SELECT value FROM OPENJSON(@l)) THEN 1 ELSE 0 END) <> (CASE WHEN pm.pessoa_id IN (SELECT value FROM OPENJSON(@al)) THEN 1 ELSE 0 END);
+    END
     -- Líder de ministério = líder de equipe: entra sozinho no ministério "Líderes de equipe";
     -- quem deixou de liderar e não lidera nenhum outro ministério sai de lá
     DECLARE @le INT = (SELECT id FROM dbo.ministerios WHERE nome = @nomeLideres);
@@ -510,7 +527,9 @@ rota('PUT', '/ministerios/:id/pessoas', async ({ params, body, usuario, ip }) =>
        WHERE x.ministerio_id = @le AND x.pessoa_id IN (SELECT value FROM OPENJSON(@antes))
          AND NOT EXISTS (SELECT 1 FROM dbo.pessoa_ministerio o WHERE o.pessoa_id = x.pessoa_id AND o.lider = 1 AND o.ministerio_id <> @le);
     END
-    COMMIT;`, { id, p: JSON.stringify(pessoas), l: JSON.stringify(lideres), nomeLideres: MINISTERIO_LIDERES, antes: JSON.stringify(lideresAntes) });
+    COMMIT;`, { id, p: JSON.stringify(pessoas), l: JSON.stringify(lideres), nomeLideres: MINISTERIO_LIDERES, antes: JSON.stringify(lideresAntes),
+    ap: body.antes && Array.isArray(body.antes.pessoas) ? JSON.stringify(body.antes.pessoas.map(Number).filter(Number.isInteger).slice(0, 2000)) : null,
+    al: body.antes && Array.isArray(body.antes.lideres) ? JSON.stringify(body.antes.lideres.map(Number).filter(Number.isInteger).slice(0, 2000)) : '[]' });
   await seg.registrar('ministerio_salvo', { usuario, ip, detalhe: `${m.nome}: ${pessoas.length} pessoa(s)` });
   return { ok: true };
 });
@@ -659,16 +678,24 @@ rota('POST', '/pessoas/importar', async ({ body, usuario, ip }) => {
 
 rota('PUT', '/pessoas/:id', async ({ params, body, usuario, ip }) => {
   const d = dadosPessoa(body);
-  await query(`
+  // "versao" = quando a ficha foi alterada pela última vez, do jeito que a tela abriu. Se alguém salvou
+  // a mesma pessoa nesse meio-tempo, avisa em vez de apagar sem querer o que o outro fez.
+  const versao = typeof body.versao === 'string' ? body.versao.slice(0, 19) : null;
+  const [r] = await query(`
     SET XACT_ABORT ON; BEGIN TRAN;
     DECLARE @pid INT = @id;
+    DECLARE @atual VARCHAR(19) = (SELECT CONVERT(VARCHAR(19), dt_atualizacao, 126) FROM dbo.pessoas WITH (UPDLOCK, HOLDLOCK) WHERE id = @pid);
+    IF @atual IS NULL BEGIN ROLLBACK; SELECT 'sumiu' AS r; RETURN; END
+    IF @versao IS NOT NULL AND @atual <> @versao BEGIN ROLLBACK; SELECT 'conflito' AS r; RETURN; END
     UPDATE dbo.pessoas SET nome=@nome, referencia=@referencia, data_nascimento=@data_nascimento, sexo=@sexo, telefone=@telefone, email=@email,
       instagram=@instagram, endereco=@endereco, tipo=@tipo, batizado=@batizado, batismo_detalhe=@batismo_detalhe, grupo_cultivo=@grupo_cultivo,
       discipulado_por=@discipulado_por, integrado_por=@integrado_por, como_conheceu=@como_conheceu,
       observacoes=@observacoes, data_cadastro=@data_cadastro, cd_status=@cd_status, dt_atualizacao=SYSUTCDATETIME()
     WHERE id = @pid;
     ${SQL_MINISTERIOS}
-    COMMIT;`, { ...d, id: int(params.id) });
+    COMMIT; SELECT 'ok' AS r;`, { ...d, id: int(params.id), versao });
+  if (r?.r === 'sumiu') throw new HttpError(404, 'Esta pessoa não existe mais (foi apagada).');
+  if (r?.r === 'conflito') throw new HttpError(409, 'Alguém salvou esta ficha enquanto você editava.');
   await seg.registrar('pessoa_editada', { usuario, ip, detalhe: `${d.nome} (id ${params.id})` });
   return { id: int(params.id) };
 });
@@ -719,11 +746,12 @@ rota('GET', '/fotos/lote', async ({ query: q, usuario }) => {
 });
 rota('POST', '/fotos/:id/mini', async ({ params, body, usuario }) => {
   const id = int(params.id);
-  if (!podeVerFotos(usuario) && id !== usuario.pessoa_id) throw new HttpError(403, 'Você não tem permissão para isso.');
   const buf = seg.validarJpeg(body.mini);
   if (buf.length > 40 * 1024) throw new HttpError(400, 'Miniatura grande demais.');
   // Só grava se a foto ainda é a mesma de quando a miniatura foi feita
-  await query(`UPDATE dbo.pessoas_foto SET mini = @mini, mini_v = @v WHERE pessoa_id = @id AND CONVERT(VARCHAR(30), dt_atualizacao, 126) = @v`,
+  // e só preenche a que falta: uma miniatura que já existe para esta versão da foto nunca é trocada por aqui
+  await query(`UPDATE dbo.pessoas_foto SET mini = @mini, mini_v = @v WHERE pessoa_id = @id AND CONVERT(VARCHAR(30), dt_atualizacao, 126) = @v
+      AND (mini IS NULL OR ISNULL(mini_v, '') <> @v)`,
     { id, mini: buf, v: String(body.v || '').slice(0, 30) });
   return { ok: true };
 });
@@ -860,6 +888,12 @@ const MEMBROS_SQL = "('novo_membro','membro','membro_ativo')";
 //  - visitante que veio uma vez só fica com a Integração (primeiro contato), não com a Pastoral.
 const MINISTERIO_LIDERES = 'Líderes de equipe';
 const MAX_FALTAS_PASTORAL = 5;
+// "Não acompanhar": quem tem motivo para vir menos (ex.: serve em outra área da igreja) não entra na lista da Pastoral
+const SQL_DISPENSADO = (col) => `EXISTS (SELECT 1 FROM dbo.pastoral_dispensas dsp WHERE dsp.pessoa_id = ${col} AND (dsp.ate IS NULL OR dsp.ate >= CAST(GETDATE() AS DATE)))`;
+// Quantos Hypes (sextas com chamada) a pessoa não veio desde a última presença
+const SQL_HYPES_SEM_VIR = (col) => `(SELECT COUNT(*) FROM dbo.encontros e2 WHERE EXISTS (SELECT 1 FROM dbo.presencas x WHERE x.encontro_id = e2.id)
+      AND e2.data > ISNULL((SELECT MAX(e.data) FROM dbo.presencas pr3 JOIN dbo.encontros e ON e.id = pr3.encontro_id WHERE pr3.pessoa_id = ${col} AND pr3.presente = 1), '19000101')
+      AND e2.data <= CAST(GETDATE() AS DATE))`;
 async function calcularAlertas() {
   const rows = await query(`
     WITH ult AS (SELECT TOP (@n) e.id, e.data FROM dbo.encontros e WHERE EXISTS (SELECT 1 FROM dbo.presencas x WHERE x.encontro_id = e.id) ORDER BY e.data DESC)
@@ -874,6 +908,7 @@ async function calcularAlertas() {
       LEFT JOIN dbo.pessoas_foto f ON f.pessoa_id = p.id
      WHERE p.cd_status = 1 AND p.tipo IN ('novo_visitante','visitante_regular','novo_membro','membro','membro_ativo')
        AND NOT EXISTS (SELECT 1 FROM dbo.pastoral_casos c WHERE c.pessoa_id = p.id AND c.area = 'pastoral' AND c.status <> 'concluido')
+       AND NOT ${SQL_DISPENSADO('p.id')}
      ORDER BY p.id, u.data DESC`, { n: MAX_FALTAS_PASTORAL + 1, lideres: MINISTERIO_LIDERES });
   const porPessoa = new Map();
   for (const r of rows) {
@@ -1002,7 +1037,11 @@ function rotasDeAcompanhamento(area) {
         ORDER BY CASE c.status WHEN 'aberto' THEN 0 WHEN 'em_andamento' THEN 1 ELSE 2 END, c.dt_abertura DESC`,
       { area, todos: todos ? 1 : 0, eu: euPessoa(usuario) }),
       equipeDaArea(area)]);
-    return { alertas, casos, equipe, poder: { verTodos: todos, designar: distribui, vinculado: !!usuario.pessoa_id } };
+    const dispensas = area === 'pastoral' && distribui ? await query(`
+      SELECT d.pessoa_id, p.nome, p.referencia, CONVERT(VARCHAR(30), f.dt_atualizacao, 126) AS foto_v, d.motivo, CONVERT(CHAR(10), d.ate, 126) AS ate, d.dt_criacao, u.nome AS por
+        FROM dbo.pastoral_dispensas d JOIN dbo.pessoas p ON p.id = d.pessoa_id LEFT JOIN dbo.pessoas_foto f ON f.pessoa_id = p.id LEFT JOIN dbo.usuarios u ON u.id = d.criado_por
+       WHERE d.ate IS NULL OR d.ate >= CAST(GETDATE() AS DATE) ORDER BY p.nome`) : [];
+    return { alertas, casos, equipe, dispensas, poder: { verTodos: todos, designar: distribui, vinculado: !!usuario.pessoa_id } };
   }, ver);
 
   rota('GET', `/${area}/casos/:id`, async ({ params, usuario }) => {
@@ -1170,6 +1209,40 @@ function rotasDeAcompanhamento(area) {
   }, 'pastoral.excluir');
 }
 rotasDeAcompanhamento('pastoral');
+
+// "Não acompanhar" na Pastoral: quem distribui tira da lista quem tem motivo para vir menos (com prazo ou sem)
+rota('POST', '/pastoral/dispensas', async ({ body, usuario, ip }) => {
+  if (!designa(usuario, 'pastoral')) throw new HttpError(403, 'Só quem distribui os acompanhamentos pode fazer isso.');
+  const pessoas = [...new Set((Array.isArray(body.pessoas) ? body.pessoas : []).map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 300);
+  if (!pessoas.length) throw new HttpError(400, 'Escolha pelo menos uma pessoa.');
+  const motivo = txt(body.motivo, 200);
+  if (!motivo) throw new HttpError(400, 'Conte o motivo (ex.: serve em outra área da igreja).');
+  const meses = [0, 3, 6].includes(Number(body.meses)) ? Number(body.meses) : 0;
+  const r = await umaLinha(`
+    SET XACT_ABORT ON; BEGIN TRAN;
+    MERGE dbo.pastoral_dispensas AS t
+    USING (SELECT p.id FROM OPENJSON(@p) j JOIN dbo.pessoas p ON p.id = j.value) AS s ON t.pessoa_id = s.id
+    WHEN MATCHED THEN UPDATE SET motivo = @motivo, ate = CASE WHEN @meses = 0 THEN NULL ELSE DATEADD(MONTH, @meses, CAST(GETDATE() AS DATE)) END, criado_por = @uid, dt_criacao = SYSUTCDATETIME()
+    WHEN NOT MATCHED THEN INSERT (pessoa_id, motivo, ate, criado_por) VALUES (s.id, @motivo, CASE WHEN @meses = 0 THEN NULL ELSE DATEADD(MONTH, @meses, CAST(GETDATE() AS DATE)) END, @uid);
+    DECLARE @n INT = @@ROWCOUNT;
+    -- quem estava esperando na lista sem responsável sai dela (o caso fica no histórico como concluído)
+    DECLARE @fechados TABLE (id INT);
+    UPDATE c SET status = 'concluido', dt_conclusao = SYSUTCDATETIME(), desfecho = 'outro'
+    OUTPUT inserted.id INTO @fechados
+      FROM dbo.pastoral_casos c WHERE c.area = 'pastoral' AND c.status <> 'concluido' AND c.responsavel_pessoa_id IS NULL AND c.pessoa_id IN (SELECT value FROM OPENJSON(@p));
+    INSERT INTO dbo.pastoral_registros (caso_id, texto, autor_nome, autor_id)
+      SELECT id, CONCAT(N'Concluído: não acompanhar (', @motivo, N').'), @autor, @uid FROM @fechados;
+    COMMIT; SELECT @n AS n;`, { p: JSON.stringify(pessoas), motivo, meses, uid: usuario.id, autor: usuario.nome });
+  await seg.registrar('pastoral_nao_acompanhar', { usuario, ip, detalhe: `${r.n} pessoa(s): ${motivo}${meses ? ` (${meses} meses)` : ''}` });
+  return { n: r.n };
+}, 'pastoral.ver');
+rota('DELETE', '/pastoral/dispensas/:pessoa', async ({ params, usuario, ip }) => {
+  if (!designa(usuario, 'pastoral')) throw new HttpError(403, 'Só quem distribui os acompanhamentos pode fazer isso.');
+  const p = await umaLinha('DELETE d OUTPUT deleted.pessoa_id FROM dbo.pastoral_dispensas d WHERE d.pessoa_id = @id', { id: int(params.pessoa) });
+  if (p) await seg.registrar('pastoral_voltar_acompanhar', { usuario, ip, detalhe: `pessoa ${params.pessoa}` });
+  return { ok: true };
+}, 'pastoral.ver');
+
 rotasDeAcompanhamento('integracao');
 
 // ------------------------------------------------------------------ AGENDA E ESCALAS
@@ -1358,6 +1431,9 @@ rota('PUT', '/escalas/:ministerio/:data', async ({ params, body, usuario, ip }) 
   const itens = (Array.isArray(body.itens) ? body.itens : []).slice(0, 200)
     .map((i) => ({ pessoa_id: int(i.pessoa_id), funcao: txt(i.funcao, 60) }));
   const funcao = body.funcao === undefined ? undefined : txt(body.funcao, 60);
+  // "antes" = como a tela estava ao abrir: aí só sai quem a pessoa tirou (se outro líder colocou alguém
+  // nesse meio-tempo, não é apagado). Sem "antes" (versões antigas da tela), vale a lista inteira.
+  const antes = Array.isArray(body.antes) ? body.antes.slice(0, 400).map((i) => ({ pessoa_id: int(i.pessoa_id), funcao: txt(i.funcao, 60) })) : null;
   await query(`
     SET XACT_ABORT ON; BEGIN TRAN;
     -- Dois líderes salvando a mesma sexta do mesmo ministério ao mesmo tempo: um espera o outro (nada duplica)
@@ -1368,11 +1444,14 @@ rota('PUT', '/escalas/:ministerio/:data', async ({ params, body, usuario, ip }) 
     INSERT INTO @novos SELECT DISTINCT p.id, j.funcao FROM OPENJSON(@itens) WITH (pessoa_id INT, funcao NVARCHAR(60)) j JOIN dbo.pessoas p ON p.id = j.pessoa_id AND p.cd_status = 1;
     DELETE i FROM dbo.escala_itens i
      WHERE i.ministerio_id = @mid AND i.data = @data AND (@todas = 1 OR ISNULL(i.funcao, N'') = ISNULL(@funcao, N''))
-       AND NOT EXISTS (SELECT 1 FROM @novos n WHERE n.pessoa_id = i.pessoa_id AND ISNULL(n.funcao, N'') = ISNULL(i.funcao, N''));
+       AND NOT EXISTS (SELECT 1 FROM @novos n WHERE n.pessoa_id = i.pessoa_id AND ISNULL(n.funcao, N'') = ISNULL(i.funcao, N''))
+       AND (@antes IS NULL OR EXISTS (SELECT 1 FROM OPENJSON(@antes) WITH (pessoa_id INT, funcao NVARCHAR(60)) a
+                                      WHERE a.pessoa_id = i.pessoa_id AND ISNULL(a.funcao, N'') = ISNULL(i.funcao, N'')));
     INSERT INTO dbo.escala_itens (ministerio_id, data, funcao, pessoa_id, criado_por)
       SELECT @mid, @data, n.funcao, n.pessoa_id, @uid FROM @novos n
        WHERE NOT EXISTS (SELECT 1 FROM dbo.escala_itens i WHERE i.ministerio_id = @mid AND i.data = @data AND i.pessoa_id = n.pessoa_id AND ISNULL(i.funcao, N'') = ISNULL(n.funcao, N''));
-    COMMIT;`, { mid, data, todas: funcao === undefined ? 1 : 0, funcao: funcao ?? null, itens: JSON.stringify(funcao === undefined ? itens : itens.map((i) => ({ ...i, funcao }))), uid: usuario.id });
+    COMMIT;`, { mid, data, todas: funcao === undefined ? 1 : 0, funcao: funcao ?? null, itens: JSON.stringify(funcao === undefined ? itens : itens.map((i) => ({ ...i, funcao }))), uid: usuario.id,
+    antes: antes ? JSON.stringify(antes) : null });
   await seg.registrar('escala_salva', { usuario, ip, detalhe: `ministério ${mid}, ${data}: ${itens.length} pessoa(s)${funcao ? ` em ${funcao}` : ''}` });
   return { ok: true };
 });
@@ -1469,25 +1548,30 @@ rota('PUT', '/engajamento/:ministerio/:data', async ({ params, body, usuario, ip
     const e = ENGAJAMENTO.includes(x.engajamento) ? x.engajamento : null;
     return { id: int(x.id), engajamento: e, substituto_id: e === 'trocou' && Number.isInteger(x.substituto_id) ? x.substituto_id : null };
   });
+  // Sem "avaliacao" no pedido, as respostas da sexta ficam como estão (só mexe no que a pessoa mudou)
+  const mexeAval = body.avaliacao !== undefined && body.avaliacao !== null;
   const a = body.avaliacao || {};
   const avancar = (Array.isArray(a.avancar) ? a.avancar : []).filter((x) => AVANCAR.includes(x));
   const aval = { o_que: txt(a.o_que, 2000) || null, acoes: txt(a.acoes, 2000) || null, avancar: avancar.join(';') || null, avancar_outro: txt(a.avancar_outro, 400) || null };
   const temAval = Object.values(aval).some(Boolean);
   await Promise.all([query(`
     SET XACT_ABORT ON; BEGIN TRAN;
-    UPDATE i SET engajamento = j.engajamento, substituto_id = j.substituto_id,
+    -- "quem serviu no lugar" só pode ser alguém da equipe do ministério
+    UPDATE i SET engajamento = j.engajamento,
+                 substituto_id = CASE WHEN EXISTS (SELECT 1 FROM dbo.pessoa_ministerio pm WHERE pm.ministerio_id = @mid AND pm.pessoa_id = j.substituto_id) THEN j.substituto_id END,
                  participou = CASE j.engajamento WHEN 'serviu' THEN 2 WHEN 'parcial' THEN 1 WHEN 'nao_serviu' THEN 0 ELSE NULL END
       FROM dbo.escala_itens i JOIN OPENJSON(@m) WITH (id INT, engajamento VARCHAR(12), substituto_id INT) j ON j.id = i.id
      WHERE i.ministerio_id = @mid AND i.data = @data;
+    IF @mexeAval = 0 BEGIN COMMIT; RETURN; END
     IF @temAval = 1
       MERGE dbo.escala_avaliacoes AS t USING (SELECT @mid AS ministerio_id, @data AS data) AS s
         ON t.ministerio_id = s.ministerio_id AND t.data = s.data
       WHEN MATCHED THEN UPDATE SET o_que = @o_que, acoes = @acoes, avancar = @avancar, avancar_outro = @avancar_outro, atualizado_por = @uid, dt_atualizacao = SYSUTCDATETIME()
       WHEN NOT MATCHED THEN INSERT (ministerio_id, data, o_que, acoes, avancar, avancar_outro, atualizado_por) VALUES (@mid, @data, @o_que, @acoes, @avancar, @avancar_outro, @uid);
     ELSE DELETE FROM dbo.escala_avaliacoes WHERE ministerio_id = @mid AND data = @data;
-    COMMIT;`, { mid, data, m: JSON.stringify(marcas), temAval: temAval ? 1 : 0, ...aval, uid: usuario.id }),
+    COMMIT;`, { mid, data, m: JSON.stringify(marcas), temAval: temAval ? 1 : 0, mexeAval: mexeAval ? 1 : 0, ...aval, uid: usuario.id }),
   // o registro vai junto (em paralelo), para salvar não esperar duas idas ao banco
-  seg.registrar('escala_engajamento', { usuario, ip, detalhe: `ministério ${mid}, ${data}: ${marcas.filter((x) => x.engajamento).length} marcada(s)${temAval ? ', com observações' : ''}` })]);
+  seg.registrar('escala_engajamento', { usuario, ip, detalhe: `ministério ${mid}, ${data}: ${marcas.length} pessoa(s) alterada(s)${mexeAval ? (temAval ? ', com observações' : ', observações apagadas') : ''}` })]);
   return { ok: true };
 });
 

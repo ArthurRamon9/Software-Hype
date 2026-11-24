@@ -33,6 +33,7 @@ export async function render(conteudo) {
     const lideres = new Set();
     const assinatura = () => `${[...escolhidas].sort().join(',')}|${[...lideres].filter((x) => escolhidas.has(x)).sort().join(',')}`;
     let original = assinatura();
+    let antesP = [], antesL = [];   // como estava ao abrir (se outra pessoa mexer ao mesmo tempo, o que ela fez não se perde)
     let porId = new Map();
     let carregou = false;
     janela({
@@ -70,7 +71,7 @@ export async function render(conteudo) {
         api('GET', `/ministerios/${m.id || 0}/pessoas`).then((t) => {
           todas = t; porId = new Map(todas.map((p) => [p.id, p]));
           todas.filter((p) => p.membro).forEach((p) => { escolhidas.add(p.id); if (p.lider) lideres.add(p.id); });
-          original = assinatura(); carregou = true; pintar();
+          original = assinatura(); antesP = [...escolhidas]; antesL = [...lideres]; carregou = true; pintar();
         }).catch((err) => { j.querySelector('#mesc').innerHTML = `<span class="hint">${esc(err.message)}</span>`; });
         busca.addEventListener('input', pintar);
         busca.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); j.querySelector('#msug button')?.click(); } });
@@ -88,7 +89,7 @@ export async function render(conteudo) {
             try {
               const r = await api(m.id ? 'PUT' : 'POST', m.id ? `/ministerios/${m.id}` : '/ministerios', corpo);
               const id = m.id || r.id;
-              if (carregou && assinatura() !== original) await api('PUT', `/ministerios/${id}/pessoas`, { pessoas: [...escolhidas], lideres: [...lideres].filter((x) => escolhidas.has(x)) });
+              if (carregou && assinatura() !== original) await api('PUT', `/ministerios/${id}/pessoas`, { pessoas: [...escolhidas], lideres: [...lideres].filter((x) => escolhidas.has(x)), antes: { pessoas: antesP, lideres: antesL } });
               aviso('Ministério salvo.'); fechar(); render(conteudo);
             } catch (err) { avisoErro(err); }
           });

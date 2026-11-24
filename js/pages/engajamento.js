@@ -63,7 +63,7 @@ async function avaliar(corpo) {
   if (minSel) q.set('ministerio', minSel);
   if (dataSel) q.set('data', dataSel);
   const d = await api('GET', `/engajamento?${q}`);
-  corpo.dataset.alterou = '0';
+  corpo.dataset.alterou = '0'; corpo.dataset.obsMudou = '0';
   if (!d.ministerios.length) {
     corpo.innerHTML = '<div class="painel vazio"><b>Nenhum ministério</b>Quando você liderar um ministério com escala, ele aparece aqui.</div>';
     return;
@@ -81,6 +81,8 @@ async function avaliar(corpo) {
 
   // Estado da tela (o que ainda não foi salvo)
   const marcas = new Map(d.itens.map((i) => [i.id, { engajamento: i.engajamento, substituto_id: i.substituto_id }]));
+  // Como estava ao abrir: ao salvar vai só o que mudou (se outro líder marcou alguém ao mesmo tempo, não é apagado)
+  const original = new Map(d.itens.map((i) => [i.id, `${i.engajamento || ''}|${i.substituto_id || ''}`]));
   // Chamada feita e a pessoa não foi marcada presente: já vem como "Ausente no dia" (o líder confere)
   const pelaChamada = new Set();
   d.itens.forEach((i) => { if (!i.engajamento && i.presente === false) { marcas.get(i.id).engajamento = 'ausente'; pelaChamada.add(i.id); } });
@@ -127,8 +129,7 @@ async function avaliar(corpo) {
     </section>
     <section class="painel eng-obs ${temObs ? 'aberta' : ''}">
       <button type="button" class="eng-obs-tog" id="ob-tog" aria-expanded="${temObs}" aria-controls="ob-corpo">${icon('chevron')}
-        <span><b>Teve algum problema?</b><small>${temObs ? 'Você contou como foi esta sexta' : 'Se algo deu errado, conte aqui o que houve e o que fazer'}</small></span>
-        ${temObs ? '<em class="tag">Respondido</em>' : ''}</button>
+        <span><b>Teve algum problema?</b><small id="ob-resumo"></small></span><span id="ob-estado"></span></button>
       <div class="eng-obs-corpo" id="ob-corpo" ${temObs ? '' : 'hidden'}>
         <label class="campo"><span class="label">O que aconteceu de errado ou defasado?</span><textarea class="input" id="ob-oque" rows="3" maxlength="2000" placeholder="Ex.: faltou gente na saída, chegaram atrasados">${esc(aval.o_que)}</textarea></label>
         <label class="campo"><span class="label">Que ações foram tomadas?</span><textarea class="input" id="ob-acoes" rows="3" maxlength="2000" placeholder="Ex.: remanejei a Entrada para a Saída">${esc(aval.acoes)}</textarea></label>
@@ -139,6 +140,21 @@ async function avaliar(corpo) {
     </section>
     <div class="eng-salvar"><span class="muted small" id="eng-conta2">${contagem()}</span><button type="button" class="btn primary" id="eng-ok">Salvar</button></div>`;
   pintarBotao();
+  // Cabeçalho do "Teve algum problema?": sempre de acordo com o que está salvo e com o que está escrito agora
+  let obsSalva = temObs;
+  const obsNaTela = () => !!($('#ob-oque', corpo).value.trim() || $('#ob-acoes', corpo).value.trim() || $('#ob-outro', corpo).value.trim()
+    || corpo.querySelector('#ob-avancar input:checked'));
+  const pintarObs = () => {
+    const agora = obsNaTela(), mudou = corpo.dataset.obsMudou === '1';
+    $('#ob-resumo', corpo).textContent = mudou
+      ? (agora ? 'Ainda não salvo' : obsSalva ? 'Respostas apagadas: salve para confirmar' : 'Se algo deu errado, conte aqui o que houve e o que fazer')
+      : obsSalva ? 'Você contou como foi esta sexta' : 'Se algo deu errado, conte aqui o que houve e o que fazer';
+    $('#ob-estado', corpo).innerHTML = mudou && (agora || obsSalva) ? '<span class="eng-obs-tag pend">Não salvo</span>' : obsSalva ? `<span class="eng-obs-tag ok">${icon('check')}Respondido</span>` : '';
+  };
+  pintarObs();
+  corpo.querySelector('#ob-corpo').addEventListener('input', () => { corpo.dataset.obsMudou = '1'; pintarObs(); });
+  corpo.querySelector('#ob-corpo').addEventListener('change', () => { corpo.dataset.obsMudou = '1'; pintarObs(); });
+  corpo.querySelector('.eng-obs').addEventListener('eng:salvo', () => { obsSalva = obsNaTela(); corpo.dataset.obsMudou = '0'; pintarObs(); });
   $('#ob-tog', corpo).addEventListener('click', (e) => {
     const sec = corpo.querySelector('.eng-obs'), aberta = !sec.classList.contains('aberta');
     sec.classList.toggle('aberta', aberta); e.currentTarget.setAttribute('aria-expanded', aberta);
@@ -184,10 +200,12 @@ async function avaliar(corpo) {
     ocupado(e.currentTarget, async () => {
     const avancar = [...corpo.querySelectorAll('#ob-avancar input:checked')].map((c) => c.value);
     try {
+      const mudaram = d.itens.filter((i) => original.get(i.id) !== `${marcas.get(i.id).engajamento || ''}|${marcas.get(i.id).substituto_id || ''}`);
       await api('PUT', `/engajamento/${m.id}/${d.data}`, {
-        marcas: d.itens.map((i) => ({ id: i.id, engajamento: marcas.get(i.id).engajamento, substituto_id: marcas.get(i.id).substituto_id || null })),
-        avaliacao: { o_que: $('#ob-oque', corpo).value, acoes: $('#ob-acoes', corpo).value, avancar, avancar_outro: $('#ob-outro', corpo).value },
+        marcas: mudaram.map((i) => ({ id: i.id, engajamento: marcas.get(i.id).engajamento, substituto_id: marcas.get(i.id).substituto_id || null })),
+        ...(corpo.dataset.obsMudou === '1' ? { avaliacao: { o_que: $('#ob-oque', corpo).value, acoes: $('#ob-acoes', corpo).value, avancar, avancar_outro: $('#ob-outro', corpo).value } } : {}),
       });
+      mudaram.forEach((i) => original.set(i.id, `${marcas.get(i.id).engajamento || ''}|${marcas.get(i.id).substituto_id || ''}`));
       corpo.dataset.alterou = '0';
       const faltam = d.itens.filter((i) => !marcas.get(i.id).engajamento).length;
       aviso(faltam ? `Salvo. Ainda falta marcar ${faltam}.` : 'Engajamento salvo.');
@@ -202,6 +220,7 @@ async function avaliar(corpo) {
       }
       corpo.querySelector('.eng-aviso')?.remove();
       corpo.querySelector(`#eng-min button[data-min="${m.id}"] .eng-falta`)?.toggleAttribute('hidden', !faltam);
+      corpo.querySelector('.eng-obs')?.dispatchEvent(new Event('eng:salvo'));
       atualizarContadores();
     } catch (err) { avisoErro(err); }
     }).then(pintarBotao);

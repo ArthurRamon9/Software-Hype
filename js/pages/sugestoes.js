@@ -7,11 +7,13 @@ import { esc, $, icon, aviso, avisoErro, ocupado, janela, confirmar, haQuanto, s
 import { baixarXLSX } from '../xlsx.js';
 import { atualizarContadores, parametrosHash, marcarNovidadeVista } from '../app.js';
 
-const TIPOS = { melhoria: 'Melhoria', ideia: 'Nova funcionalidade', problema: 'Algo com erro' };
+const TIPOS = { melhoria: 'Melhoria', ideia: 'Nova funcionalidade', problema: 'Correção' };
+// No formulário, cada tipo com uma explicação curta para quem está sugerindo
+const TIPOS_FORM = { melhoria: 'Melhoria — deixar algo que já existe melhor', ideia: 'Nova funcionalidade — algo que o site ainda não faz', problema: 'Correção — algo não está funcionando certo' };
 // Quem cuida do site vê as etapas de trabalho; quem sugeriu vê em palavras simples
 const STATUS_ADM = { nova: 'Aguardando análise', aceita: 'Pronto para codificação', fazendo: 'Em codificação', feita: 'Codificado', recusada: 'Recusada' };
 const STATUS_PUB = { nova: 'Aguardando resposta', aceita: 'Aceita', fazendo: 'Em andamento', feita: 'Feita', recusada: 'Recusada' };
-const ICONE_TIPO = { melhoria: 'sugestoes', ideia: 'plus', problema: 'alerta' };
+const ICONE_TIPO = { melhoria: 'sugestoes', ideia: 'plus', problema: 'ferramenta' };
 const DIA = 86400000;
 const maisDias = (iso, n) => isoLocal(new Date(parseISO(iso).getTime() + n * DIA + 2 * 3600000));
 
@@ -377,7 +379,7 @@ function editar(i, { gerencia, ativas, atual }, depois) {
     corpo: `<form id="sf" style="display:grid;gap:14px">
       <div style="display:grid;grid-template-columns:${gerencia && !nova ? '1fr 1fr' : '1fr'};gap:12px">
         <div class="field"><label for="sf-tipo">Tipo</label>
-          <select class="input" id="sf-tipo">${Object.entries(TIPOS).map(([k, r]) => `<option value="${k}" ${(i?.tipo || 'melhoria') === k ? 'selected' : ''}>${r}</option>`).join('')}</select></div>
+          <select class="input" id="sf-tipo">${Object.entries(TIPOS_FORM).map(([k, r]) => `<option value="${k}" ${(i?.tipo || 'melhoria') === k ? 'selected' : ''}>${r}</option>`).join('')}</select></div>
         ${gerencia && !nova ? `<div class="field"><span class="label">Solicitante</span><div class="sf-quem"><b>${esc(i.minha ? 'Você' : (i.autor || 'Conta apagada'))}</b><span class="muted small">Enviada ${haQuanto(i.dt_criacao)}</span></div></div>` : ''}
       </div>
       <div class="field"><label for="sf-titulo">Sugestão *</label>

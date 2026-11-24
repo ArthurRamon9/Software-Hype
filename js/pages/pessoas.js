@@ -258,7 +258,14 @@ export async function formulario(conteudo, { id } = {}) {
     };
     await ocupado($('#f button[type=submit]'), async () => {
       try {
-        const r = await api(editando ? 'PUT' : 'POST', editando ? `/pessoas/${id}` : '/pessoas', corpo);
+        let r;
+        try { r = await api(editando ? 'PUT' : 'POST', editando ? `/pessoas/${id}` : '/pessoas', editando ? { ...corpo, versao: p.dt_atualizacao || null } : corpo); }
+        catch (err) {
+          // Outra pessoa salvou esta ficha enquanto você editava: pergunta antes de substituir
+          if (!/enquanto você editava/.test(err.message)) throw err;
+          if (!(await confirmar('Alguém salvou esta ficha enquanto você editava. Salvar mesmo assim? O que você escreveu substitui o que a outra pessoa salvou.', { botao: 'Salvar mesmo assim', cancelar: 'Ver o que mudou' }))) { navegar(`/pessoas/${id}`); return; }
+          r = await api('PUT', `/pessoas/${id}`, corpo);
+        }
         if (novaFoto) await api('PUT', `/pessoas/${r.id}/foto`, { imagem: novaFoto, mini: await reduzir(novaFoto).catch(() => null) });
         else if (removerFoto) await api('DELETE', `/pessoas/${r.id}/foto`);
         aviso(editando ? 'Alterações salvas.' : 'Pessoa cadastrada.');

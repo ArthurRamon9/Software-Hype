@@ -1114,16 +1114,16 @@ a.pasta:hover .pasta-seta { color: var(--c, var(--accent)); transform: translate
 
 /* Sugestões */
 .sug-lista { display: flex; flex-direction: column; }
-.sug { display: flex; gap: 16px; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+.sug { display: flex; gap: 16px; align-items: center; padding: 18px 22px; border-bottom: 1px solid var(--line); }
 .sug:last-child { border-bottom: 0; }
 .sug.clicavel { cursor: pointer; transition: background .1s; }
 .sug.clicavel:hover { background: var(--sunken); }
-.sug-corpo { flex: 1; min-width: 0; display: grid; gap: 4px; }
-.sug-topo { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 2px; }
+.sug-corpo { flex: 1; min-width: 0; display: grid; gap: 6px; }
+.sug-topo { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
 .sug-tipo { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .sug-tipo svg.i { width: 14px; height: 14px; }
 .sug-tipo.t-ideia { color: var(--accent-ink, var(--accent)); }
-.sug-tipo.t-problema { color: var(--bad); }
+.sug-tipo.t-problema { color: var(--warn); }
 .sug-status { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; color: var(--ink-2); padding: 3px 11px 3px 9px; border: 1px solid var(--line-2); border-radius: 999px; white-space: nowrap; }
 .sug-status i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
 .sug-status svg.i { width: 13px; height: 13px; color: var(--ok); }
@@ -1133,7 +1133,7 @@ a.pasta:hover .pasta-seta { color: var(--c, var(--accent)); transform: translate
 .sug-status.s-recusada i { background: var(--bad); }
 .sug-tit { margin: 0; font-size: 16px; font-weight: 650; line-height: 1.3; overflow-wrap: anywhere; font-family: inherit; }
 .sug-detalhe { margin: 0; color: var(--ink-2); font-size: 14px; line-height: 1.45; white-space: pre-line; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
-.sug-pe { margin-top: 4px; font-size: 12.5px; color: var(--muted); }
+.sug-pe { margin-top: 6px; font-size: 12.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
 .sug-resposta { border-left: 3px solid var(--accent); background: var(--sunken); padding: 7px 10px; border-radius: 0 6px 6px 0; font-size: 13.5px; overflow-wrap: anywhere; }
 .sug-resposta b { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-bottom: 2px; }
 .sug-acoes { display: flex; gap: 6px; flex: none; }
@@ -1410,6 +1410,10 @@ a.pasta:hover .pasta-seta { color: var(--c, var(--accent)); transform: translate
 .eng-obs-tog small { color: var(--muted); font-size: 13px; }
 .eng-obs-tog:hover b { color: var(--accent-ink, var(--accent)); }
 .eng-obs.aberta .eng-obs-corpo { border-top: 1px solid var(--line); }
+.eng-obs-tag { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; white-space: nowrap; border: 1px solid var(--line-2); color: var(--ink-2); }
+.eng-obs-tag svg.i { width: 13px; height: 13px; }
+.eng-obs-tag.ok { color: var(--ok); background: var(--ok-soft); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+.eng-obs-tag.pend { color: var(--warn); background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
 .btn.salvo { background: var(--sunken); border-color: var(--line-2); color: var(--ok); }
 .btn.salvo svg.i { width: 16px; height: 16px; }
 .eng-obs-corpo { display: grid; gap: 14px; padding: 14px 18px 18px; }
@@ -1481,3 +1485,26 @@ a.pasta:hover .pasta-seta { color: var(--c, var(--accent)); transform: translate
 .ee-passos { border: 1px solid color-mix(in srgb, var(--ok) 40%, transparent); background: var(--ok-soft); border-radius: var(--r-sm); padding: 12px 14px; font-size: 14px; }
 .ee-passos ol { margin: 6px 0 4px; padding-left: 20px; }
 .ee-passos kbd { font: inherit; font-size: 12px; font-weight: 700; padding: 1px 6px; border: 1px solid var(--line-2); border-bottom-width: 2px; border-radius: 4px; background: var(--surface); }
+
+/* Pastoral: "Não acompanhar" */
+.opcoes-lista { border: 0; padding: 0; margin: 0; display: grid; gap: 8px; }
+.opcoes-lista legend { margin-bottom: 6px; }
+.seg-opcoes { display: inline-flex; border: 1px solid var(--line-2); border-radius: 999px; overflow: hidden; }
+.seg-opcoes label { cursor: pointer; }
+.seg-opcoes input { position: absolute; opacity: 0; pointer-events: none; }
+.seg-opcoes span { display: block; padding: 7px 14px; font-size: 13.5px; color: var(--ink-2); }
+.seg-opcoes label + label span { border-left: 1px solid var(--line-2); }
+.seg-opcoes input:checked + span { background: var(--accent); color: #fff; font-weight: 600; }
+.seg-opcoes input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: -2px; }
+.dispensas { border-top: 1px solid var(--line); }
+.dispensas summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px; padding: 14px 18px; }
+.dispensas summary::-webkit-details-marker { display: none; }
+.dispensas summary > svg.i { width: 16px; height: 16px; color: var(--muted); transition: transform .15s; flex: none; }
+.dispensas[open] summary > svg.i { transform: rotate(90deg); }
+.dispensas summary > span { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.dispensas summary small { flex-basis: 100%; color: var(--muted); font-size: 12.5px; }
+.dispensas-lista { list-style: none; margin: 0; padding: 0 18px 10px; }
+.dispensas-lista li { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px dashed var(--line); }
+@media (max-width: 640px) { .dispensas-lista li { grid-template-columns: auto 1fr; } .dispensas-lista li > .muted, .dispensas-lista li > .btn { grid-column: 2; justify-self: start; } }
+.dm-prazo-campo { display: grid; gap: 8px; justify-items: start; }
+.dm-prazo-campo .hint { margin: 0; }

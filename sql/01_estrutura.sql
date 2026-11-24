@@ -851,3 +851,17 @@ IF COL_LENGTH('dbo.pessoas_foto', 'mini') IS NULL
 IF COL_LENGTH('dbo.pessoas_foto', 'mini_v') IS NULL
     ALTER TABLE dbo.pessoas_foto ADD mini_v VARCHAR(30) NULL;
 GO
+
+/* ---------- v12: Pastoral — "Não acompanhar" ----------
+   Quem tem motivo para vir menos (ex.: serve em outra área da igreja) sai da lista "Sem acompanhamento".
+   ate = até quando (NULL = sem prazo); passou a data, volta a aparecer normalmente. */
+IF OBJECT_ID('dbo.pastoral_dispensas') IS NULL
+CREATE TABLE dbo.pastoral_dispensas (
+    pessoa_id   INT NOT NULL CONSTRAINT pk_pastoral_dispensas PRIMARY KEY
+                CONSTRAINT fk_pd_pessoa REFERENCES dbo.pessoas(id) ON DELETE CASCADE,
+    motivo      NVARCHAR(200) NOT NULL,
+    ate         DATE NULL,
+    criado_por  INT NULL,
+    dt_criacao  DATETIME2(0) NOT NULL CONSTRAINT df_pd_criacao DEFAULT SYSUTCDATETIME()
+);
+GO

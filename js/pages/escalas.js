@@ -252,7 +252,9 @@ function montarSexta({ m, naCelula, emOutro, recarregar }, data) {
       busca?.addEventListener('input', () => { const b = semAcento(busca.value); j.querySelectorAll('.ms-linha').forEach((l) => { l.hidden = b && !semAcento(l.dataset.nome).includes(b); }); });
       j.querySelector('#ms-ok')?.addEventListener('click', (e) => ocupado(e.currentTarget, async () => {
         const itens = marcados().map((c) => ({ pessoa_id: Number(c.dataset.p), funcao: c.dataset.f || null }));
-        try { await api('PUT', `/escalas/${m.id}/${data}`, { itens }); fechar(true); aviso('Escala salva.'); recarregar(); } catch (err) { avisoErro(err); }
+        // vai junto como estava ao abrir: se outro líder mexeu nesta sexta ao mesmo tempo, o que ele fez não se perde
+        const antes = [...marcado].map((k) => { const [p, f] = k.split('|'); return { pessoa_id: Number(p), funcao: f || null }; });
+        try { await api('PUT', `/escalas/${m.id}/${data}`, { itens, antes }); fechar(true); aviso('Escala salva.'); recarregar(); } catch (err) { avisoErro(err); }
       }));
     },
   });

@@ -2,7 +2,7 @@
 // © Arthur Ramon da Silva — Todos os direitos reservados.
 import { api, sessao, podeAlgum, urlFoto, usadosNaTela, preaquecer, novaTela } from './api.js';
 import { icon, esc, direitos, $, foto } from './ui.js';
-import { ligarFotos, esquecerFotos } from './fotos.js';
+import { ligarFotos, esquecerFotos, podeEnviarMini } from './fotos.js';
 import './campos.js';
 import './abas.js';
 import * as acesso from './pages/acesso.js';
@@ -249,6 +249,7 @@ export async function sair() {
 // Depois de entrar/criar conta/trocar senha: busca quem é e quais permissões tem
 export async function entrou() {
   sessao.usuario = (await api('GET', '/auth/eu')).usuario;
+  podeEnviarMini(podeAlgum('pessoas.editar'));
   app.innerHTML = '';
   if (caminhoAtual() === '/') await rota(); else navegar('/');
   atualizarContadores();
@@ -263,6 +264,7 @@ async function iniciar() {
       return;
     }
   }
+  podeEnviarMini(podeAlgum('pessoas.editar'));
   ligarFotos();
   window.addEventListener('hashchange', () => rota());
   // Esquenta a próxima tela ao passar o mouse/tocar no menu

@@ -33,6 +33,7 @@ const P = {
   externo: '<path d="M14 4h6v6M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
   lapis: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
   chevron: '<path d="M9 6l6 6-6 6"/>',
+  ferramenta: '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/>',
   engajamento: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 13l2 2 4-4"/>',
   planilha: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/>',
   copiar: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>',
@@ -160,7 +161,9 @@ export function ultimaSexta(base = new Date()) {
 // Primeira letra maiúscula (para textos que aparecem sozinhos)
 export const maiuscula = (t) => (t ? String(t).charAt(0).toUpperCase() + String(t).slice(1) : t);
 export function haQuanto(iso) {
-  const dias = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+  // Dias de calendário no horário daqui (23h de ontem é "ontem", não "hoje")
+  const d = new Date(iso), h = new Date();
+  const dias = Math.round((new Date(h.getFullYear(), h.getMonth(), h.getDate()) - new Date(d.getFullYear(), d.getMonth(), d.getDate())) / 86400000);
   if (dias <= 0) return 'hoje';
   if (dias === 1) return 'ontem';
   if (dias < 45) return `há ${dias} dias`;

@@ -10,7 +10,7 @@ import { atualizarContadores, parametrosHash } from '../app.js';
 const AREAS = {
   pastoral: {
     titulo: 'Pastoral', ministerio: 'Pastoral', sub: 'Quem está faltando e quem está cuidando de cada um.', subMeus: 'Os acompanhamentos que estão com você.',
-    alertaTitulo: 'Sem acompanhamento', alertaSub: 'Membros e visitantes com 2 faltas seguidas (líderes de equipe: 3), até 5 semanas sem vir',
+    alertaTitulo: 'Sem acompanhamento', alertaSub: 'Membros e visitantes com 2 Hypes ou mais sem vir (líderes de equipe: 3), até 5 semanas',
     vazio: ['Todo mundo por perto', 'Ninguém com faltas seguidas sem acompanhamento.'],
     msg: (n) => `Oi, ${n}! Tudo bem? Aqui é do Hype. Sentimos sua falta nas últimas sextas. Está tudo certo por aí?`,
   },
@@ -285,6 +285,42 @@ function diasDesde(iso) {
 
 const LIMITE_ESPERA = 10;
 const esperaAberta = { pastoral: false, integracao: false };
+let dispensasAbertas = false;
+// Motivos prontos para "Não acompanhar" (dá para escrever outro)
+const MOTIVOS_DISPENSA = ['Serve em outra área da igreja', 'Vem de vez em quando, já sabemos o motivo', 'Já é acompanhado por outro líder da igreja'];
+function naoAcompanhar(lista, depois) {
+  if (!lista.length) return;
+  const nomes = lista.map((x) => x.nome.split(' ')[0]);
+  janela({
+    titulo: lista.length === 1 ? `Não acompanhar ${lista[0].nome}` : `Não acompanhar ${lista.length} pessoas`,
+    corpo: `<form id="fd" style="display:grid;gap:14px">
+      <p class="hint" style="margin:0">${lista.length === 1 ? esc(nomes[0]) : 'Essas pessoas'} ${lista.length === 1 ? 'sai' : 'saem'} da lista "Sem acompanhamento" e não ${lista.length === 1 ? 'volta' : 'voltam'} a aparecer por faltar. Para quem vem menos por um bom motivo, como servir em outra área da igreja.</p>
+      <fieldset class="campo opcoes-lista"><legend class="label">Motivo</legend>
+        ${MOTIVOS_DISPENSA.map((m, k) => `<label class="check"><input type="radio" name="dm" value="${esc(m)}" ${k === 0 ? 'checked' : ''}> ${esc(m)}</label>`).join('')}
+        <label class="check"><input type="radio" name="dm" value=""> Outro motivo</label>
+        <input class="input" id="dm-outro" maxlength="200" placeholder="Escreva o motivo" hidden></fieldset>
+      <div class="dm-prazo-campo"><span class="label">Por quanto tempo</span>
+        <div class="seg-opcoes" id="dm-prazo"><label><input type="radio" name="dp" value="0" checked><span>Sem prazo</span></label><label><input type="radio" name="dp" value="3"><span>3 meses</span></label><label><input type="radio" name="dp" value="6"><span>6 meses</span></label></div>
+        <small class="hint">Com prazo, depois da data a pessoa volta a aparecer se estiver faltando. Dá para voltar a acompanhar a qualquer hora em "Não acompanhados".</small></div>
+      <div class="janela-acoes"><button type="button" class="btn" data-fechar>Cancelar</button><button class="btn primary">Não acompanhar</button></div></form>`,
+    aoAbrir: (j, fechar) => {
+      const outro = j.querySelector('#dm-outro');
+      j.querySelectorAll('input[name=dm]').forEach((r) => r.addEventListener('change', () => { outro.hidden = r.value !== '' || !r.checked; if (!outro.hidden) outro.focus(); }));
+      j.querySelector('#fd').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const esc0 = j.querySelector('input[name=dm]:checked').value;
+        const motivo = (esc0 || outro.value).trim();
+        if (!motivo) { aviso('Escreva o motivo.', 'erro'); outro.focus(); return; }
+        await ocupado(e.submitter, async () => {
+          try {
+            await api('POST', '/pastoral/dispensas', { pessoas: lista.map((x) => x.pessoa.id), motivo, meses: Number(j.querySelector('input[name=dp]:checked').value) });
+            fechar(); aviso(lista.length === 1 ? `${nomes[0]} não aparece mais na lista.` : `${lista.length} pessoas não aparecem mais na lista.`); depois();
+          } catch (err) { avisoErro(err); }
+        });
+      });
+    },
+  });
+}
 const novoFiltro = () => ({ busca: '', freq: '', resp: '', contato: '' });
 const filtroLista = { pastoral: novoFiltro(), integracao: novoFiltro() };
 const QUINZE_DIAS = 14 * 86400000;
@@ -294,7 +330,8 @@ const zap = (link, titulo = 'Conversar no WhatsApp') => (link ? `<a class="btn-i
 
 async function renderArea(conteudo, area) {
   const cfg = AREAS[area];
-  const [{ alertas, casos: todos, equipe = [], poder = {} }] = await Promise.all([api('GET', `/${area}`), desfechos()]);
+  const [{ alertas, casos: todos, equipe = [], dispensas = [], poder = {} }] = await Promise.all([api('GET', `/${area}`), desfechos()]);
+  const dispensados = new Set(dispensas.map((x) => x.pessoa_id));
   const recarregar = () => renderArea(conteudo, area).catch(avisoErro);
   const casoUrl = parametrosHash().get('caso');
   const podeEditar = pode(`${area}.editar`), podeExcluir = pode('pastoral.excluir');
@@ -311,7 +348,9 @@ async function renderArea(conteudo, area) {
   }
 
   // Só está "em acompanhamento" quem tem responsável. Os abertos sem ninguém voltam para a lista de espera.
-  const semResp = todos.filter((c) => c.status !== 'concluido' && !c.responsavel_pessoa_id);
+  // Na Pastoral, a lista de espera mostra só quem está com 2 ou mais Hypes sem vir (e não está em "Não acompanhar")
+  const semResp = todos.filter((c) => c.status !== 'concluido' && !c.responsavel_pessoa_id
+    && (area !== 'pastoral' || ((c.hypes_sem_vir ?? 0) >= 2 && !dispensados.has(c.pessoa_id))));
   const casos = todos.filter((c) => c.status === 'concluido' || c.responsavel_pessoa_id);
   // Quem só cuida dos seus e ainda não recebeu ninguém: um recado em vez da tabela vazia
   if (!gestor && !poder.designar && !casos.some((c) => c.status !== 'concluido')) {
@@ -342,17 +381,23 @@ async function renderArea(conteudo, area) {
       <td class="${area === 'pastoral' ? 'dir' : ''}" style="white-space:nowrap">${det}${e.lider ? ' <span class="tag">Líder de equipe</span>' : ''}</td>
       <td class="small" style="white-space:nowrap">${area === 'pastoral' ? (e.ultima ? fmtData(e.ultima) : '—') : (e.visitas != null ? `${e.visitas} ${e.visitas === 1 ? 'visita' : 'visitas'}` : '—')}</td>
       <td class="muted small motivo">${esc(e.motivo)}</td>
-      <td class="dir acoes-linha">${zap(linkWhats(e.pessoa.telefone, cfg.msg(n)), `Conversar com ${esc(n)} no WhatsApp`)}${podeEditar ? `<button class="btn sm primary" data-designar="${e.chave}">Designar</button>` : ''}</td></tr>`;
+      <td class="dir acoes-linha">${zap(linkWhats(e.pessoa.telefone, cfg.msg(n)), `Conversar com ${esc(n)} no WhatsApp`)}${area === 'pastoral' ? `<button class="btn-icone" data-dispensar="${e.pessoa.id}" title="Não acompanhar (ex.: serve em outra área da igreja)" aria-label="Não acompanhar ${esc(n)}">${icon('bloquear')}</button>` : ''}${podeEditar ? `<button class="btn sm primary" data-designar="${e.chave}">Designar</button>` : ''}</td></tr>`;
   };
   const blocoEspera = poder.designar ? `
     <section class="painel mt">
       <div class="painel-topo"><h2>${cfg.alertaTitulo} <span class="contador">${espera.length}</span></h2><span class="sub">${cfg.alertaSub}</span></div>
-      ${espera.length ? `<div class="barra-massa hidden" id="massa-espera"><b id="massa-espera-n"></b><button class="btn sm primary" id="designar-varios">Designar para…</button>${podeEditar && semResp.length ? `<button class="btn sm hidden" id="concluir-espera">${icon('check')} Concluir</button>` : ''}<button class="link-btn small" id="limpar-espera">Cancelar seleção</button></div>
+      ${espera.length ? `<div class="barra-massa hidden" id="massa-espera"><b id="massa-espera-n"></b><button class="btn sm primary" id="designar-varios">Designar para…</button>${area === 'pastoral' ? '<button class="btn sm" id="dispensar-varios">Não acompanhar</button>' : ''}${podeEditar && semResp.length ? `<button class="btn sm hidden" id="concluir-espera">${icon('check')} Concluir</button>` : ''}<button class="link-btn small" id="limpar-espera">Cancelar seleção</button></div>
       <div class="tabela-wrap"><table class="tabela com-sel tabela-espera"><thead><tr><th class="sel"><input type="checkbox" id="esp-todos" aria-label="Selecionar todos"></th>
         ${th('pessoa', 'Pessoa', '', 'data-ord-esp')}${area === 'pastoral' ? th('faltas', 'Hypes sem vir', 'dir', 'data-ord-esp') + th('ultima', 'Última vez', '', 'data-ord-esp') : th('chegada', 'Chegou', '', 'data-ord-esp') + th('visitas', 'Visitas', '', 'data-ord-esp')}
         <th>Motivo</th><th class="dir">Ações</th></tr></thead><tbody id="lista-espera"></tbody></table></div>
       ${espera.length > LIMITE_ESPERA ? `<div class="filtros" style="border-top:1px solid var(--line);border-bottom:0"><button class="btn sm" id="mais-espera">${esperaAberta[area] ? 'Mostrar menos' : `Mostrar todos (${espera.length})`}</button></div>` : ''}`
       : `<div class="painel-corpo"><div class="vazio" style="padding:18px 0"><b>${cfg.vazio[0]}</b>${cfg.vazio[1]}</div></div>`}
+      ${area === 'pastoral' && dispensas.length ? `<details class="dispensas" ${dispensasAbertas ? 'open' : ''}>
+        <summary>${icon('chevron')}<span><b>Não acompanhados</b> <span class="contador">${dispensas.length}</span><small>Têm motivo para vir menos e não aparecem na lista acima</small></span></summary>
+        <ul class="dispensas-lista">${dispensas.map((x) => `<li>${foto(x.nome, urlFoto(x.pessoa_id, x.foto_v))}
+          <span class="nome-ref"><a href="#/pessoas/${x.pessoa_id}"><b>${esc(x.nome)}</b></a><span>${esc(x.motivo)}</span></span>
+          <span class="muted small">${x.ate ? `Até ${fmtData(x.ate)}` : 'Sem prazo'}${x.por ? ` · por ${esc(x.por.split(' ')[0])}` : ''}</span>
+          <button type="button" class="btn sm" data-voltar="${x.pessoa_id}">Voltar a acompanhar</button></li>`).join('')}</ul></details>` : ''}
     </section>` : '';
 
   const concluidos = filtroStatus[area] === 'concluidos';
@@ -562,6 +607,17 @@ async function renderArea(conteudo, area) {
   $('#limpar-espera')?.addEventListener('click', () => { esperaSel.clear(); pintarEspera(); });
   $('#designar-varios')?.addEventListener('click', () => designar(espera.filter((x) => esperaSel.has(x.chave))));
   $('#concluir-espera')?.addEventListener('click', () => concluir(area, espera.filter((x) => esperaSel.has(x.chave) && x.caso).map((x) => x.caso), recarregar));
+  // "Não acompanhar": tira da lista quem tem motivo para vir menos
+  const dispensar = (lista) => naoAcompanhar(lista, () => { esperaSel.clear(); recarregar(); atualizarContadores(); });
+  $('#lista-espera')?.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-dispensar]'); if (!b) return;
+    dispensar(espera.filter((x) => x.pessoa.id === Number(b.dataset.dispensar)));
+  });
+  $('#dispensar-varios')?.addEventListener('click', () => dispensar(espera.filter((x) => esperaSel.has(x.chave))));
+  conteudo.querySelector('.dispensas')?.addEventListener('toggle', (e) => { dispensasAbertas = e.target.open; });
+  conteudo.querySelectorAll('[data-voltar]').forEach((b) => b.addEventListener('click', () => ocupado(b, async () => {
+    try { await api('DELETE', `/pastoral/dispensas/${b.dataset.voltar}`); aviso('Voltou a ser acompanhado: se faltar, aparece na lista de novo.'); recarregar(); atualizarContadores(); } catch (err) { avisoErro(err); }
+  })));
   $('#mais-espera')?.addEventListener('click', (e) => { esperaAberta[area] = !esperaAberta[area]; e.target.textContent = esperaAberta[area] ? 'Mostrar menos' : `Mostrar todos (${espera.length})`; pintarEspera(); });
   conteudo.querySelectorAll('[data-f]').forEach((b) => b.addEventListener('click', () => { filtroStatus[area] = b.dataset.f; recarregar(); }));
   if (casoUrl) { history.replaceState(null, '', location.pathname + `#/${area}`); verCaso(area, Number(casoUrl), recarregar).catch(avisoErro); }
