@@ -326,7 +326,7 @@ const filtroLista = { pastoral: novoFiltro(), integracao: novoFiltro() };
 const QUINZE_DIAS = 14 * 86400000;
 const dentro5 = (iso) => { const n = sextasDesde(iso); return n !== null && n <= 6; };
 const FREQ = { '5sim': dentro5, '5nao': (iso) => !dentro5(iso), nao: (iso) => !estaNoHype({ ultima_presenca: iso }) };
-const zap = (link, titulo = 'Conversar no WhatsApp') => (link ? `<a class="btn-icone zap" href="${link}" target="_blank" rel="noopener" title="${titulo}" aria-label="${titulo}" data-nao-abrir>${icon('zap')}</a>` : '');
+const zap = (link, titulo = 'Conversar no WhatsApp') => (link ? `<a class="btn-icone zap" href="${link}" target="_blank" rel="noopener" title="${titulo}" aria-label="${titulo}" data-nao-abrir>${icon('zap')}</a>` : '<span class="btn-icone sem-zap" title="Sem WhatsApp no cadastro" aria-hidden="true"></span>');   // sem WhatsApp: guarda o lugar (os botões ficam alinhados)
 
 async function renderArea(conteudo, area) {
   const cfg = AREAS[area];
@@ -374,12 +374,12 @@ async function renderArea(conteudo, area) {
     const det = area === 'pastoral'
       ? `${e.faltas != null ? `<b class="num">${e.faltas}</b>` : '—'}`
       : e.caso ? `<span class="muted small">Aberto em ${fmtData(e.caso.dt_abertura)}</span>`
-        : (() => { const d = diasDesde(e.chegada); return e.chegada ? `${d === 0 ? 'Hoje' : d === 1 ? 'Ontem' : `Há ${d} dias`}${d !== null && d <= 2 ? ' <b class="urgente">48h</b>' : ''}` : 'Sem presença'; })();
+        : (() => { const d = diasDesde(e.chegada); return e.chegada ? `${d === 0 ? 'Hoje' : d === 1 ? 'Ontem' : `Há ${d} dias`}${d !== null && d <= 2 ? ' <b class="urgente">48h</b>' : ''}` : '<span class="muted">Ainda não veio</span>'; })();
     return `<tr class="${esperaSel.has(e.chave) ? 'selecionada' : ''}">
       <td class="sel"><input type="checkbox" data-esp="${e.chave}" ${esperaSel.has(e.chave) ? 'checked' : ''} aria-label="Selecionar ${esc(n)}"></td>
       <td><div class="pessoa-cel">${foto(e.nome, urlFoto(e.pessoa.id, e.pessoa.foto_v))}<div class="nome-ref"><a href="#/pessoas/${e.pessoa.id}"><b>${esc(e.nome)}</b></a>${e.pessoa.referencia ? `<span>${esc(e.pessoa.referencia)}</span>` : ''}</div></div></td>
       <td class="${area === 'pastoral' ? 'dir' : ''}" style="white-space:nowrap">${det}${e.lider ? ' <span class="tag">Líder de equipe</span>' : ''}</td>
-      <td class="small" style="white-space:nowrap">${area === 'pastoral' ? (e.ultima ? fmtData(e.ultima) : '—') : (e.visitas != null ? `${e.visitas} ${e.visitas === 1 ? 'visita' : 'visitas'}` : '—')}</td>
+      <td class="small" style="white-space:nowrap">${area === 'pastoral' ? (e.ultima ? fmtData(e.ultima) : '—') : (e.visitas ? `${e.visitas} ${e.visitas === 1 ? 'visita' : 'visitas'}` : '—')}</td>
       <td class="muted small motivo">${esc(e.motivo)}</td>
       <td class="dir acoes-linha">${zap(linkWhats(e.pessoa.telefone, cfg.msg(n)), `Conversar com ${esc(n)} no WhatsApp`)}${area === 'pastoral' ? `<button class="btn-icone" data-dispensar="${e.pessoa.id}" title="Não acompanhar (ex.: serve em outra área da igreja)" aria-label="Não acompanhar ${esc(n)}">${icon('bloquear')}</button>` : ''}${podeEditar ? `<button class="btn sm primary" data-designar="${e.chave}">Designar</button>` : ''}</td></tr>`;
   };
@@ -480,6 +480,7 @@ async function renderArea(conteudo, area) {
     marcarOrdem(conteudo, 'data-ord', o);
     for (const id of [...selecionados]) if (!l.some((c) => c.id === id)) selecionados.delete(id);
     $('#total-casos').textContent = `${l.length} acompanhamento${l.length === 1 ? '' : 's'}`;
+    $('#casos').closest('table').classList.toggle('sem-linhas', !l.length);   // vazio: sem a fileira de títulos rolando de lado
     $('#casos').innerHTML = l.length ? l.map((c) => `<tr class="clicavel ${selecionados.has(c.id) ? 'selecionada' : ''} ${c.sem_retorno ? 'sem-retorno' : ''}" data-caso="${c.id}">
         ${temSel ? `<td class="sel"><input type="checkbox" data-sel="${c.id}" ${selecionados.has(c.id) ? 'checked' : ''} aria-label="Selecionar"></td>` : ''}
         <td class="fixa"><div class="pessoa-cel">${foto(c.pessoa_nome, urlFoto(c.pessoa_id, c.foto_v))}<div class="nome-ref"><b>${esc(c.pessoa_nome)}</b>${c.pessoa_referencia ? `<span>${esc(c.pessoa_referencia)}</span>` : ''}</div></div></td>

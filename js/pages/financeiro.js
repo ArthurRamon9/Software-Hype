@@ -104,7 +104,7 @@ export async function render(conteudo) {
           <tbody id="fin-linhas"></tbody></table></div>
         <div class="filtros" style="border-top:1px solid var(--line);border-bottom:0"><span class="muted small" id="fin-total"></span></div>
       </section>
-      <section class="painel">
+      <section class="painel" style="align-self:start">
         <div class="painel-topo"><h2>Para onde foi o dinheiro</h2><span class="sub">Gastos por categoria</span></div>
         <div class="painel-corpo">${porCat.length ? `<div class="fin-cats">${porCat.map(([c, v]) => `<div><span>${esc(c)}</span><b>${real(v)}</b><i style="width:${Math.max(4, Math.round((v / maiorCat) * 100))}%"></i></div>`).join('')}</div>`
           : '<div class="vazio" style="padding:18px 0"><b>Nenhum gasto ainda</b>Quando lançar uma despesa com categoria (ex.: Lanche), ela aparece aqui.</div>'}</div>

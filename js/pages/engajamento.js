@@ -40,7 +40,7 @@ export async function render(conteudo) {
   if (p.has('ver') || p.has('min') || p.has('data')) history.replaceState(null, '', '#/engajamento');
 
   conteudo.innerHTML = `
-    <div class="cabecalho"><div><h1>Engajamento</h1><p class="sub">Como a equipe serviu em cada sexta. Só os líderes (cada um vê os seus ministérios) e os administradores veem.</p></div></div>
+    <div class="cabecalho"><div><h1>Engajamento</h1><p class="sub">Como a equipe serviu em cada sexta.</p></div></div>
     <div class="abas" id="eng-aba"><button data-a="avaliar">Avaliar a sexta</button><button data-a="relatorio">Relatório</button></div>
     <div id="eng-corpo" style="margin-top:14px"><div class="boot"><span class="spin"></span></div></div>`;
   const corpo = $('#eng-corpo');

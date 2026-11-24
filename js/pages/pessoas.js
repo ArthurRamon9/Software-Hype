@@ -176,7 +176,7 @@ export async function formulario(conteudo, { id } = {}) {
         <div class="field full"><span class="label">Situação</span>
           <div class="situacoes">${SITUACOES.map((s) => `<label style="--c:${s.cor}"><input type="radio" name="tipo" value="${s.id}" ${p.tipo === s.id ? 'checked' : ''}>${s.nome}</label>`).join('')}</div></div>
         <div class="field"><label for="nasc">Data de nascimento</label><input class="input" type="date" id="nasc" value="${v('data_nascimento')}" max="${hojeISO()}"></div>
-        <div class="field"><label for="sexo">Sexo</label><select class="input" id="sexo"><option value=""></option>
+        <div class="field"><label for="sexo">Sexo</label><select class="input" id="sexo"><option value="">Não informado</option>
           <option value="M" ${p.sexo === 'M' ? 'selected' : ''}>Masculino</option><option value="F" ${p.sexo === 'F' ? 'selected' : ''}>Feminino</option></select></div>
 
         <div class="form-section">Contato</div>

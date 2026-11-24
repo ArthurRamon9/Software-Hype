@@ -78,7 +78,7 @@ export async function render(conteudo) {
       <div class="acoes">${possoCriar.length ? '<button class="btn primary" id="nova">Nova reunião</button>' : ''}</div></div>
     ${!sessao.usuario.pessoa_id && !possoCriar.length ? '<p class="msg aviso" style="margin-bottom:14px">Sua conta ainda não está ligada ao seu cadastro do Hype, então ainda não dá para saber quais são os seus ministérios. Peça a um administrador para ligar.</p>' : ''}
     ${possoCriar.length && !emailAtivo ? '<p class="msg aviso" style="margin-bottom:14px">O e-mail do site não está ligado aqui, então os convites não saem. No site publicado (com o e-mail configurado na Netlify) eles chegam no e-mail e entram sozinhos no Google Agenda de cada participante.</p>' : ''}
-    <div class="painel" style="margin-bottom:16px"><div class="filtros" style="justify-content:space-between">
+    <div class="${ministeriosNaLista.length > 1 ? 'painel' : 'so-abas'}" style="margin-bottom:16px"><div class="filtros" style="justify-content:space-between">
       <div class="abas" id="periodo"><button data-p="proximas" class="${periodo === 'proximas' ? 'ativo' : ''}">Próximas</button><button data-p="anteriores" class="${periodo === 'anteriores' ? 'ativo' : ''}">Anteriores</button></div>
       ${ministeriosNaLista.length > 1 ? `<select class="input" id="f-min" style="width:auto"><option value="">Todos os ministérios</option>${ministeriosNaLista.map(([id, n]) => `<option value="${id}" ${filtroMin === String(id) ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>` : ''}
     </div></div>

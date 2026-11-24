@@ -34,7 +34,7 @@ export async function render(conteudo) {
       <div class="painel-topo"><h2>Pastas no Drive</h2><span class="sub">Abra para ver ou enviar arquivos direto no Google Drive</span></div>
       <div class="painel-corpo"><div class="pastas">
         ${geral || dados.pode_pasta_geral ? (() => {
-          const miolo = `${icon('pasta')}<div class="cresce"><b>Geral do Hype</b><span>${geral ? 'Supervisão e todos os ministérios' : 'Ainda sem link'}</span></div>`;
+          const miolo = `${icon('pasta')}<div class="cresce"><b>Geral do Hype</b><span>${geral ? 'Para todos os ministérios' : 'Ainda sem link'}</span></div>`;
           const lapis = dados.pode_pasta_geral ? `<button type="button" class="btn-icone" id="pasta-geral" title="${geral ? 'Trocar o link' : 'Colocar o link'} da pasta geral">${icon('lapis')}</button>` : '';
           return geral
             ? `<a class="pasta geral link" href="${esc(geral)}" target="_blank" rel="noopener" title="Abrir a pasta geral no Drive">${miolo}${lapis}<span class="pasta-seta">${icon('externo')}</span></a>`

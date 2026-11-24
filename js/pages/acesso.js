@@ -2,7 +2,7 @@
 // © Arthur Ramon da Silva — Todos os direitos reservados.
 import { api, sessao, urlFoto } from '../api.js';
 import { esc, $, aviso, ocupado, direitos, icon, foto, temaAtual, aplicarTema } from '../ui.js';
-import { entrou, sair, parametrosHash, navegar, menuPermitido } from '../app.js';
+import { entrou, sair, parametrosHash, navegar, menuPermitido, itensCelular } from '../app.js';
 
 // "GESTÃO DO / HYPE" no estilo do Instagram do Hype
 const marcaHype = (classe = '') => `<div class="marca-hype ${classe}"><span>Gestão do</span><b><img class="claro-some" src="assets/img/hype-marca.svg" alt="Hype"><img class="escuro-some" src="assets/img/hype-marca-preto.svg" alt=""></b></div>`;
@@ -188,7 +188,7 @@ export function minhaConta(conteudo) {
   const u = sessao.usuario;
   const minhaFoto = u.pessoa_id && u.foto_v ? urlFoto(u.pessoa_id, u.foto_v) : null;
   // No celular a barra de baixo não cabe tudo: aqui ficam as outras telas
-  const navCelular = new Set(menuPermitido().filter((i) => i.mob).slice(0, menuPermitido().filter((i) => i.mob).length <= 5 ? 5 : 4).map((i) => i.href));
+  const navCelular = new Set(itensCelular().filter((i) => !i.mais).map((i) => i.href));   // o que já está na barra de baixo
   const outras = menuPermitido().filter((i) => !navCelular.has(i.href) && i.href !== '/');
   const tema = temaAtual();
   conteudo.innerHTML = `

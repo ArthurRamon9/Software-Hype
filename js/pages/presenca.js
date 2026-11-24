@@ -55,7 +55,7 @@ async function desenhar(conteudo, manter = {}) {
       </div>
       <div class="chamada" id="chamada"></div>
       <div class="barra-salvar">
-        <button class="btn" id="resto" ${futura ? 'disabled' : ''} title="Quem não foi marcado entra como falta">${icon('xis')}<span>Marcar restantes como ausentes</span></button>
+        <button class="btn" id="resto" ${futura ? 'disabled' : ''} title="Quem não foi marcado entra como falta">${icon('xis')}<span class="so-computador-inline">Marcar restantes como ausentes</span><span class="so-mobile-inline">Restantes ausentes</span></button>
         <button class="btn primary" id="salvar" ${futura ? 'disabled' : ''}>Salvar chamada</button>
       </div>
     </div>

@@ -1,7 +1,7 @@
 // Acessos: usuários, grupos de permissão e registro de atividades
 // © Arthur Ramon da Silva — Todos os direitos reservados.
 import { api, sessao, urlFoto } from '../api.js';
-import { esc, aviso, avisoErro, ocupado, janela, confirmar, fmtData, foto, semAcento, filtrarPorNome, icon } from '../ui.js';
+import { esc, aviso, avisoErro, ocupado, janela, confirmar, fmtData, foto, semAcento, filtrarPorNome, icon, haQuanto, maiuscula } from '../ui.js';
 import { atualizarContadores } from '../app.js';
 
 // "8 pessoas · Damaris, Érika, Leo e mais 5": com 20+ contas a lista inteira ficaria enorme (a completa fica no Editar)
@@ -248,7 +248,7 @@ export async function render(conteudo) {
             <td><div class="pessoa-cel">${foto(u.nome, u.pessoa_id && u.foto_v ? urlFoto(u.pessoa_id, u.foto_v) : null)}<div class="nome-ref"><b>${esc(u.nome)}${u.id === sessao.usuario.id ? ' <span class="muted small">(você)</span>' : ''}</b><span>${esc(u.email)}</span></div></div></td>
             <td>${etiquetas(u)}</td>
             <td class="some-mobile small">${u.pessoa_nome ? esc(u.pessoa_nome) : u.sugestao_nome ? `<span class="tag warn" title="Mesmo e-mail no cadastro">Ligar a ${esc(u.sugestao_nome)}?</span>` : '<span class="muted">Não ligada</span>'}</td>
-            <td class="some-mobile muted">${u.dt_ultimo_login ? fmtData(u.dt_ultimo_login) : 'Nunca'}</td>
+            <td class="some-mobile muted">${u.dt_ultimo_login ? `<span title="${fmtData(u.dt_ultimo_login)}">${maiuscula(haQuanto(u.dt_ultimo_login))}</span>` : 'Nunca'}</td>
             <td class="dir"><button class="link-btn">Editar</button></td></tr>`).join('')}</tbody>
         </table></div></section>`;
       corpo.querySelectorAll('[data-usuario]').forEach((b) => b.addEventListener('click', () => editarUsuario(usuarios.find((u) => u.id === Number(b.dataset.usuario)))));

@@ -18,10 +18,10 @@ export async function render(conteudo) {
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>Ministérios</h1><p class="sub">${pode('ministerios.editar') ? 'Onde cada jovem serve. Isto é só informação: o que cada um pode fazer no sistema fica em Acessos → Grupos.' : 'Onde cada jovem serve e quem lidera cada ministério.'}</p></div><div class="acoes">${pode('ministerios.editar') ? '<button class="btn primary" id="novo">Novo ministério</button>' : ''}</div></div>
     <div class="painel"><div class="tabela-wrap"><table class="tabela">
-      <thead><tr><th><button class="th-ordem" data-ordem="nome">Nome${seta('nome')}</button></th><th class="some-mobile">Descrição</th><th class="dir"><button class="th-ordem" data-ordem="pessoas">Pessoas${seta('pessoas')}</button></th><th></th></tr></thead>
+      <thead><tr><th><button class="th-ordem" data-ordem="nome">Nome${seta('nome')}</button></th><th class="some-mobile">Líder e descrição</th><th class="dir"><button class="th-ordem" data-ordem="pessoas">Pessoas${seta('pessoas')}</button></th><th></th></tr></thead>
       <tbody>${lista.map((m) => `<tr class="${m.cd_status ? '' : 'inativo'} ${pode('ministerios.editar') ? 'clicavel' : ''}" data-linha="${m.id}">
-        <td><span class="ponto" style="background:${esc(m.cor)};margin-right:8px"></span>${esc(m.nome)}${m.cd_status ? '' : ' <span class="tag">inativo</span>'}</td>
-        <td class="some-mobile muted">${m.lideres ? `Líder: ${esc(m.lideres)}` : esc(m.descricao || '')}</td>
+        <td><span class="ponto" style="background:${esc(m.cor)};margin-right:8px"></span>${esc(m.nome)}${m.cd_status ? '' : ' <span class="tag">Inativo</span>'}</td>
+        <td class="some-mobile muted">${[m.lideres ? `Líder: ${esc(m.lideres)}` : '', esc(m.descricao || '')].filter(Boolean).join(' · ') || '—'}</td>
         <td class="dir num">${m.pessoas && pode('pessoas.ver') ? `<button class="link-btn" data-ver="${m.id}" title="Ver essas pessoas">${m.pessoas}</button>` : `<span class="${m.pessoas ? '' : 'muted'}">${m.pessoas || 0}</span>`}</td>
         <td class="dir">${pode('ministerios.editar') ? `<button class="link-btn" data-editar="${m.id}">Editar</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="4" class="vazio">Nenhum ministério.</td></tr>'}</tbody>
     </table></div></div>`;

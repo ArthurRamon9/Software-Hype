@@ -105,7 +105,7 @@ export function pintarNovidade() {
   const n = novidadeNaoVista();
   if (!n || slot.querySelector('.aviso-novidade:not(.aviso-eng)')) return;
   slot.insertAdjacentHTML('beforeend', `<div class="aviso-novidade"><span><b>Novidades no site:</b> ${n.titulo ? esc(n.titulo) : `Sprint ${n.numero}`}. Veja o que mudou.</span>
-    <a class="btn sm" href="#/sugestoes?ver=novidades">Ver novidades</a><button type="button" class="link-btn small" id="novidade-fechar" aria-label="Dispensar">Agora não</button></div>`);
+    <span class="aviso-acoes"><button type="button" class="link-btn small" id="novidade-fechar" aria-label="Dispensar">Agora não</button><a class="btn sm" href="#/sugestoes?ver=novidades">Ver novidades</a></span></div>`);
   slot.querySelector('#novidade-fechar').addEventListener('click', () => marcarNovidadeVista(n.id));
 }
 
@@ -184,9 +184,11 @@ function itemMenu(item, caminho, mobile) {
 
 // Itens do menu que a pessoa pode ver (o celular mostra até 5; se passar, o 5º vira "Mais")
 export const menuPermitido = () => MENU.filter((i) => !i.grupo && permitido(i.perm));
-function itensCelular() {
-  const l = menuPermitido().filter((i) => i.mob);
-  return l.length <= 5 ? l : [...l.slice(0, 4), { href: '/conta', rotulo: 'Mais', ic: 'mais', mais: true }];
+export function itensCelular() {
+  const todos = menuPermitido(), l = todos.filter((i) => i.mob);
+  // Tudo cabe na barra: mostra tudo. Se sobrar alguma tela (mesmo as que não vão na barra), o último vira "Mais"
+  if (l.length === todos.length && l.length <= 5) return l;
+  return [...l.slice(0, 4), { href: '/conta', rotulo: 'Mais', ic: 'mais', mais: true }];
 }
 
 function montarLayout(caminho) {

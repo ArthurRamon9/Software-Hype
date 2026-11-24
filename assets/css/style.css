@@ -266,7 +266,9 @@ table.tabela { width: 100%; border-collapse: collapse; }
 .tabela tr.inativo .foto { filter: grayscale(1); opacity: .6; }
 .pessoa-cel { display: flex; align-items: center; gap: 11px; min-width: 0; }
 .pessoa-cel b { font-weight: 600; }
-.vazio { padding: 34px 18px; text-align: center; color: var(--muted); }
+/* Caixa de "nada aqui ainda" (só em blocos: botões, campos e marcas com a classe vazio não ganham o espaço) */
+.vazio:not(button):not(span):not(i) { padding: 34px 18px; text-align: center; color: var(--muted); }
+.vazio { color: var(--muted); }
 .vazio b { display: block; font-family: var(--titulo); color: var(--ink); font-size: 17px; margin-bottom: 4px; }
 .vazio .btn { margin-top: 14px; }
 
@@ -311,10 +313,10 @@ table.tabela { width: 100%; border-collapse: collapse; }
 .campos { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 26px; }
 .campos dt { font-size: 12.5px; color: var(--muted); }
 .campos dd { margin: 2px 0 0; word-break: break-word; font-weight: 500; }
-.historico { display: flex; gap: 4px; flex-wrap: wrap; }
-.historico i { width: 16px; height: 24px; border-radius: 4px; display: inline-block; }
+.historico { display: grid; grid-template-columns: repeat(12, 1fr); gap: 4px; max-width: 340px; }
+.historico i { height: 24px; border-radius: 4px; display: block; }
 .historico i.p { background: var(--ok); }
-.historico i.f { background: #e8bdb6; }
+.historico i.f { background: color-mix(in srgb, var(--bad) 30%, var(--surface)); }
 .grande { font-family: var(--titulo); font-size: 34px; font-weight: 700; letter-spacing: -.02em; }
 
 /* ---------- Chamada (presença) ---------- */
@@ -372,8 +374,8 @@ table.tabela { width: 100%; border-collapse: collapse; }
 
 /* ---------- Aviso rápido ---------- */
 #avisos { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); display: grid; gap: 6px; z-index: 100; width: max-content; max-width: calc(100% - 32px); }
-.aviso { background: var(--night); color: #fff; padding: 11px 16px; border-radius: var(--r-sm); font-size: 14px; box-shadow: 0 8px 24px rgba(0,0,0,.2); border-left: 4px solid var(--ok); animation: entra .2s ease-out; }
-.aviso.erro { border-left-color: var(--bad); }
+#avisos .aviso { background: var(--night); color: #fff; padding: 11px 16px; border-radius: var(--r-sm); font-size: 14px; box-shadow: 0 8px 24px rgba(0,0,0,.2); border-left: 4px solid var(--ok); animation: entra .2s ease-out; }
+#avisos .aviso.erro { border-left-color: var(--bad); }
 
 /* ---------- Celular ---------- */
 @media (max-width: 1050px) {
@@ -734,6 +736,7 @@ a.marca, a.marca:hover { text-decoration: none; color: inherit; }
 .reuniao + .reuniao { border-top: 1px solid var(--line); }
 .reuniao.cancelada { opacity: .55; }
 .reuniao.cancelada h3 { text-decoration: line-through; }
+.reuniao.cancelada .min b { color: var(--bad); }
 .reuniao .hora { width: 74px; flex: none; align-self: stretch; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
   font-family: var(--destaque); font-size: 22px; line-height: 1.05; border-right: 1px solid var(--line); padding-right: 16px; }
 .reuniao .hora span { display: block; font-family: system-ui, sans-serif; font-size: 12px; color: var(--muted); margin-top: 3px; }
@@ -1508,3 +1511,10 @@ a.pasta:hover .pasta-seta { color: var(--c, var(--accent)); transform: translate
 @media (max-width: 640px) { .dispensas-lista li { grid-template-columns: auto 1fr; } .dispensas-lista li > .muted, .dispensas-lista li > .btn { grid-column: 2; justify-self: start; } }
 .dm-prazo-campo { display: grid; gap: 8px; justify-items: start; }
 .dm-prazo-campo .hint { margin: 0; }
+.tabela.sem-linhas thead { display: none; }
+.tabela.sem-linhas { min-width: 0 !important; }
+.btn-icone.sem-zap { visibility: hidden; }
+.aviso-novidade .aviso-acoes { display: inline-flex; align-items: center; gap: 14px; margin-left: auto; flex: none; min-width: 0; }
+.so-abas > .filtros { padding: 0; border: 0; background: none; }
+.so-mobile-inline { display: none; }
+@media (max-width: 720px) { .so-mobile-inline { display: inline; } .so-computador-inline { display: none; } .barra-salvar #resto { white-space: nowrap; } }

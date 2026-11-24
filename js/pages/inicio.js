@@ -73,7 +73,11 @@ export async function render(conteudo) {
     numeros.push([`Última sexta${ult ? ` · ${fmtDiaMes(ult.data)}` : ''}`, ult ? ult.total : '—', ult ? `${comp}${media4 !== null ? ` · média ${media4}` : ''}` : 'Nenhuma chamada ainda']);
   }
   if (integracao !== null && integracao !== undefined) numeros.push(['Integração', integracao, integracao ? '<span class="desce">Visitantes esperando contato</span>' : 'Todos os visitantes contatados']);
-  if (casosAbertos !== null && casosAbertos !== undefined) numeros.push(['Pastoral', casosAbertos, alertas?.length ? `<span class="desce">${alertas.length} sem acompanhamento</span>` : 'Acompanhamentos em aberto']);
+  // Pastoral: o número grande é quem precisa de alguém (igual à Integração); embaixo, quantos já estão sendo acompanhados
+  if (casosAbertos !== null && casosAbertos !== undefined) {
+    const sem = alertas?.length || 0, emAcomp = `${casosAbertos} em acompanhamento`;
+    numeros.push(['Pastoral', sem, sem ? `<span class="desce">Sem acompanhamento</span> · ${emAcomp}` : `Ninguém esperando · ${emAcomp}`]);
+  }
 
   // ---- Gráfico e faltando
   const blocoGrafico = recentes ? `<section class="painel">
