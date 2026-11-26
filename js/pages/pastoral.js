@@ -187,7 +187,7 @@ async function verCaso(area, id, depois) {
     corpo: `
       <div class="caso-topo">${tagTipo(c.pessoa_tipo)}
         <span class="muted small">${ultimaVez({ ultima_presenca: c.ultima_presenca })}${c.hypes_sem_vir ? ` · ${c.hypes_sem_vir} Hype${c.hypes_sem_vir === 1 ? '' : 's'} sem vir` : ''}</span>
-        <span class="caso-acoes">${whats ? `<a class="btn-icone zap" href="${whats}" target="_blank" rel="noopener" title="Conversar no WhatsApp" aria-label="Conversar no WhatsApp">${icon('zap')}</a>` : ''}<a class="btn sm" href="#/pessoas/${c.pessoa_id}">Ver ficha</a></span></div>
+        <span class="caso-acoes">${whats ? `<a class="btn-icone zap" href="${whats}" target="_blank" rel="noopener" title="Conversar no WhatsApp" aria-label="Conversar no WhatsApp">${icon('zap')}</a>` : ''}${pode('pessoas.ver') ? `<a class="btn sm" href="#/pessoas/${c.pessoa_id}">Ver ficha</a>` : ''}</span></div>
       ${c.pessoa_referencia ? `<p class="muted" style="margin-bottom:8px">${esc(c.pessoa_referencia)}</p>` : ''}
       <div class="caixa-resp">
         <div><span class="label">${ROTULO_RESP[area]}</span><b>${semResp ? 'Ainda sem ninguém' : esc(c.responsavel_nome)}</b>
@@ -326,6 +326,8 @@ const filtroLista = { pastoral: novoFiltro(), integracao: novoFiltro() };
 const QUINZE_DIAS = 14 * 86400000;
 const dentro5 = (iso) => { const n = sextasDesde(iso); return n !== null && n <= 6; };
 const FREQ = { '5sim': dentro5, '5nao': (iso) => !dentro5(iso), nao: (iso) => !estaNoHype({ ultima_presenca: iso }) };
+// Nome que leva à ficha só para quem pode abrir fichas (sem isso, só o texto)
+const linkFicha = (id) => (pode('pessoas.ver') ? `href="#/pessoas/${id}"` : 'class="sem-link"');
 const zap = (link, titulo = 'Conversar no WhatsApp') => (link ? `<a class="btn-icone zap" href="${link}" target="_blank" rel="noopener" title="${titulo}" aria-label="${titulo}" data-nao-abrir>${icon('zap')}</a>` : '<span class="btn-icone sem-zap" title="Sem WhatsApp no cadastro" aria-hidden="true"></span>');   // sem WhatsApp: guarda o lugar (os botões ficam alinhados)
 
 async function renderArea(conteudo, area) {
@@ -377,7 +379,7 @@ async function renderArea(conteudo, area) {
         : (() => { const d = diasDesde(e.chegada); return e.chegada ? `${d === 0 ? 'Hoje' : d === 1 ? 'Ontem' : `Há ${d} dias`}${d !== null && d <= 2 ? ' <b class="urgente">48h</b>' : ''}` : '<span class="muted">Ainda não veio</span>'; })();
     return `<tr class="${esperaSel.has(e.chave) ? 'selecionada' : ''}">
       <td class="sel"><input type="checkbox" data-esp="${e.chave}" ${esperaSel.has(e.chave) ? 'checked' : ''} aria-label="Selecionar ${esc(n)}"></td>
-      <td><div class="pessoa-cel">${foto(e.nome, urlFoto(e.pessoa.id, e.pessoa.foto_v))}<div class="nome-ref"><a href="#/pessoas/${e.pessoa.id}"><b>${esc(e.nome)}</b></a>${e.pessoa.referencia ? `<span>${esc(e.pessoa.referencia)}</span>` : ''}</div></div></td>
+      <td><div class="pessoa-cel">${foto(e.nome, urlFoto(e.pessoa.id, e.pessoa.foto_v))}<div class="nome-ref"><a ${linkFicha(e.pessoa.id)}><b>${esc(e.nome)}</b></a>${e.pessoa.referencia ? `<span>${esc(e.pessoa.referencia)}</span>` : ''}</div></div></td>
       <td class="${area === 'pastoral' ? 'dir' : ''}" style="white-space:nowrap">${det}${e.lider ? ' <span class="tag">Líder de equipe</span>' : ''}</td>
       <td class="small ${area !== 'pastoral' && !e.visitas ? 'some-cel' : ''}" style="white-space:nowrap">${area === 'pastoral' ? (e.ultima ? `<span class="so-mobile-inline">Veio em </span>${fmtData(e.ultima)}` : '—') : (e.visitas ? `${e.visitas} ${e.visitas === 1 ? 'visita' : 'visitas'}` : '—')}</td>
       <td class="muted small motivo">${esc(e.motivo)}</td>
@@ -395,7 +397,7 @@ async function renderArea(conteudo, area) {
       ${area === 'pastoral' && dispensas.length ? `<details class="dispensas" ${dispensasAbertas ? 'open' : ''}>
         <summary>${icon('chevron')}<span><b>Não acompanhados</b> <span class="contador">${dispensas.length}</span><small>Têm motivo para vir menos e não aparecem na lista acima</small></span></summary>
         <ul class="dispensas-lista">${dispensas.map((x) => `<li>${foto(x.nome, urlFoto(x.pessoa_id, x.foto_v))}
-          <span class="nome-ref"><a href="#/pessoas/${x.pessoa_id}"><b>${esc(x.nome)}</b></a><span>${esc(x.motivo)}</span></span>
+          <span class="nome-ref"><a ${linkFicha(x.pessoa_id)}><b>${esc(x.nome)}</b></a><span>${esc(x.motivo)}</span></span>
           <span class="muted small">${x.ate ? `Até ${fmtData(x.ate)}` : 'Sem prazo'}${x.por ? ` · por ${esc(x.por.split(' ')[0])}` : ''}</span>
           <button type="button" class="btn sm" data-voltar="${x.pessoa_id}">Voltar a acompanhar</button></li>`).join('')}</ul></details>` : ''}
     </section>` : '';

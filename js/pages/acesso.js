@@ -1,6 +1,6 @@
 // Entrar, criar conta, esqueci a senha, nova senha, minha conta
 // © Arthur Ramon da Silva — Todos os direitos reservados.
-import { api, sessao, urlFoto } from '../api.js';
+import { api, sessao, urlFoto, pode } from '../api.js';
 import { esc, $, aviso, ocupado, direitos, icon, foto, temaAtual, aplicarTema } from '../ui.js';
 import { entrou, sair, parametrosHash, navegar, menuPermitido, itensCelular } from '../app.js';
 
@@ -192,7 +192,7 @@ export function minhaConta(conteudo) {
   const outras = menuPermitido().filter((i) => !navCelular.has(i.href) && i.href !== '/');
   const tema = temaAtual();
   conteudo.innerHTML = `
-    <div class="cabecalho"><div class="perfil-conta">${foto(u.nome, minhaFoto, 'g')}<div><h1>Minha conta</h1><p class="sub">${esc(u.email)}${u.pessoa_id ? ' · <a href="#/pessoas/' + u.pessoa_id + '">Ver minha ficha</a>' : ''}</p></div></div>
+    <div class="cabecalho"><div class="perfil-conta">${foto(u.nome, minhaFoto, 'g')}<div><h1>Minha conta</h1><p class="sub">${esc(u.email)}${u.pessoa_id && pode('pessoas.ver') ? ' · <a href="#/pessoas/' + u.pessoa_id + '">Ver minha ficha</a>' : ''}</p></div></div>
       <div class="acoes"><button class="btn" id="sair">Sair</button></div></div>
     ${!u.pessoa_id ? '<p class="msg aviso" style="margin-bottom:16px">Sua conta ainda não está ligada ao seu cadastro do Hype. Peça a um administrador para ligar: assim aparecem a sua foto, as suas escalas, a sua agenda e os acompanhamentos que estão com você.</p>' : ''}
     ${outras.length ? `<nav class="painel so-mobile mais-telas" style="margin-bottom:16px">

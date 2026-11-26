@@ -22,7 +22,10 @@ export async function render(conteudo) {
 
   if (!sessao.usuario.permissoes.length) return inicioBasico(conteudo, ola);
 
-  const { pessoas: cadastro, encontros: recentes, casosAbertos, alertas, esperaPastoral, integracao, meusCasos = [] } = await api('GET', '/painel');
+  const [{ pessoas: cadastro, encontros: recentes, casosAbertos, alertas, esperaPastoral, integracao, meusCasos = [] }, blocoMinhaSexta] = await Promise.all([
+    api('GET', '/painel'),
+    // quem não vê os números do Hype (ex.: só Financeiro) sempre tem estes quadros; os outros, quando houver escala ou reunião
+    minhaSexta(!pode('relatorios.ver') && !pode('pessoas.ver'))]);
   // Só conta quem está "no Hype": veio nos últimos 3 meses (quem sumiu continua no cadastro, fora destes números)
   const pessoas = cadastro ? cadastro.filter(estaNoHype) : null;
   const afastados = cadastro ? cadastro.length - pessoas.length : 0;
@@ -145,6 +148,7 @@ export async function render(conteudo) {
   const meio = [blocoGrafico, blocoFaltando].filter(Boolean);
   conteudo.innerHTML = `${ola}<div id="novidade-slot"></div>${destaque}
     ${numeros.length ? `<div class="numeros n${Math.min(numeros.length, 4)}">${numeros.map(([r, v, d]) => `<div><div class="rot">${r}</div><div class="val">${v}</div><div class="det">${d}</div></div>`).join('')}</div>` : ''}
+    ${blocoMinhaSexta}
     ${blocoMeus}
     ${meio.length ? `<div class="colunas ${meio.length === 2 ? 'c21' : ''} mt">${meio.join('')}</div>` : ''}
     ${blocosPessoas}`;
@@ -172,25 +176,32 @@ async function inicioBasico(conteudo, ola) {
   const hoje = new Date(), sexta = proximaSexta();
   const ehHoje = isoLocal(sexta) === isoLocal(hoje);
   const faltam = Math.round((sexta - new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate())) / DIA);
-  const [minhas, agenda] = await Promise.all([api('GET', '/escalas/minhas').catch(() => ({ vinculado: false, itens: [] })),
-    api('GET', '/agenda?periodo=proximas').catch(() => ({ reunioes: [] }))]);
-  const reunioes = (agenda.reunioes || []).filter((r) => !r.cancelada).slice(0, 3);
-  const diaSemana = (iso) => parseISO(iso).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' }).replace(/^./, (c) => c.toUpperCase());
   const destaque = `<section class="destaque"><div>${ehHoje
     ? '<div class="quando">Hoje</div><h2>Hoje tem Hype!</h2>'
     : `<div class="quando">Próximo encontro</div><h2>${sexta.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' }).replace(/^./, (c) => c.toUpperCase())}</h2>
       <p style="font-size:16px;color:#fff">${faltam === 1 ? 'É amanhã!' : `Faltam ${faltam} dias.`}</p>`}</div></section>`;
+  conteudo.innerHTML = `${ola}<div id="novidade-slot"></div>${destaque}${await minhaSexta(true)}
+    <p class="hint" style="margin-top:16px">Tem uma ideia para o site? Mande em <a href="#/sugestoes">Sugestões</a>. Os arquivos dos ministérios ficam em <a href="#/documentos">Documentos</a>.</p>`;
+  pintarNovidade();
+}
+
+// "Suas escalas" e "Próximas reuniões" da própria pessoa (todo mundo tem). sempre = mostra mesmo vazio.
+async function minhaSexta(sempre) {
+  const [minhas, agenda] = await Promise.all([api('GET', '/escalas/minhas').catch(() => ({ vinculado: false, itens: [] })),
+    api('GET', '/agenda?periodo=proximas').catch(() => ({ reunioes: [] }))]);
+  const eu = sessao.usuario.pessoa_id;
+  // só as reuniões em que a pessoa está (líder vê as de todos na Agenda, mas aqui é "as suas")
+  const reunioes = (agenda.reunioes || []).filter((r) => !r.cancelada && (r.eu_participo || r.pode_editar || !eu)).slice(0, 3);
+  if (!sempre && !minhas.itens.length && !reunioes.length) return '';
+  const diaSemana = (iso) => parseISO(iso).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' }).replace(/^./, (c) => c.toUpperCase());
   const escalas = minhas.itens.length
     ? `<ul class="lista-simples">${minhas.itens.slice(0, 4).map((i) => `<li><a href="#/escalas"><span class="ponto" style="background:${esc(i.cor)}"></span><b>${diaSemana(i.data)}</b><span>${esc(i.ministerio)}${i.funcao ? ` · ${esc(i.funcao)}` : ''}</span></a></li>`).join('')}</ul>`
     : `<p class="muted" style="margin:0;padding:4px 18px 16px">${minhas.vinculado ? 'Você não está em nenhuma escala por enquanto.' : 'Sua conta ainda não está ligada ao seu cadastro. Peça a um administrador para ligar: aí suas escalas aparecem aqui.'}</p>`;
   const agendaHtml = reunioes.length
     ? `<ul class="lista-simples">${reunioes.map((r) => `<li><a href="#/agenda"><span class="ponto" style="background:${esc(r.cor)}"></span><b>${diaSemana(r.inicio.slice(0, 10))} · ${r.inicio.slice(11, 16).replace(':', 'h')}</b><span>${esc(r.titulo)} · ${esc(r.ministerio)}</span></a></li>`).join('')}</ul>`
     : '<p class="muted" style="margin:0;padding:4px 18px 16px">Nenhuma reunião marcada para você.</p>';
-  conteudo.innerHTML = `${ola}<div id="novidade-slot"></div>${destaque}
-    <div class="grade-2">
+  return `<div class="grade-2">
       <section class="painel"><div class="painel-topo"><h2>Suas escalas</h2><a class="link-btn small" href="#/escalas">Ver escalas</a></div>${escalas}</section>
       <section class="painel"><div class="painel-topo"><h2>Próximas reuniões</h2><a class="link-btn small" href="#/agenda">Ver agenda</a></div>${agendaHtml}</section>
-    </div>
-    <p class="hint" style="margin-top:16px">Tem uma ideia para o site? Mande em <a href="#/sugestoes">Sugestões</a>. Os arquivos dos ministérios ficam em <a href="#/documentos">Documentos</a>.</p>`;
-  pintarNovidade();
+    </div>`;
 }

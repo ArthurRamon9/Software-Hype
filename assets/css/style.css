@@ -1555,3 +1555,4 @@ a.pasta:hover .pasta-seta { color: var(--c, var(--accent)); transform: translate
   .tabela-espera td.acoes-linha { flex-basis: 100%; display: flex; justify-content: flex-start; gap: 8px; margin: 6px 0 0 72px; }
   .tabela-espera td.acoes-linha .btn.primary { flex: 1; max-width: 200px; }
 }
+a.sem-link { color: inherit; cursor: default; text-decoration: none; }

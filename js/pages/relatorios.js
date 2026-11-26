@@ -3,6 +3,9 @@
 import { api, pode, sessao } from '../api.js';
 import { esc, $, $$, tagTipo, fmtData, fmtDiaMes, parseISO, isoLocal, pct, TIPOS, ehMembro, direitos } from '../ui.js';
 import { baixarXLSX } from '../xlsx.js';
+
+// Nome que leva à ficha só para quem pode abrir fichas (o grupo Equipe vê relatórios, mas não as fichas)
+const linkFicha = (id) => (pode('pessoas.ver') ? `href="#/pessoas/${id}"` : 'class="sem-link"');
 import { barras, linhas, tabelaDados, COR } from '../charts.js';
 
 const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
@@ -117,7 +120,7 @@ async function semana(rel, encontros) {
   const novos = pres.filter((p) => p.tipo === 'novo_visitante').length;
   const primeiraVez = pres.filter((p) => p.data_cadastro === enc.data).length;
 
-  const tabela = (l, comMotivo) => l.length ? `<table class="tabela"><tbody>${l.map((p) => `<tr><td><a href="#/pessoas/${p.pessoa_id}">${esc(p.nome)}</a></td><td>${tagTipo(p.tipo)}</td>${comMotivo ? `<td class="muted">${esc(p.justificativa || '')}</td>` : ''}</tr>`).join('')}</tbody></table>` : '<p class="muted">Ninguém.</p>';
+  const tabela = (l, comMotivo) => l.length ? `<table class="tabela"><tbody>${l.map((p) => `<tr><td><a ${linkFicha(p.pessoa_id)}>${esc(p.nome)}</a></td><td>${tagTipo(p.tipo)}</td>${comMotivo ? `<td class="muted">${esc(p.justificativa || '')}</td>` : ''}</tr>`).join('')}</tbody></table>` : '<p class="muted">Ninguém.</p>';
   rel.innerHTML = `
     ${tituloImpressao(`Encontro de ${fmtData(enc.data)}`)}
     <div class="numeros">
@@ -163,7 +166,7 @@ async function mes(rel) {
     </div></section>
     <section class="painel mt"><div class="painel-topo"><h2>Frequência de cada pessoa</h2></div><div class="painel-corpo"><div class="tabela-wrap">
       <table class="tabela"><thead><tr><th>Nome</th><th>Situação</th><th class="dir">Veio</th><th class="dir">%</th></tr></thead><tbody>
-      ${ranking.map((p) => `<tr><td><a href="#/pessoas/${p.id}">${esc(p.nome)}</a></td><td>${tagTipo(p.tipo)}</td><td class="dir num">${p.pres} de ${p.tot}</td><td class="dir num">${pct(p.pres, p.tot)}%</td></tr>`).join('')}
+      ${ranking.map((p) => `<tr><td><a ${linkFicha(p.id)}>${esc(p.nome)}</a></td><td>${tagTipo(p.tipo)}</td><td class="dir num">${p.pres} de ${p.tot}</td><td class="dir num">${pct(p.pres, p.tot)}%</td></tr>`).join('')}
       </tbody></table></div></div></section>`;
   graficos.push(barras($('#g-mes'), {
     rotulos: A.porEnc.map((e) => fmtDiaMes(e.data)), empilhado: true,
