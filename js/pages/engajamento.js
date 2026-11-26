@@ -15,8 +15,8 @@ export const ENG = {
   trocou: { rot: 'Trocou de escala', curto: 'Trocou' },
 };
 const CHAVES = Object.keys(ENG);
-// Quem lidera algum ministério ou é administrador vê a tela
-export const veEngajamento = () => pode('acessos.gerenciar') || (sessao.usuario?.ministerios || []).some((m) => m.lider);
+// Administradores e líderes de ministérios que usam escala (quem lidera só a Integração, por exemplo, não vê a aba)
+export const veEngajamento = () => pode('acessos.gerenciar') || (sessao.usuario?.ministerios || []).some((m) => m.lider && m.tem_escala !== false);
 
 let aba = 'avaliar';
 let minSel = null, dataSel = null;

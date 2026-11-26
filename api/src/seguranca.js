@@ -63,7 +63,10 @@ const SQL_USUARIO = `
            CONVERT(VARCHAR(30), f.dt_atualizacao, 126) AS foto_v
       FROM dbo.usuarios u LEFT JOIN dbo.pessoas_foto f ON f.pessoa_id = u.pessoa_id WHERE u.id = @id;
     SELECT DISTINCT gp.permissao FROM dbo.usuario_grupo ug JOIN dbo.grupo_permissao gp ON gp.grupo_id = ug.grupo_id WHERE ug.usuario_id = @id;
-    SELECT m.id, m.nome, pm.lider FROM dbo.usuarios u
+    SELECT m.id, m.nome, pm.lider,
+           CASE WHEN EXISTS (SELECT 1 FROM dbo.escala_funcoes ef WHERE ef.ministerio_id = m.id)
+                  OR EXISTS (SELECT 1 FROM dbo.escala_itens ei WHERE ei.ministerio_id = m.id) THEN 1 ELSE 0 END AS tem_escala
+      FROM dbo.usuarios u
       JOIN dbo.pessoa_ministerio pm ON pm.pessoa_id = u.pessoa_id JOIN dbo.ministerios m ON m.id = pm.ministerio_id
      WHERE u.id = @id AND m.cd_status = 1;`;
 
@@ -72,7 +75,7 @@ async function carregarUsuario(id) {
   const u = linhas[0];
   if (!u) return null;
   u.permissoes = u.cd_status === 1 ? perms.map((p) => p.permissao) : [];
-  u.ministerios = mins.map((m) => ({ id: m.id, nome: m.nome, lider: !!m.lider }));
+  u.ministerios = mins.map((m) => ({ id: m.id, nome: m.nome, lider: !!m.lider, tem_escala: !!m.tem_escala }));
   return u;
 }
 

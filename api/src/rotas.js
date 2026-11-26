@@ -1503,7 +1503,9 @@ rota('GET', '/engajamento', async ({ query: q, usuario }) => {
     SET NOCOUNT ON;
     DECLARE @m TABLE (id INT PRIMARY KEY, nome NVARCHAR(120), cor VARCHAR(20));
     INSERT INTO @m SELECT m.id, m.nome, m.cor FROM dbo.ministerios m
-     WHERE m.cd_status = 1 AND (m.id IN (SELECT value FROM OPENJSON(@mins)) OR (@todos = 1 AND EXISTS (SELECT 1 FROM dbo.escala_itens i WHERE i.ministerio_id = m.id)));
+     WHERE m.cd_status = 1 AND (m.id IN (SELECT value FROM OPENJSON(@mins)) OR @todos = 1)
+       -- só ministérios que usam escala (ex.: a Integração não tem, então não aparece aqui)
+       AND (EXISTS (SELECT 1 FROM dbo.escala_itens i WHERE i.ministerio_id = m.id) OR EXISTS (SELECT 1 FROM dbo.escala_funcoes f WHERE f.ministerio_id = m.id));
     DECLARE @s TABLE (ministerio_id INT, data DATE, escalados INT, marcados INT);
     INSERT INTO @s SELECT i.ministerio_id, i.data, COUNT(*), SUM(CASE WHEN i.engajamento IS NULL THEN 0 ELSE 1 END)
       FROM dbo.escala_itens i JOIN @m m ON m.id = i.ministerio_id
