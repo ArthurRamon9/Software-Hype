@@ -1529,3 +1529,4 @@ a.pasta:hover .pasta-seta { color: var(--c, var(--accent)); transform: translate
 .lista-simples .ponto { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .lista-simples b { font-weight: 600; white-space: nowrap; }
 .lista-simples span:last-child { color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grade-2 > .painel { margin: 0; align-self: start; }

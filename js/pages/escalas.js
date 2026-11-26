@@ -61,7 +61,7 @@ export async function render(conteudo) {
   const navMes = `<div class="nav-mes"><button class="btn sm icone" id="mes-ant" aria-label="Mês anterior">‹</button><b>${nomeMes(mes)}</b><button class="btn sm icone" id="mes-prox" aria-label="Próximo mês">›</button></div>`;
 
   conteudo.innerHTML = `
-    <div class="cabecalho"><div><h1>Escalas</h1><p class="sub">Quem serve em cada sexta. Todos veem as escalas de todos os ministérios.</p></div>
+    <div class="cabecalho"><div><h1>Escalas</h1><p class="sub">Quem serve em cada sexta${dados.ve_todas ? ', em todos os ministérios' : ' nos seus ministérios'}.</p></div>
       <div class="acoes">${navMes}</div></div>
     ${minhasHtml}
     ${abas.length ? `<div class="chips" id="abas-min">${abas.map((x) => `<button data-min="${x.id}" class="${x.id === minSel ? 'ativo' : ''}" style="--c:${esc(x.cor)}"><i></i>${esc(x.nome)}</button>`).join('')}</div>

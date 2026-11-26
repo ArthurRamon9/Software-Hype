@@ -1360,8 +1360,9 @@ rota('POST', '/agenda/:id/cancelar', async ({ params, usuario, ip }) => {
 // ---------- Escalas ----------
 rota('GET', '/escalas', async ({ query: q, usuario }) => {
   const mes = /^\d{4}-\d{2}$/.test(q.mes || '') ? q.mes : hojeBrasil().slice(0, 7);
-  // Todo mundo com acesso vê as escalas de todos os ministérios (só o líder altera a do seu)
-  const todos = true;
+  // Líder de algum ministério e administrador veem as escalas de todos (para combinar quem serve onde);
+  // os demais veem só as dos ministérios em que estão cadastrados. Alterar continua sendo só do líder.
+  const todos = ehGestor(usuario) || (usuario.ministerios || []).some((m) => m.lider);
   const [ministerios, funcoes, itens, membros] = await query(`
     SELECT m.id, m.nome, m.cor FROM dbo.ministerios m WHERE m.cd_status = 1 AND (@todos = 1 OR m.id IN (SELECT value FROM OPENJSON(@mins))) ORDER BY m.nome;
     SELECT f.id, f.ministerio_id, f.nome, f.ordem, f.vagas FROM dbo.escala_funcoes f ORDER BY f.ministerio_id, f.ordem, f.nome;
