@@ -372,14 +372,14 @@ async function renderArea(conteudo, area) {
   const linhaEspera = (e) => {
     const n = e.nome.split(' ')[0];
     const det = area === 'pastoral'
-      ? `${e.faltas != null ? `<b class="num">${e.faltas}</b>` : '—'}`
+      ? `${e.faltas != null ? `<b class="num">${e.faltas}</b><span class="so-mobile-inline"> ${e.faltas === 1 ? 'Hype sem vir' : 'Hypes sem vir'}</span>` : '—'}`
       : e.caso ? `<span class="muted small">Aberto em ${fmtData(e.caso.dt_abertura)}</span>`
         : (() => { const d = diasDesde(e.chegada); return e.chegada ? `${d === 0 ? 'Hoje' : d === 1 ? 'Ontem' : `Há ${d} dias`}${d !== null && d <= 2 ? ' <b class="urgente">48h</b>' : ''}` : '<span class="muted">Ainda não veio</span>'; })();
     return `<tr class="${esperaSel.has(e.chave) ? 'selecionada' : ''}">
       <td class="sel"><input type="checkbox" data-esp="${e.chave}" ${esperaSel.has(e.chave) ? 'checked' : ''} aria-label="Selecionar ${esc(n)}"></td>
       <td><div class="pessoa-cel">${foto(e.nome, urlFoto(e.pessoa.id, e.pessoa.foto_v))}<div class="nome-ref"><a href="#/pessoas/${e.pessoa.id}"><b>${esc(e.nome)}</b></a>${e.pessoa.referencia ? `<span>${esc(e.pessoa.referencia)}</span>` : ''}</div></div></td>
       <td class="${area === 'pastoral' ? 'dir' : ''}" style="white-space:nowrap">${det}${e.lider ? ' <span class="tag">Líder de equipe</span>' : ''}</td>
-      <td class="small" style="white-space:nowrap">${area === 'pastoral' ? (e.ultima ? fmtData(e.ultima) : '—') : (e.visitas ? `${e.visitas} ${e.visitas === 1 ? 'visita' : 'visitas'}` : '—')}</td>
+      <td class="small ${area !== 'pastoral' && !e.visitas ? 'some-cel' : ''}" style="white-space:nowrap">${area === 'pastoral' ? (e.ultima ? `<span class="so-mobile-inline">Veio em </span>${fmtData(e.ultima)}` : '—') : (e.visitas ? `${e.visitas} ${e.visitas === 1 ? 'visita' : 'visitas'}` : '—')}</td>
       <td class="muted small motivo">${esc(e.motivo)}</td>
       <td class="dir acoes-linha">${zap(linkWhats(e.pessoa.telefone, cfg.msg(n)), `Conversar com ${esc(n)} no WhatsApp`)}${area === 'pastoral' ? `<button class="btn-icone" data-dispensar="${e.pessoa.id}" title="Não acompanhar (ex.: serve em outra área da igreja)" aria-label="Não acompanhar ${esc(n)}">${icon('bloquear')}</button>` : ''}${podeEditar ? `<button class="btn sm primary" data-designar="${e.chave}">Designar</button>` : ''}</td></tr>`;
   };
@@ -468,10 +468,12 @@ async function renderArea(conteudo, area) {
     : c.contatos ? '<span class="status-dot st-em_andamento"></span>Em andamento' : '<span class="status-dot st-aberto"></span>Aguardando contato');
   const resp = (c) => `<span class="nowrap">${esc(c.responsavel_nome || '')}</span>
     ${c.sem_retorno ? '<span class="tag alerta" title="Enviado há mais de 7 dias e ninguém registrou contato depois">Sem retorno</span>' : c.dt_enviado && c.status !== 'concluido' ? `<span class="tag ok" title="Enviado pelo WhatsApp ${esc(haQuanto(c.dt_enviado))}">Enviado</span>` : ''}`;
-  const botoesLinha = (c) => {
+  // comTexto: no cartão (celular) o botão de enviar ao responsável diz o que faz ("Enviar para Ivo")
+  const botoesLinha = (c, comTexto = false) => {
     const naoEnviar = poder.designar && c.status !== 'concluido' ? motivoNaoEnviar([c]) : 'x';
+    const quem = c.responsavel_nome ? c.responsavel_nome.split(' ')[0] : '';
     return zap(linkWhats(c.pessoa_telefone, cfg.msg(c.pessoa_nome.split(' ')[0])))
-      + `${poder.designar && c.status !== 'concluido' ? `<button class="btn-icone" data-enviar="${c.id}" title="${esc(naoEnviar || `Enviar para ${c.responsavel_nome.split(' ')[0]} pelo WhatsApp`)}" ${naoEnviar ? 'disabled' : ''}>${icon('enviar')}</button>` : ''}`
+      + `${poder.designar && c.status !== 'concluido' ? `<button class="${comTexto ? 'btn' : 'btn-icone'}" data-enviar="${c.id}" title="${esc(naoEnviar || `Enviar para ${quem} pelo WhatsApp`)}" ${naoEnviar ? 'disabled' : ''}>${icon('enviar')}${comTexto && quem ? ` Enviar para ${esc(quem)}` : ''}</button>` : ''}`
       + `${podeExcluir ? `<button class="btn-icone perigo" data-excluir="${c.id}" title="Excluir">${icon('lixeira')}</button>` : ''}`;
   };
 
@@ -502,7 +504,7 @@ async function renderArea(conteudo, area) {
           <div class="meta-cartao">${[c.motivo ? `<span>${esc(c.motivo)}</span>` : '', ultimaVez({ ultima_presenca: c.ultima_presenca }),
             `<span>${c.contatos ? `${c.contatos} contato${c.contatos === 1 ? '' : 's'}${c.ultimo_registro ? `, último ${haQuanto(c.ultimo_registro)}` : ''}` : 'Nenhum contato ainda'}</span>`].filter(Boolean).join(sep)}</div>
         </div>
-        <div class="acoes-cartao">${tel ? `<a class="btn zap-txt" href="${tel}" target="_blank" rel="noopener" data-nao-abrir>${icon('zap')}WhatsApp</a>` : ''}${botoesLinha(c).replace(/<a class="btn-icone zap"[\s\S]*?<\/a>/, '')}<button class="btn primary" data-abrir="${c.id}">${podeEditar && c.status !== 'concluido' ? 'Registrar contato' : 'Abrir'}</button></div>
+        <div class="acoes-cartao">${tel ? `<a class="btn zap-txt" href="${tel}" target="_blank" rel="noopener" data-nao-abrir>${icon('zap')}WhatsApp</a>` : ''}${botoesLinha(c, true).replace(/<a class="btn-icone zap"[\s\S]*?<\/a>/, '').replace(/<span class="btn-icone sem-zap"[^>]*><\/span>/, '')}<button class="btn primary" data-abrir="${c.id}">${podeEditar && c.status !== 'concluido' ? 'Registrar contato' : 'Abrir'}</button></div>
       </div>`; }).join('') : '<div class="vazio">Nada por aqui.</div>';
     const n = selecionados.size;
     const linha = $('#linha-filtros');

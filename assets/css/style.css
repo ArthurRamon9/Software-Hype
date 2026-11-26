@@ -1530,3 +1530,28 @@ a.pasta:hover .pasta-seta { color: var(--c, var(--accent)); transform: translate
 .lista-simples b { font-weight: 600; white-space: nowrap; }
 .lista-simples span:last-child { color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .grade-2 > .painel { margin: 0; align-self: start; }
+
+/* Pastoral/Integração: as ações ficam sempre à vista (a tabela larga rola, a coluna Ações fica presa à direita) */
+.tabela-larga th:last-child, .tabela-larga td.acoes-linha { position: sticky; right: 0; z-index: 1; background: var(--surface); box-shadow: -1px 0 0 var(--line); }
+.tabela-larga tr.clicavel:hover td.acoes-linha { background: var(--sunken); }
+
+/* "Esperando contato"/"Sem acompanhamento" no celular: cada pessoa vira um cartão curto, com o Designar à vista */
+@media (max-width: 720px) {
+  .tabela-wrap:has(.tabela-espera) { overflow: visible; }
+  .tabela.tabela-espera { min-width: 0; width: 100%; display: block; }
+  .tabela-espera thead { display: none; }
+  .tabela-espera tbody { display: block; }
+  .tabela-espera tr { display: flex; flex-wrap: wrap; align-items: center; column-gap: 6px; row-gap: 4px; padding: 12px 14px; border-top: 1px solid var(--line); }
+  .tabela-espera td { display: block; padding: 0 !important; border: 0 !important; white-space: nowrap; }
+  .tabela-espera td.sel { width: 22px; }
+  .tabela-espera td:nth-child(2) { flex: 1 1 calc(100% - 40px); white-space: normal; }
+  .tabela-espera td:nth-child(3), .tabela-espera td:nth-child(4), .tabela-espera td.motivo { font-size: 12.5px; color: var(--muted); text-align: left !important; }
+  .tabela-espera td:nth-child(3) { margin-left: 72px; }
+  .tabela-espera td:nth-child(3)::after { content: " ·"; }
+  .tabela-espera td:nth-child(3) b.num { font-family: inherit; font-size: 12.5px; font-weight: 700; color: var(--ink-2); }
+  .tabela-espera td.motivo { white-space: normal; flex-basis: calc(100% - 72px); margin-left: 72px; }
+  .tabela-espera td.some-cel { display: none; }
+  .tabela-espera td.some-cel + td::before, .tabela-espera td:nth-child(3):has(+ td.some-cel)::after { content: ""; }
+  .tabela-espera td.acoes-linha { flex-basis: 100%; display: flex; justify-content: flex-start; gap: 8px; margin: 6px 0 0 72px; }
+  .tabela-espera td.acoes-linha .btn.primary { flex: 1; max-width: 200px; }
+}
