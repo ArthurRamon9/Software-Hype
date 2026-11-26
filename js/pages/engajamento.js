@@ -107,6 +107,7 @@ async function avaliar(corpo) {
     const outros = d.membros.filter((x) => x.id !== i.pessoa_id);
     return `<div class="eng-linha ${v.engajamento ? `marcada e-${v.engajamento}` : ''}" data-i="${i.id}">
       <div class="eng-pessoa"><b>${esc(i.nome)}</b>${pelaChamada.has(i.id) && v.engajamento === 'ausente' ? '<small class="eng-dica">Não estava na chamada</small>' : i.presente === false && v.engajamento && v.engajamento !== 'ausente' && v.engajamento !== 'trocou' ? '<small class="eng-dica">Não estava na chamada</small>' : ''}</div>
+      <span class="eng-sel"><select class="input" data-sel="${i.id}" aria-label="Como ${esc(i.nome)} serviu"><option value="">Marcar</option>${CHAVES.map((k) => `<option value="${k}" ${v.engajamento === k ? 'selected' : ''}>${ENG[k].curto}</option>`).join('')}</select></span>
       ${CHAVES.map((k) => `<button type="button" class="eng-op e-${k} ${v.engajamento === k ? 'ativo' : ''}" data-v="${k}" aria-pressed="${v.engajamento === k}" title="${esc(ENG[k].rot)}"><i aria-hidden="true"></i><span>${ENG[k].curto}</span></button>`).join('')}
       ${v.engajamento === 'trocou' ? `<div class="eng-troca"><label for="sub-${i.id}">Quem serviu no lugar</label>
         <select class="input" id="sub-${i.id}" data-sub="${i.id}"><option value="">Ninguém da equipe / não sei</option>${outros.map((x) => `<option value="${x.id}" ${v.substituto_id === x.id ? 'selected' : ''}>${esc(x.nome)}</option>`).join('')}</select></div>` : ''}
@@ -180,6 +181,15 @@ async function avaliar(corpo) {
     if (v.engajamento === 'trocou') lista.querySelector(`[data-sub="${id}"]`)?.focus();
   });
   lista.addEventListener('change', (e) => {
+    const c = e.target.closest('[data-sel]');
+    if (c) {
+      const id = Number(c.dataset.sel), v = marcas.get(id);
+      v.engajamento = c.value || null;
+      if (v.engajamento !== 'trocou') v.substituto_id = null;
+      pelaChamada.delete(id);
+      alterou(); repintar(id);
+      return;
+    }
     const s = e.target.closest('[data-sub]'); if (!s) return;
     marcas.get(Number(s.dataset.sub)).substituto_id = s.value === '' ? null : Number(s.value);
     alterou();
