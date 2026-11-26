@@ -20,13 +20,9 @@ export async function render(conteudo) {
   const ola = `<div class="ola"><h1>${saudacao()}, ${primeiroNome}</h1>
     <p>${hoje.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' }).replace(/^./, (c) => c.toUpperCase())}</p></div>`;
 
-  if (!sessao.usuario.permissoes.length) {
-    conteudo.innerHTML = `${ola}<div id="novidade-slot"></div><div class="painel vazio"><b>Quase lá</b>Sua conta está liberada, mas você ainda não faz parte de nenhum grupo.<br>Peça a um administrador para incluir você no grupo certo.</div>`;
-    pintarNovidade();
-    return;
-  }
+  if (!sessao.usuario.permissoes.length) return inicioBasico(conteudo, ola);
 
-  const { pessoas: cadastro, encontros: recentes, casosAbertos, alertas, integracao, meusCasos = [] } = await api('GET', '/painel');
+  const { pessoas: cadastro, encontros: recentes, casosAbertos, alertas, esperaPastoral, integracao, meusCasos = [] } = await api('GET', '/painel');
   // Só conta quem está "no Hype": veio nos últimos 3 meses (quem sumiu continua no cadastro, fora destes números)
   const pessoas = cadastro ? cadastro.filter(estaNoHype) : null;
   const afastados = cadastro ? cadastro.length - pessoas.length : 0;
@@ -75,7 +71,7 @@ export async function render(conteudo) {
   if (integracao !== null && integracao !== undefined) numeros.push(['Integração', integracao, integracao ? '<span class="desce">Visitantes esperando contato</span>' : 'Todos os visitantes contatados']);
   // Pastoral: o número grande é quem precisa de alguém (igual à Integração); embaixo, quantos já estão sendo acompanhados
   if (casosAbertos !== null && casosAbertos !== undefined) {
-    const sem = alertas?.length || 0, emAcomp = `${casosAbertos} em acompanhamento`;
+    const sem = esperaPastoral ?? alertas?.length ?? 0, emAcomp = `${casosAbertos} em acompanhamento`;
     numeros.push(['Pastoral', sem, sem ? `<span class="desce">Sem acompanhamento</span> · ${emAcomp}` : `Ninguém esperando · ${emAcomp}`]);
   }
 
@@ -168,4 +164,33 @@ export async function render(conteudo) {
     });
   }
   return () => grafico?.destroy();
+}
+
+// Início de quem não está em nenhum grupo (vê Escalas, Agenda, Documentos, Ministérios e Sugestões):
+// a próxima sexta, as escalas em que a pessoa está e as próximas reuniões dela.
+async function inicioBasico(conteudo, ola) {
+  const hoje = new Date(), sexta = proximaSexta();
+  const ehHoje = isoLocal(sexta) === isoLocal(hoje);
+  const faltam = Math.round((sexta - new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate())) / DIA);
+  const [minhas, agenda] = await Promise.all([api('GET', '/escalas/minhas').catch(() => ({ vinculado: false, itens: [] })),
+    api('GET', '/agenda?periodo=proximas').catch(() => ({ reunioes: [] }))]);
+  const reunioes = (agenda.reunioes || []).filter((r) => !r.cancelada).slice(0, 3);
+  const diaSemana = (iso) => parseISO(iso).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' }).replace(/^./, (c) => c.toUpperCase());
+  const destaque = `<section class="destaque"><div>${ehHoje
+    ? '<div class="quando">Hoje</div><h2>Hoje tem Hype!</h2>'
+    : `<div class="quando">Próximo encontro</div><h2>${sexta.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' }).replace(/^./, (c) => c.toUpperCase())}</h2>
+      <p style="font-size:16px;color:#fff">${faltam === 1 ? 'É amanhã!' : `Faltam ${faltam} dias.`}</p>`}</div></section>`;
+  const escalas = minhas.itens.length
+    ? `<ul class="lista-simples">${minhas.itens.slice(0, 4).map((i) => `<li><a href="#/escalas"><span class="ponto" style="background:${esc(i.cor)}"></span><b>${diaSemana(i.data)}</b><span>${esc(i.ministerio)}${i.funcao ? ` · ${esc(i.funcao)}` : ''}</span></a></li>`).join('')}</ul>`
+    : `<p class="muted" style="margin:0;padding:4px 18px 16px">${minhas.vinculado ? 'Você não está em nenhuma escala por enquanto.' : 'Sua conta ainda não está ligada ao seu cadastro. Peça a um administrador para ligar: aí suas escalas aparecem aqui.'}</p>`;
+  const agendaHtml = reunioes.length
+    ? `<ul class="lista-simples">${reunioes.map((r) => `<li><a href="#/agenda"><span class="ponto" style="background:${esc(r.cor)}"></span><b>${diaSemana(r.inicio.slice(0, 10))} · ${r.inicio.slice(11, 16).replace(':', 'h')}</b><span>${esc(r.titulo)} · ${esc(r.ministerio)}</span></a></li>`).join('')}</ul>`
+    : '<p class="muted" style="margin:0;padding:4px 18px 16px">Nenhuma reunião marcada para você.</p>';
+  conteudo.innerHTML = `${ola}<div id="novidade-slot"></div>${destaque}
+    <div class="grade-2">
+      <section class="painel"><div class="painel-topo"><h2>Suas escalas</h2><a class="link-btn small" href="#/escalas">Ver escalas</a></div>${escalas}</section>
+      <section class="painel"><div class="painel-topo"><h2>Próximas reuniões</h2><a class="link-btn small" href="#/agenda">Ver agenda</a></div>${agendaHtml}</section>
+    </div>
+    <p class="hint" style="margin-top:16px">Tem uma ideia para o site? Mande em <a href="#/sugestoes">Sugestões</a>. Os arquivos dos ministérios ficam em <a href="#/documentos">Documentos</a>.</p>`;
+  pintarNovidade();
 }

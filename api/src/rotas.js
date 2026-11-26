@@ -2107,7 +2107,7 @@ rota('GET', '/painel', async ({ usuario }) => {
   const verPresenca = pode(usuario, 'relatorios.ver') || pode(usuario, 'presenca.marcar');
   const verPastoral = pode(usuario, 'pastoral.ver');
   // Tudo ao mesmo tempo: o banco fica longe, e cada espera em fila custa uma ida
-  const [[pessoas, encontros, casos, meus], alertas, semContato] = await Promise.all([query(`
+  const [[pessoas, encontros, casos, meus, [espera]], alertas, semContato] = await Promise.all([query(`
     WITH ult8 AS (SELECT TOP 8 e.id FROM dbo.encontros e
                    WHERE EXISTS (SELECT 1 FROM dbo.presencas x WHERE x.encontro_id = e.id AND x.presente = 1) ORDER BY e.data DESC),
          pres AS (SELECT pr.pessoa_id, MAX(e.data) AS ultima, MIN(e.data) AS primeira, SUM(CASE WHEN u.id IS NULL THEN 0 ELSE 1 END) AS v8
@@ -2119,17 +2119,24 @@ rota('GET', '/painel', async ({ usuario }) => {
      WHERE p.cd_status = 1 AND @vp = 1;
     SELECT TOP 12 encontro_id AS id, data, tema, presentes AS total, membros_presentes AS membros, visitantes_presentes AS visitantes
       FROM dbo.vw_resumo_encontros WHERE @ve = 1 AND presentes > 0 ORDER BY data DESC;
-    SELECT COUNT(*) AS abertos FROM dbo.pastoral_casos WHERE area = 'pastoral' AND status <> 'concluido' AND @vc = 1 AND (@ptodos = 1 OR responsavel_pessoa_id = @eu);
+    SELECT COUNT(*) AS abertos FROM dbo.pastoral_casos WHERE area = 'pastoral' AND status <> 'concluido' AND responsavel_pessoa_id IS NOT NULL AND @vc = 1 AND (@ptodos = 1 OR responsavel_pessoa_id = @eu);
     SELECT ${SQL_CASO} ${SQL_CASO_FROM}
      WHERE c.responsavel_pessoa_id = @eu AND c.status <> 'concluido' AND p.cd_status = 1
        AND ((c.area = 'pastoral' AND @vc = 1) OR (c.area = 'integracao' AND @vi = 1))
-     ORDER BY c.dt_abertura DESC;`,
+     ORDER BY c.dt_abertura DESC;
+    -- Abertos sem responsável (contam junto na lista de espera, igual ao número do menu)
+    SELECT (SELECT COUNT(*) FROM dbo.pastoral_casos c JOIN dbo.pessoas p ON p.id = c.pessoa_id
+             WHERE c.area = 'pastoral' AND c.status <> 'concluido' AND c.responsavel_pessoa_id IS NULL AND p.cd_status = 1 AND @vc = 1
+               AND ${SQL_HYPES_SEM_VIR('p.id')} >= 2 AND NOT ${SQL_DISPENSADO('p.id')}) AS pastoral,
+           (SELECT COUNT(*) FROM dbo.pastoral_casos c JOIN dbo.pessoas p ON p.id = c.pessoa_id
+             WHERE c.area = 'integracao' AND c.status <> 'concluido' AND c.responsavel_pessoa_id IS NULL AND p.cd_status = 1 AND @vi = 1) AS integracao;`,
   { vp: verPessoas ? 1 : 0, ve: verPresenca ? 1 : 0, vc: verPastoral ? 1 : 0, vi: pode(usuario, 'integracao.ver') ? 1 : 0,
     ptodos: veTodos(usuario, 'pastoral') ? 1 : 0, eu: euPessoa(usuario) }, { todos: true }),
   verPastoral && designa(usuario, 'pastoral') ? calcularAlertas() : null,
   pode(usuario, 'integracao.ver') && designa(usuario, 'integracao') ? visitantesSemContato() : null]);
   return {
-    integracao: semContato ? semContato.length : null,
+    integracao: semContato ? semContato.length + (espera?.integracao || 0) : null,
+    esperaPastoral: alertas ? alertas.length + (espera?.pastoral || 0) : null,
     pessoas: verPessoas ? pessoas : null,
     encontros: verPresenca ? encontros : null,
     casosAbertos: verPastoral ? casos[0].abertos : null,
